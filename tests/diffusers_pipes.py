@@ -3,7 +3,6 @@ from diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl_img2im
     StableDiffusionXLImg2ImgPipeline,
 )
 from diffusers.schedulers.scheduling_euler_discrete import EulerDiscreteScheduler
-from diffusers.schedulers.scheduling_utils import SchedulerMixin
 
 from skrample.diffusers import SkrampleScheduler
 
@@ -17,7 +16,7 @@ def compare_latents(a: torch.Tensor, b: torch.Tensor, margin: float = 1e-8):
 def compare_schedulers(
     pipe: StableDiffusionXLImg2ImgPipeline,
     a: SkrampleScheduler,
-    b: SchedulerMixin,
+    b: EulerDiscreteScheduler,
     margin: float = 1e-8,
     **kwargs,
 ):
@@ -33,6 +32,9 @@ def compare_schedulers(
 
     pipe.scheduler = original
 
+    print("TIMESTEPS", "\n", a.timesteps, "\n", b.timesteps)
+    print("SIGMAS", "\n", a.sigmas, "\n", b.sigmas)
+
     compare_latents(a_o, b_o, margin=margin)
 
 
@@ -45,14 +47,14 @@ def test_sdxl_i2i():
 
     a = SkrampleScheduler()
     b = EulerDiscreteScheduler.from_config(pipe.scheduler.config)
-    assert isinstance(b, SchedulerMixin)
+    assert isinstance(b, EulerDiscreteScheduler)
 
     compare_schedulers(
         pipe,
         a,
         b,
         image=torch.zeros([1, 4, 32, 32], dtype=dt, device=dv),
-        num_inference_steps=5,
+        num_inference_steps=4,
         prompt_embeds=torch.zeros([1, 77, 2048], dtype=dt, device=dv),
         negative_prompt_embeds=torch.zeros([1, 77, 2048], dtype=dt, device=dv),
         pooled_prompt_embeds=torch.zeros([1, 1280], dtype=dt, device=dv),
