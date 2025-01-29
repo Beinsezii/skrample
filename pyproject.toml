@@ -23,7 +23,7 @@ packages = ["skrample"]
 dev = [
     "accelerate>=1.3",
     "diffusers>=0.32",
-    "transformeres>=4.48",
+    "transformers>=4.48",
     "pytest>=8.3",
 ]
 

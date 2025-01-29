@@ -23,11 +23,11 @@ def compare_schedulers(
     original = pipe.scheduler
 
     pipe.scheduler = a
-    a_o = pipe(output_type="latent", return_dict=False, **kwargs)[0]
+    a_o = pipe(output_type="latent", return_dict=False, generator=torch.Generator("cpu").manual_seed(0), **kwargs)[0]
     assert isinstance(a_o, torch.Tensor)
 
     pipe.scheduler = b
-    b_o = pipe(output_type="latent", return_dict=False, **kwargs)[0]
+    b_o = pipe(output_type="latent", return_dict=False, generator=torch.Generator("cpu").manual_seed(0), **kwargs)[0]
     assert isinstance(b_o, torch.Tensor)
 
     pipe.scheduler = original
@@ -54,7 +54,7 @@ def test_sdxl_i2i():
         a,
         b,
         image=torch.zeros([1, 4, 32, 32], dtype=dt, device=dv),
-        num_inference_steps=4,
+        num_inference_steps=8,
         prompt_embeds=torch.zeros([1, 77, 2048], dtype=dt, device=dv),
         negative_prompt_embeds=torch.zeros([1, 77, 2048], dtype=dt, device=dv),
         pooled_prompt_embeds=torch.zeros([1, 1280], dtype=dt, device=dv),
