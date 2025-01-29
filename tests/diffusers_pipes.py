@@ -2,14 +2,17 @@ import torch
 from diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl_img2img import (
     StableDiffusionXLImg2ImgPipeline,
 )
-from diffusers.schedulers import SchedulerMixin
 from diffusers.schedulers.scheduling_euler_discrete import EulerDiscreteScheduler
+from diffusers.schedulers.scheduling_utils import SchedulerMixin
 
 from skrample.diffusers import SkrampleScheduler
 
 
 def compare_latents(a: torch.Tensor, b: torch.Tensor, margin: float = 1e-8):
-    assert (a-b).abs().square().mean().item() < margin
+    assert a.isfinite().all()
+    assert b.isfinite().all()
+    assert (a - b).abs().square().mean().item() < margin
+
 
 def compare_schedulers(
     pipe: StableDiffusionXLImg2ImgPipeline,
@@ -20,15 +23,13 @@ def compare_schedulers(
 ):
     original = pipe.scheduler
 
-    # pipe.scheduler = a
-    # a_o = pipe(output_type="latent", return_dict=False, **kwargs)[0]
-    # assert isinstance(a_o, torch.Tensor)
+    pipe.scheduler = a
+    a_o = pipe(output_type="latent", return_dict=False, **kwargs)[0]
+    assert isinstance(a_o, torch.Tensor)
 
     pipe.scheduler = b
     b_o = pipe(output_type="latent", return_dict=False, **kwargs)[0]
     assert isinstance(b_o, torch.Tensor)
-
-    a_o = torch.randn_like(b_o)
 
     pipe.scheduler = original
 
