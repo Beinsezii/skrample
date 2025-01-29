@@ -1,0 +1,1 @@
+from diffusers.schedulers.scheduling_euler_discrete import EulerDiscreteScheduler
