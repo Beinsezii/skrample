@@ -3,14 +3,9 @@ name = "skrample"
 version = "0.1.0"
 description = "get skrampled"
 readme = "README.md"
-authors = [
-    { name = "Beinsezii", email = "beinsezii@gmail.com" }
-]
+authors = [{ name = "Beinsezii", email = "beinsezii@gmail.com" }]
 requires-python = ">=3.11"
-dependencies = [
-    "numpy>=2.0",
-    "torch>=2.4",
-]
+dependencies = ["numpy>=2.0", "torch>=2.4"]
 
 [build-system]
 requires = ["hatchling"]
@@ -19,12 +14,14 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["skrample"]
 
-[dependency-groups]
+[project.optional-dependencies]
 dev = [
     "accelerate>=1.3",
     "diffusers>=0.32",
-    "transformers>=4.48",
+    "protobuf>=5.29",
     "pytest>=8.3",
+    "sentencepiece>=0.2",
+    "transformers>=4.48",
 ]
 
 [tool.ruff]
