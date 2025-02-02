@@ -5,6 +5,8 @@ import numpy as np
 import torch
 from torch import Tensor
 
+from skrample.scheduling import FlowSchedule
+
 
 class SkrampleScheduler:
     _timesteps: Tensor = torch.empty([0], dtype=torch.float64)
@@ -69,18 +71,12 @@ class SkrampleScheduler:
         beta_start = 0.00085
         beta_end = 0.012
 
-        shift = 3.0  # Flux
-
         if self.flow:
-            sigmas = torch.linspace(1, 0, num_inference_steps + 1, dtype=torch.float32)[:-1]
-
-            if mu is not None:  # dynamic
-                sigmas = self.time_shift(mu, 1.0, sigmas)
-            else:  # non-dynamic
-                sigmas = shift * sigmas / (1 + (shift - 1) * sigmas)
-
-            new_timesteps = (sigmas * num_train_timesteps).numpy()
-            sigmas = torch.cat([sigmas, torch.zeros(1, device=sigmas.device)])
+            schedule = FlowSchedule(shift=3)
+            sigmas = torch.cat(
+                [torch.from_numpy(schedule.sigmas(num_inference_steps, mu)), torch.zeros([1], dtype=torch.float32)]
+            )
+            new_timesteps = schedule.timesteps(num_inference_steps, mu)
 
         else:
             ratio = num_train_timesteps / num_inference_steps
