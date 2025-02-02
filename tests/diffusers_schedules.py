@@ -4,7 +4,7 @@ import torch
 from diffusers.schedulers.scheduling_euler_discrete import EulerDiscreteScheduler
 from huggingface_hub import hf_hub_download
 
-from skrample.scheduling import ScaledSchedule, SkrampleSchedule
+from skrample.scheduling import Scaled, SkrampleSchedule
 from tests.common import compare_tensors
 
 
@@ -30,7 +30,7 @@ def compare_schedules(
 
 def test_scaled():
     compare_schedules(
-        ScaledSchedule(uniform=False),
+        Scaled(uniform=False),
         EulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
             hf_scheduler_config("stabilityai/stable-diffusion-xl-base-1.0"),
         ),
@@ -39,7 +39,7 @@ def test_scaled():
 
 def test_scaled_uniform():
     compare_schedules(
-        ScaledSchedule(),
+        Scaled(),
         EulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
             hf_scheduler_config("stabilityai/stable-diffusion-xl-base-1.0"),
             timestep_spacing="trailing",

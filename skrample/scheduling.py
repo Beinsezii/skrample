@@ -26,7 +26,7 @@ class SkrampleSchedule(ABC):
 
 
 @dataclass
-class ScaledSchedule(SkrampleSchedule):
+class Scaled(SkrampleSchedule):
     # keep diffusers names for now
     beta_start: float = 0.00085
     beta_end: float = 0.012
@@ -52,7 +52,7 @@ class ScaledSchedule(SkrampleSchedule):
 
 
 @dataclass
-class FlowSchedule(SkrampleSchedule):
+class Flow(SkrampleSchedule):
     # keep diffusers names for now
     base_image_seq_len: int = 256
     max_image_seq_len: float = 4096
