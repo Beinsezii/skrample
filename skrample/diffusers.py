@@ -1,11 +1,10 @@
 import collections
 import math
 
-import numpy as np
 import torch
 from torch import Tensor
 
-from skrample.scheduling import FlowSchedule
+from skrample.scheduling import FlowSchedule, ScaledSchedule
 
 
 class SkrampleScheduler:
@@ -66,11 +65,6 @@ class SkrampleScheduler:
         if device is not None:
             self._device = torch.device(device)
 
-        # config
-        num_train_timesteps = 1000
-        beta_start = 0.00085
-        beta_end = 0.012
-
         if self.flow:
             schedule = FlowSchedule(shift=3)
             sigmas = torch.cat(
@@ -79,26 +73,11 @@ class SkrampleScheduler:
             new_timesteps = schedule.timesteps(num_inference_steps, mu)
 
         else:
-            ratio = num_train_timesteps / num_inference_steps
-
-            # # https://arxiv.org/abs/2305.08891 Table 2
-            # # Linspace
-            # new_timesteps = np.linspace(0, num_train_timesteps - 1, num_inference_steps, dtype=np.float64)[::-1].copy()
-            # # Leading
-            new_timesteps = (np.arange(0, num_inference_steps) * ratio).round()[::-1].copy()
-            # # Trailing
-            # new_timesteps = np.arange(num_train_timesteps, 0, -ratio).round().copy() - 1
-
-            # Step offset for SD
-            new_timesteps += 1
-
-            # Default scaled sigma schedule
-            betas = torch.linspace(beta_start**0.5, beta_end**0.5, num_train_timesteps, dtype=torch.float64) ** 2
-            alphas = 1 - betas
-            alphas_cumprod = torch.cumprod(alphas, dim=0)
-            sigmas = ((1 - alphas_cumprod) / alphas_cumprod) ** 0.5
-            sigmas_np = np.interp(new_timesteps, np.arange(0, len(sigmas)), sigmas.numpy())
-            sigmas = torch.cat([torch.from_numpy(sigmas_np), torch.zeros(1, device=sigmas.device)])
+            schedule = ScaledSchedule()
+            sigmas = torch.cat(
+                [torch.from_numpy(schedule.sigmas(num_inference_steps, mu)), torch.zeros([1], dtype=torch.float32)]
+            )
+            new_timesteps = schedule.timesteps(num_inference_steps, mu)
 
         self._sigmas = sigmas
         self._timesteps = torch.from_numpy(new_timesteps)
