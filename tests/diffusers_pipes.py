@@ -10,12 +10,7 @@ from diffusers.schedulers.scheduling_flow_match_euler_discrete import FlowMatchE
 
 from skrample.diffusers import SkrampleScheduler
 from skrample.scheduling import FlowSchedule, ScaledSchedule
-
-
-def compare_latents(a: torch.Tensor, b: torch.Tensor, margin: float = 1e-8):
-    assert a.isfinite().all()
-    assert b.isfinite().all()
-    assert (a - b).abs().square().mean().item() < margin
+from tests.common import compare_tensors
 
 
 def compare_schedulers(
@@ -40,7 +35,7 @@ def compare_schedulers(
     print("TIMESTEPS", "\n", a.timesteps, "\n", b.timesteps)
     print("SIGMAS", "\n", a.sigmas, "\n", b.sigmas)
 
-    compare_latents(a_o, b_o, margin=margin)
+    compare_tensors(a_o, b_o, margin=margin)
 
 
 @torch.inference_mode()
@@ -51,7 +46,7 @@ def test_sdxl_i2i():
     pipe.enable_model_cpu_offload(device=dv)
     assert isinstance(pipe, StableDiffusionXLImg2ImgPipeline)
 
-    a = SkrampleScheduler(ScaledSchedule())
+    a = SkrampleScheduler(ScaledSchedule(uniform=False))
     b = EulerDiscreteScheduler.from_config(pipe.scheduler.config)
     assert isinstance(b, EulerDiscreteScheduler)
 
