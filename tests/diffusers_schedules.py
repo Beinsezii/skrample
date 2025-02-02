@@ -1,18 +1,8 @@
-import json
-
 import torch
 from diffusers.schedulers.scheduling_euler_discrete import EulerDiscreteScheduler
-from huggingface_hub import hf_hub_download
 
 from skrample.scheduling import Scaled, SkrampleSchedule
-from tests.common import compare_tensors
-
-
-def hf_scheduler_config(
-    hf_repo: str, filename: str = "scheduler_config.json", subfolder: str | None = "scheduler"
-) -> dict:
-    with open(hf_hub_download(hf_repo, filename, subfolder=subfolder), mode="r") as jfile:
-        return json.load(jfile)
+from tests.common import compare_tensors, hf_scheduler_config
 
 
 def compare_schedules(
