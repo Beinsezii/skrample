@@ -51,7 +51,7 @@ class SkrampleWrapperScheduler:
     def config(self):
         # Since we use diffusers names this will just work™
         # Eventually when we use prettier names this will need a LUT
-        fake_config = dataclasses.asdict(self.schedule)
+        fake_config = dataclasses.asdict(self.sampler) | dataclasses.asdict(self.schedule)
         return collections.namedtuple("FrozenDict", field_names=fake_config.keys())(**fake_config)
 
     def time_shift(self, mu: float, sigma: float, t: Tensor):
@@ -87,7 +87,6 @@ class SkrampleWrapperScheduler:
 
     def add_noise(self, original_samples: Tensor, noise: Tensor, timesteps: Tensor) -> Tensor:
         return self.scale_noise(original_samples, timesteps[0], noise)
-
 
     def scale_model_input(self, sample: Tensor, timestep: float | Tensor) -> Tensor:
         schedule = self.schedule_np
