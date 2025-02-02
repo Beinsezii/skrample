@@ -4,7 +4,7 @@ import torch
 from diffusers.schedulers.scheduling_euler_discrete import EulerDiscreteScheduler
 from huggingface_hub import hf_hub_download
 
-from skrample.scheduling import ScaledSchedule, ScheduleTrait
+from skrample.scheduling import ScaledSchedule, SkrampleSchedule
 from tests.common import compare_tensors
 
 
@@ -16,7 +16,7 @@ def hf_scheduler_config(
 
 
 def compare_schedules(
-    a: ScheduleTrait,
+    a: SkrampleSchedule,
     b: EulerDiscreteScheduler,
     ts_margin: float = 1.0,
     sig_margin: float = 1e-3,

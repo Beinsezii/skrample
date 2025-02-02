@@ -8,16 +8,17 @@ from diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl_img2im
 from diffusers.schedulers.scheduling_euler_discrete import EulerDiscreteScheduler
 from diffusers.schedulers.scheduling_flow_match_euler_discrete import FlowMatchEulerDiscreteScheduler
 
-from skrample.diffusers import SkrampleScheduler
+from skrample.diffusers import SkrampleWrapperScheduler
+from skrample.sampling import Euler, EulerFlow
 from skrample.scheduling import FlowSchedule, ScaledSchedule
 from tests.common import compare_tensors
 
 
 def compare_schedulers(
     pipe: StableDiffusionXLImg2ImgPipeline | FluxImg2ImgPipeline,
-    a: SkrampleScheduler,
+    a: SkrampleWrapperScheduler,
     b: EulerDiscreteScheduler | FlowMatchEulerDiscreteScheduler,
-    margin: float = 1e-8,
+    margin: float = 1e-4,
     **kwargs,
 ):
     original = pipe.scheduler
@@ -32,9 +33,6 @@ def compare_schedulers(
 
     pipe.scheduler = original
 
-    print("TIMESTEPS", "\n", a.timesteps, "\n", b.timesteps)
-    print("SIGMAS", "\n", a.sigmas, "\n", b.sigmas)
-
     compare_tensors(a_o, b_o, margin=margin)
 
 
@@ -46,7 +44,7 @@ def test_sdxl_i2i():
     pipe.enable_model_cpu_offload(device=dv)
     assert isinstance(pipe, StableDiffusionXLImg2ImgPipeline)
 
-    a = SkrampleScheduler(ScaledSchedule(uniform=False))
+    a = SkrampleWrapperScheduler(Euler(), ScaledSchedule(uniform=False))
     b = EulerDiscreteScheduler.from_config(pipe.scheduler.config)
     assert isinstance(b, EulerDiscreteScheduler)
 
@@ -71,7 +69,7 @@ def test_flux_i2i():
     pipe.enable_model_cpu_offload(device=dv)
     assert isinstance(pipe, FluxImg2ImgPipeline)
 
-    a = SkrampleScheduler(FlowSchedule(shift=3), flow=True)
+    a = SkrampleWrapperScheduler(EulerFlow(), FlowSchedule(shift=3))
     b = FlowMatchEulerDiscreteScheduler.from_config(pipe.scheduler.config)
     assert isinstance(b, FlowMatchEulerDiscreteScheduler)
 

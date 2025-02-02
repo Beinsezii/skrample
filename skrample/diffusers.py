@@ -7,20 +7,21 @@ import torch
 from numpy.typing import NDArray
 from torch import Tensor
 
-from skrample.scheduling import ScheduleTrait
+from skrample.sampling import SkrampleSampler
+from skrample.scheduling import SkrampleSchedule
 
 
-class SkrampleScheduler:
-    schedule: ScheduleTrait
-    flow: bool  # Hack for before we split
+class SkrampleWrapperScheduler:
+    sampler: SkrampleSampler
+    schedule: SkrampleSchedule
 
     _steps: int
     _mu: float | None = None
     _device: torch.device = torch.device("cpu")
 
-    def __init__(self, schedule: ScheduleTrait, flow: bool = False):
+    def __init__(self, sampler: SkrampleSampler, schedule: SkrampleSchedule):
+        self.sampler = sampler
         self.schedule = schedule
-        self.flow = flow
 
         self._steps = schedule.num_train_timesteps
 
@@ -78,26 +79,21 @@ class SkrampleScheduler:
         if device is not None:
             self._device = torch.device(device)
 
-    # Non-Flow
-    def add_noise(self, original_samples: Tensor, noise: Tensor, timesteps: Tensor) -> Tensor:
-        schedule = self.schedule_np
-        step = schedule[:, 0].tolist().index(timesteps[0].item())
-        sigma = schedule[step, 1]
-        return original_samples + noise * sigma
-
-    # FlowMatch
     def scale_noise(self, sample: Tensor, timestep: Tensor, noise: Tensor) -> Tensor:
         schedule = self.schedule_np
         step = schedule[:, 0].tolist().index(timestep.item())
-        sigma = schedule[step, 1]
-        return sigma * noise + (1.0 - sigma) * sample
+        sigma = schedule[step, 1].item()
+        return self.sampler.merge_noise(sample, noise, sigma)
 
-    # Only called on FlowMatch afaik
+    def add_noise(self, original_samples: Tensor, noise: Tensor, timesteps: Tensor) -> Tensor:
+        return self.scale_noise(original_samples, timesteps[0], noise)
+
+
     def scale_model_input(self, sample: Tensor, timestep: float | Tensor) -> Tensor:
         schedule = self.schedule_np
         step = schedule[:, 0].tolist().index(timestep if isinstance(timestep, (int | float)) else timestep.item())
-        sigma = schedule[step, 1]
-        return sample / ((sigma**2 + 1) ** 0.5)
+        sigma = schedule[step, 1].item()
+        return self.sampler.scale_input(sample, sigma)
 
     def step(
         self,
@@ -110,34 +106,11 @@ class SkrampleScheduler:
         s_noise: float = 1.0,
         generator: torch.Generator | None = None,
         return_dict: bool = True,
-    ) -> tuple[Tensor, Tensor]:
+    ) -> tuple[Tensor]:  # What actually needs the unsampled pred?
         schedule = self.schedule_np
         step = schedule[:, 0].tolist().index(timestep if isinstance(timestep, (int, float)) else timestep.item())
-
-        sigma = schedule[step, 1]
-        sigma_next = 0 if step + 1 >= len(schedule) else schedule[step + 1, 1]
-
-        if self.flow:
-            # Euler Flow
-            prev_sample = sample.to(torch.float32) + (sigma_next - sigma) * model_output.to(torch.float32)
-            pred_original_sample = sample.clone().to(torch.float32)
-        else:
-            # # Sample
-            # pred_original_sample = model_output
-            # Epsilon
-            pred_original_sample = sample.to(torch.float32) - sigma * model_output.to(torch.float32)
-            # # denoised = model_output * c_out + input * c_skip
-            # # Velocity
-            # pred_original_sample = model_output * (-sigma / (sigma**2 + 1) ** 0.5) + (sample / (sigma**2 + 1))
-
-            # Euler
-            derivative = (sample - pred_original_sample) / sigma
-            prev_sample = sample + derivative * (sigma_next - sigma)
 
         if return_dict:
             raise ValueError
         else:
-            return (
-                prev_sample.to(model_output.dtype),
-                pred_original_sample.to(model_output.dtype),
-            )
+            return (self.sampler.sample(sample=sample, output=model_output, schedule=schedule, step=step),)
