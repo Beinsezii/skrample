@@ -85,23 +85,23 @@ class EulerFlow(SkrampleSampler):
 
 @dataclass
 class DPM(SkrampleSampler):
+    "https://arxiv.org/abs/2211.01095"
+
     def sample(self, sample: Tensor, output: Tensor, schedule: NDArray, step: int) -> Tensor:
         sigma = self.get_sigma(step, schedule)
         sigma_n1 = self.get_sigma(step + 1, schedule)
 
-        sigma_t, sigma_s = sigma_n1, sigma
-        sigma_s, alpha_s = sigma_normal(sigma_s)
-        sigma_t, alpha_t = sigma_normal(sigma_t)
-
-        prediction = self.predictor(sample, output, sigma)
+        signorm, alpha = sigma_normal(sigma)
+        signorm_n1, alpha_n1 = sigma_normal(sigma_n1)
 
         if sigma_n1 == 0:
             h = float("inf")
         else:
-            lambda_t = math.log(alpha_t) - math.log(sigma_t)
-            lambda_s = math.log(alpha_s) - math.log(sigma_s)
-            h = lambda_t - lambda_s
+            lambda_n1 = math.log(alpha_n1) - math.log(signorm_n1)
+            lambda_ = math.log(alpha) - math.log(signorm)
+            h = lambda_n1 - lambda_
 
+        prediction = self.predictor(sample, output, sigma)
         # 1st order non-sde
-        prediction = (sigma_t / sigma_s) * sample - (alpha_t * (math.exp(-h) - 1.0)) * prediction
+        prediction = (signorm_n1 / signorm) * sample - (alpha_n1 * (math.exp(-h) - 1.0)) * prediction
         return prediction
