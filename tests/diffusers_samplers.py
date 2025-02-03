@@ -1,8 +1,9 @@
 import torch
+from diffusers.schedulers.scheduling_dpmsolver_multistep import DPMSolverMultistepScheduler
 from diffusers.schedulers.scheduling_euler_discrete import EulerDiscreteScheduler
 from diffusers.schedulers.scheduling_flow_match_euler_discrete import FlowMatchEulerDiscreteScheduler
 
-from skrample.sampling import VELOCITY, Euler, EulerFlow, SkrampleSampler
+from skrample.sampling import DPM, EPSILON, FLOW, VELOCITY, Euler, EulerFlow, SkrampleSampler
 from tests.common import compare_tensors, hf_scheduler_config
 
 
@@ -63,22 +64,14 @@ def compare_samplers(
 
 
 def test_euler():
-    compare_samplers(
-        Euler(),
-        EulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
-            hf_scheduler_config("stabilityai/stable-diffusion-xl-base-1.0")
-        ),
-    )
-
-
-def test_euler_velocity():
-    compare_samplers(
-        Euler(predictor=VELOCITY),
-        EulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
-            hf_scheduler_config("stabilityai/stable-diffusion-xl-base-1.0"),
-            prediction_type="v_prediction",
-        ),
-    )
+    for predictor in [(EPSILON, "epsilon"), (VELOCITY, "v_prediction")]:
+        compare_samplers(
+            Euler(predictor=predictor[0]),
+            EulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
+                hf_scheduler_config("stabilityai/stable-diffusion-xl-base-1.0"),
+                prediction_type=predictor[1],
+            ),
+        )
 
 
 def test_euler_flow():
@@ -89,3 +82,17 @@ def test_euler_flow():
         ),
         mu=0.7,
     )
+
+
+def test_dpm():
+    for predictor in [(EPSILON, "epsilon"), (VELOCITY, "v_prediction"), (FLOW, "flow_prediction")]:
+        compare_samplers(
+            DPM(predictor=predictor[0]),
+            DPMSolverMultistepScheduler.from_config(  # type: ignore  # Diffusers return BS
+                hf_scheduler_config("stabilityai/stable-diffusion-xl-base-1.0"),
+                algorithm_type="dpmsolver++",
+                final_sigmas_type="zero",
+                solver_order=1,
+                prediction_type=predictor[1],
+            ),
+        )
