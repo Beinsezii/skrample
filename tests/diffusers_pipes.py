@@ -33,7 +33,34 @@ def compare_schedulers(
 
     pipe.scheduler = original
 
-    compare_tensors(a_o, b_o, margin=margin)
+    mid = len(a.timesteps) // 2
+    compare_tensors(
+        a_o,
+        b_o,
+        "\n"
+        + " ".join(
+            [
+                f"AT0 {a.timesteps[0].item():.3f}",
+                f"ATM {a.timesteps[mid].item():.3f}",
+                f"ATP {a.timesteps[-1].item():.3f}",
+                f"AS0 {a.sigmas[0].item():.3f}",
+                f"ASM {a.sigmas[mid].item():.3f}",
+                f"ASP {a.sigmas[-2].item():.3f}",
+            ]
+        )
+        + "\n"
+        + " ".join(
+            [
+                f"BT0 {b.timesteps[0].item():.3f}",
+                f"BTM {b.timesteps[mid].item():.3f}",
+                f"BTP {b.timesteps[-1].item():.3f}",
+                f"BS0 {b.sigmas[0].item():.3f}",  # type: ignore  # Float
+                f"BSM {b.sigmas[mid].item():.3f}",  # type: ignore  # Float
+                f"BSP {b.sigmas[-2].item():.3f}",  # type: ignore  # Float
+            ]
+        ),
+        margin=margin,
+    )
 
 
 @torch.inference_mode()

@@ -15,7 +15,9 @@ def compare_schedules(
 ):
     for steps in range(1, 12):
         if isinstance(b, FlowMatchEulerDiscreteScheduler):
-            b.set_timesteps(num_inference_steps=steps, mu=mu)
+            # b.set_timesteps(num_inference_steps=steps, mu=mu)
+            # # flux pipe hardcodes sigmas to this...
+            b.set_timesteps(sigmas=torch.linspace(1.0, 1 / steps, steps), mu=mu)
         else:
             b.set_timesteps(num_inference_steps=steps)
 

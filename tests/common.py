@@ -20,4 +20,4 @@ def compare_tensors(
     assert a.isfinite().all(), message
     assert b.isfinite().all(), message
     delta = (a - b).abs().square().mean().item()
-    assert delta <= margin, (message + " : " if message is not None else "") + f"{delta} <= {margin}"
+    assert delta <= margin, f"{delta} <= {margin}" + (" | " + message if message is not None else "")
