@@ -46,7 +46,7 @@ class SkrampleWrapperScheduler:
 
     @property
     def init_noise_sigma(self) -> float:
-        return self.schedule_pt[0, 1].item()
+        return 1
 
     @property
     def order(self) -> int:
