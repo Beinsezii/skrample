@@ -7,7 +7,7 @@ import torch
 from numpy.typing import NDArray
 from torch import Tensor
 
-from skrample.sampling import SKSamples, SkrampleSampler
+from skrample.sampling import SkrampleSampler, SKSamples
 from skrample.scheduling import SkrampleSchedule
 
 
@@ -46,7 +46,8 @@ class SkrampleWrapperScheduler:
 
     @property
     def init_noise_sigma(self) -> float:
-        return 1  # I think Euler might need a workaround
+        # idk why tf diffusers uses this instead of add_noise() for some shit
+        return self.sampler.merge_noise(0, 1, self.schedule_np[0, 1].item())  # type: ignore
 
     @property
     def order(self) -> int:
