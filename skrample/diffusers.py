@@ -7,7 +7,7 @@ import torch
 from numpy.typing import NDArray
 from torch import Tensor
 
-from skrample.sampling import SkrampleSampler
+from skrample.sampling import SKSamples, SkrampleSampler
 from skrample.scheduling import SkrampleSchedule
 
 
@@ -18,6 +18,7 @@ class SkrampleWrapperScheduler:
     _steps: int
     _mu: float | None = None
     _device: torch.device = torch.device("cpu")
+    _previous: list[SKSamples] = []
 
     def __init__(self, sampler: SkrampleSampler, schedule: SkrampleSchedule):
         self.sampler = sampler
@@ -75,6 +76,7 @@ class SkrampleWrapperScheduler:
 
         self._steps = num_inference_steps
         self._mu = mu
+        self._previous = []
 
         if device is not None:
             self._device = torch.device(device)
@@ -105,11 +107,19 @@ class SkrampleWrapperScheduler:
         s_noise: float = 1.0,
         generator: torch.Generator | None = None,
         return_dict: bool = True,
-    ) -> tuple[Tensor]:  # What actually needs the unsampled pred?
+    ) -> tuple[Tensor, Tensor]:
         schedule = self.schedule_np
         step = schedule[:, 0].tolist().index(timestep if isinstance(timestep, (int, float)) else timestep.item())
 
         if return_dict:
             raise ValueError
         else:
-            return (self.sampler.sample(sample=sample, output=model_output, schedule=schedule, step=step),)
+            sampled = self.sampler.sample(
+                sample=sample,
+                output=model_output,
+                schedule=schedule,
+                step=step,
+                previous=self._previous,
+            )
+            self._previous.append(sampled)
+            return (sampled.sampled, sampled.prediction)
