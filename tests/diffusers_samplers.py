@@ -3,7 +3,7 @@ from diffusers.schedulers.scheduling_dpmsolver_multistep import DPMSolverMultist
 from diffusers.schedulers.scheduling_euler_discrete import EulerDiscreteScheduler
 from diffusers.schedulers.scheduling_flow_match_euler_discrete import FlowMatchEulerDiscreteScheduler
 
-from skrample.sampling import DPM, EPSILON, FLOW, VELOCITY, Euler, EulerFlow, SkrampleSampler
+from skrample.sampling import DPM, EPSILON, FLOW, VELOCITY, Euler, EulerFlow, SKSamples, SkrampleSampler
 from tests.common import compare_tensors, hf_scheduler_config
 
 
@@ -34,7 +34,7 @@ def dual_sample(
     else:
         b_sample = b.add_noise(original_samples=b_sample, noise=noise, timesteps=timestep.unsqueeze(0))
 
-    prior_steps: list[torch.Tensor] = []
+    prior_steps: list[SKSamples] = []
     for step in steps:
         # Just some pseud-random transform that shouldn't blow up the values
         model = torch.randn([128, 128], generator=torch.manual_seed(step), dtype=a_sample.dtype)
@@ -42,8 +42,9 @@ def dual_sample(
         timestep, sigma = schedule[step]
 
         a_output = a.scale_input(a_sample, sigma.item()) * model
-        a_sample = a.sample(a_sample, a_output, schedule.numpy(), step, prior_steps)
-        prior_steps.append(a_sample)
+        sampled = a.sample(a_sample, a_output, schedule.numpy(), step, prior_steps)
+        a_sample = sampled.sampled
+        prior_steps.append(sampled)
 
         if isinstance(b, FlowMatchEulerDiscreteScheduler):
             b_output = b_sample * model
