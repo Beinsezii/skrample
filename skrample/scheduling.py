@@ -8,6 +8,7 @@ from numpy.typing import NDArray
 
 @dataclass
 class SkrampleSchedule(ABC):
+    # keep diffusers names for now
     num_train_timesteps: int = 1000
 
     @abstractmethod
@@ -23,7 +24,6 @@ class SkrampleSchedule(ABC):
 
 @dataclass
 class Scaled(SkrampleSchedule):
-    # keep diffusers names for now
     beta_start: float = 0.00085
     beta_end: float = 0.012
 
