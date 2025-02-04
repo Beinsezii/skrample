@@ -54,9 +54,21 @@ class SkrampleWrapperScheduler:
 
     @property
     def config(self):
-        # Since we use diffusers names this will just work™
-        # Eventually when we use prettier names this will need a LUT
-        fake_config = dataclasses.asdict(self.sampler) | dataclasses.asdict(self.schedule)
+        fake_config = (
+            {
+                "base_image_seq_len": 256,
+                "base_shift": 0.5,
+                "max_image_seq_len": 4096,
+                "max_shift": 1.15,
+                "num_train_timesteps": 1000,
+                "shift": 3.0,
+                "use_dynamic_shifting": True,
+            }
+            # Since we use diffusers names this will just work™
+            # Eventually when we use prettier names this will need a LUT
+            | dataclasses.asdict(self.sampler)
+            | dataclasses.asdict(self.schedule)
+        )
         return collections.namedtuple("FrozenDict", field_names=fake_config.keys())(**fake_config)
 
     def time_shift(self, mu: float, sigma: float, t: Tensor):
