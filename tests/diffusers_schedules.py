@@ -1,9 +1,9 @@
 import torch
 from diffusers.schedulers.scheduling_euler_discrete import EulerDiscreteScheduler
 from diffusers.schedulers.scheduling_flow_match_euler_discrete import FlowMatchEulerDiscreteScheduler
+from testing_common import compare_tensors, hf_scheduler_config
 
 from skrample.scheduling import Flow, Scaled, SkrampleSchedule
-from tests.common import compare_tensors, hf_scheduler_config
 
 
 def compare_schedules(

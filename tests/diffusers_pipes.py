@@ -7,11 +7,11 @@ from diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl_img2im
 )
 from diffusers.schedulers.scheduling_euler_discrete import EulerDiscreteScheduler
 from diffusers.schedulers.scheduling_flow_match_euler_discrete import FlowMatchEulerDiscreteScheduler
+from testing_common import compare_tensors
 
 from skrample.diffusers import SkrampleWrapperScheduler
 from skrample.sampling import Euler, EulerFlow
 from skrample.scheduling import Flow, Scaled
-from tests.common import compare_tensors
 
 
 @torch.inference_mode()
