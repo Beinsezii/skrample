@@ -1,10 +1,17 @@
 import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from numpy.typing import NDArray
-from torch import Tensor
+
+if TYPE_CHECKING:
+    from torch import Tensor
+
+    Sample = Tensor
+else:
+    # Avoid pulling all of torch as the code doesn't explicitly depend on it.
+    Sample = NDArray
 
 
 def sigma_normal(sigma: float, subnormal: bool = False) -> tuple[float, float]:
@@ -15,33 +22,33 @@ def sigma_normal(sigma: float, subnormal: bool = False) -> tuple[float, float]:
         return sigma * alpha, alpha
 
 
-def EPSILON(sample: Tensor, output: Tensor, sigma: float) -> Tensor:
+def EPSILON(sample: Sample, output: Sample, sigma: float) -> Sample:
     sigma, alpha = sigma_normal(sigma)
     return (sample - sigma * output) / alpha
 
 
-def SAMPLE(sample: Tensor, output: Tensor, sigma: float) -> Tensor:
+def SAMPLE(sample: Sample, output: Sample, sigma: float) -> Sample:
     return output
 
 
-def VELOCITY(sample: Tensor, output: Tensor, sigma: float) -> Tensor:
+def VELOCITY(sample: Sample, output: Sample, sigma: float) -> Sample:
     sigma, alpha = sigma_normal(sigma)
     return alpha * sample - sigma * output
 
 
-def FLOW(sample: Tensor, output: Tensor, sigma: float) -> Tensor:
+def FLOW(sample: Sample, output: Sample, sigma: float) -> Sample:
     return sample - sigma * output
 
 
 @dataclass(frozen=True)
 class SKSamples:
-    prediction: Tensor
-    sampled: Tensor
+    prediction: Sample
+    sampled: Sample
 
 
 @dataclass
 class SkrampleSampler(ABC):
-    predictor: Callable[[Tensor, Tensor, float], Tensor] = EPSILON
+    predictor: Callable[[Sample, Sample, float], Sample] = EPSILON
 
     @staticmethod
     def get_sigma(step: int, schedule: NDArray) -> float:
@@ -50,18 +57,18 @@ class SkrampleSampler(ABC):
     @abstractmethod
     def sample(
         self,
-        sample: Tensor,
-        output: Tensor,
+        sample: Sample,
+        output: Sample,
         schedule: NDArray,
         step: int,
         previous: list[SKSamples] = [],
     ) -> SKSamples:
         pass
 
-    def scale_input(self, sample: Tensor, sigma: float) -> Tensor:
+    def scale_input(self, sample: Sample, sigma: float) -> Sample:
         return sample
 
-    def merge_noise(self, sample: Tensor, noise: Tensor, sigma: float) -> Tensor:
+    def merge_noise(self, sample: Sample, noise: Sample, sigma: float) -> Sample:
         sigma, alpha = sigma_normal(sigma)
         return sample * alpha + noise * sigma
 
@@ -70,8 +77,8 @@ class SkrampleSampler(ABC):
 class Euler(SkrampleSampler):
     def sample(
         self,
-        sample: Tensor,
-        output: Tensor,
+        sample: Sample,
+        output: Sample,
         schedule: NDArray,
         step: int,
         previous: list[SKSamples] = [],
@@ -86,10 +93,10 @@ class Euler(SkrampleSampler):
             sampled=sample + ((sample - prediction) / sigma) * (sigma_n1 - sigma),
         )
 
-    def scale_input(self, sample: Tensor, sigma: float) -> Tensor:
+    def scale_input(self, sample: Sample, sigma: float) -> Sample:
         return sample / ((sigma**2 + 1) ** 0.5)
 
-    def merge_noise(self, sample: Tensor, noise: Tensor, sigma: float) -> Tensor:
+    def merge_noise(self, sample: Sample, noise: Sample, sigma: float) -> Sample:
         return sample + noise * sigma
 
 
@@ -97,8 +104,8 @@ class Euler(SkrampleSampler):
 class EulerFlow(SkrampleSampler):
     def sample(
         self,
-        sample: Tensor,
-        output: Tensor,
+        sample: Sample,
+        output: Sample,
         schedule: NDArray,
         step: int,
         previous: list[SKSamples] = [],
@@ -108,7 +115,7 @@ class EulerFlow(SkrampleSampler):
 
         return SKSamples(prediction=output, sampled=sample + (sigma_n1 - sigma) * output)
 
-    def merge_noise(self, sample: Tensor, noise: Tensor, sigma: float) -> Tensor:
+    def merge_noise(self, sample: Sample, noise: Sample, sigma: float) -> Sample:
         sigma, alpha = sigma_normal(sigma, subnormal=True)
         return sample * alpha + noise * sigma
 
@@ -123,8 +130,8 @@ class DPM(SkrampleSampler):
 
     def sample(
         self,
-        sample: Tensor,
-        output: Tensor,
+        sample: Sample,
+        output: Sample,
         schedule: NDArray,
         step: int,
         previous: list[SKSamples] = [],
