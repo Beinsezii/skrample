@@ -45,6 +45,10 @@ class SkrampleWrapperScheduler:
         return torch.cat([sigmas, torch.zeros([1], device=sigmas.device, dtype=sigmas.dtype)])
 
     @property
+    def init_noise_sigma(self) -> float:
+        return self.schedule_pt[0, 1].item()
+
+    @property
     def order(self) -> int:
         return getattr(self.sampler, "order", 1)
 
