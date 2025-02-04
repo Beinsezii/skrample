@@ -46,7 +46,7 @@ class SkrampleWrapperScheduler:
 
     @property
     def order(self) -> int:
-        return 1
+        return getattr(self.sampler, "order", 1)
 
     @property
     def config(self):
