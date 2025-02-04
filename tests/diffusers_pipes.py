@@ -14,6 +14,7 @@ from skrample.scheduling import Flow, Scaled
 from tests.common import compare_tensors
 
 
+@torch.inference_mode()
 def compare_schedulers(
     pipe: StableDiffusionXLImg2ImgPipeline | FluxImg2ImgPipeline,
     a: SkrampleWrapperScheduler,
@@ -63,7 +64,6 @@ def compare_schedulers(
     )
 
 
-@torch.inference_mode()
 def test_sdxl_i2i():
     gc.collect()
     dt, dv = torch.float32, torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
@@ -88,7 +88,6 @@ def test_sdxl_i2i():
     )
 
 
-@torch.inference_mode()
 def test_flux_i2i():
     gc.collect()
     dt, dv = torch.float16, torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
