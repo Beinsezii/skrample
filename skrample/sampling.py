@@ -42,7 +42,14 @@ class SkrampleSampler(ABC):
         return schedule[step, 1].item() if step < len(schedule) else 0
 
     @abstractmethod
-    def sample(self, sample: Tensor, output: Tensor, schedule: NDArray, step: int) -> Tensor:
+    def sample(
+        self,
+        sample: Tensor,
+        output: Tensor,
+        schedule: NDArray,
+        step: int,
+        previous: list[Tensor] = [],
+    ) -> Tensor:
         pass
 
     def scale_input(self, sample: Tensor, sigma: float) -> Tensor:
@@ -55,7 +62,14 @@ class SkrampleSampler(ABC):
 
 @dataclass
 class Euler(SkrampleSampler):
-    def sample(self, sample: Tensor, output: Tensor, schedule: NDArray, step: int) -> Tensor:
+    def sample(
+        self,
+        sample: Tensor,
+        output: Tensor,
+        schedule: NDArray,
+        step: int,
+        previous: list[Tensor] = [],
+    ) -> Tensor:
         sigma = self.get_sigma(step, schedule)
         sigma_n1 = self.get_sigma(step + 1, schedule)
 
@@ -72,7 +86,14 @@ class Euler(SkrampleSampler):
 
 @dataclass
 class EulerFlow(SkrampleSampler):
-    def sample(self, sample: Tensor, output: Tensor, schedule: NDArray, step: int) -> Tensor:
+    def sample(
+        self,
+        sample: Tensor,
+        output: Tensor,
+        schedule: NDArray,
+        step: int,
+        previous: list[Tensor] = [],
+    ) -> Tensor:
         sigma = self.get_sigma(step, schedule)
         sigma_n1 = self.get_sigma(step + 1, schedule)
 
@@ -87,7 +108,16 @@ class EulerFlow(SkrampleSampler):
 class DPM(SkrampleSampler):
     "https://arxiv.org/abs/2211.01095"
 
-    def sample(self, sample: Tensor, output: Tensor, schedule: NDArray, step: int) -> Tensor:
+    order: int = 1
+
+    def sample(
+        self,
+        sample: Tensor,
+        output: Tensor,
+        schedule: NDArray,
+        step: int,
+        previous: list[Tensor] = [],
+    ) -> Tensor:
         sigma = self.get_sigma(step, schedule)
         sigma_n1 = self.get_sigma(step + 1, schedule)
 

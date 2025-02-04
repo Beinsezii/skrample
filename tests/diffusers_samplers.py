@@ -34,6 +34,7 @@ def dual_sample(
     else:
         b_sample = b.add_noise(original_samples=b_sample, noise=noise, timesteps=timestep.unsqueeze(0))
 
+    prior_steps: list[torch.Tensor] = []
     for step in steps:
         # Just some pseud-random transform that shouldn't blow up the values
         model = torch.randn([128, 128], generator=torch.manual_seed(step), dtype=a_sample.dtype)
@@ -41,7 +42,8 @@ def dual_sample(
         timestep, sigma = schedule[step]
 
         a_output = a.scale_input(a_sample, sigma.item()) * model
-        a_sample = a.sample(a_sample, a_output, schedule.numpy(), step)
+        a_sample = a.sample(a_sample, a_output, schedule.numpy(), step, prior_steps)
+        prior_steps.append(a_sample)
 
         if isinstance(b, FlowMatchEulerDiscreteScheduler):
             b_output = b_sample * model
@@ -58,9 +60,14 @@ def compare_samplers(
     b: EulerDiscreteScheduler,
     mu: float | None = None,
     margin: float = 1e-4,
+    message: str = "",
 ):
     for step_range in [range(0, 11), range(7, 16), range(2, 22)]:
-        compare_tensors(*dual_sample(a, b, step_range, mu), message=str(step_range), margin=margin)
+        compare_tensors(
+            *dual_sample(a, b, step_range, mu),
+            message=str(step_range) + (" | " + message if message else ""),
+            margin=margin,
+        )
 
 
 def test_euler():
@@ -71,6 +78,7 @@ def test_euler():
                 hf_scheduler_config("stabilityai/stable-diffusion-xl-base-1.0"),
                 prediction_type=predictor[1],
             ),
+            message=predictor[0].__name__,
         )
 
 
@@ -86,13 +94,15 @@ def test_euler_flow():
 
 def test_dpm():
     for predictor in [(EPSILON, "epsilon"), (VELOCITY, "v_prediction"), (FLOW, "flow_prediction")]:
-        compare_samplers(
-            DPM(predictor=predictor[0]),
-            DPMSolverMultistepScheduler.from_config(  # type: ignore  # Diffusers return BS
-                hf_scheduler_config("stabilityai/stable-diffusion-xl-base-1.0"),
-                algorithm_type="dpmsolver++",
-                final_sigmas_type="zero",
-                solver_order=1,
-                prediction_type=predictor[1],
-            ),
-        )
+        for order in range(1, 3):
+            compare_samplers(
+                DPM(predictor=predictor[0], order=order),
+                DPMSolverMultistepScheduler.from_config(  # type: ignore  # Diffusers return BS
+                    hf_scheduler_config("stabilityai/stable-diffusion-xl-base-1.0"),
+                    algorithm_type="dpmsolver++",
+                    final_sigmas_type="zero",
+                    solver_order=order,
+                    prediction_type=predictor[1],
+                ),
+                message=f"{predictor[0].__name__} o{order}",
+            )
