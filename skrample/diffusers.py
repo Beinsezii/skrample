@@ -46,11 +46,11 @@ class SkrampleWrapperScheduler:
 
     @property
     def init_noise_sigma(self) -> float:
-        return 1
+        return 1  # I think Euler might need a workaround
 
     @property
     def order(self) -> int:
-        return getattr(self.sampler, "order", 1)
+        return 1  # for multistep this is always 1
 
     @property
     def config(self):
