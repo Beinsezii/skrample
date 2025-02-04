@@ -32,7 +32,7 @@ class SkrampleWrapperScheduler:
 
     @property
     def schedule_pt(self) -> Tensor:
-        return torch.from_numpy(self.schedule(steps=self._steps, mu=self._mu)).to(self._device)
+        return torch.from_numpy(self.schedule_np).to(self._device)
 
     @property
     def timesteps(self) -> Tensor:
