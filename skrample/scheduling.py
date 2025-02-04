@@ -49,13 +49,12 @@ class Scaled(SkrampleSchedule):
 
 @dataclass
 class Flow(SkrampleSchedule):
-    # keep diffusers names for now
-    base_image_seq_len: int = 256
-    max_image_seq_len: float = 4096
-    base_shift: float = 0.5
-    max_shift: float = 1.15
     shift: float = 3.0
-    use_dynamic_shifting: bool = True
+    # base_image_seq_len: int = 256
+    # max_image_seq_len: float = 4096
+    # base_shift: float = 0.5
+    # max_shift: float = 1.15
+    # use_dynamic_shifting: bool = True
 
     def __call__(self, steps: int, mu: float | None = None) -> NDArray[np.float32]:
         # # # The actual schedule code
