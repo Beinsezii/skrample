@@ -132,11 +132,14 @@ class SkrampleWrapperScheduler:
             raise ValueError
         else:
             sampled = self.sampler.sample(
-                sample=sample,
-                output=model_output,
+                sample=sample.to(torch.float32),
+                output=model_output.to(torch.float32),
                 schedule=schedule,
                 step=step,
                 previous=self._previous,
             )
             self._previous.append(sampled)
-            return (sampled.sampled, sampled.prediction)
+            return (
+                sampled.sampled.to(device=model_output.device, dtype=model_output.dtype),
+                sampled.prediction.to(device=model_output.device, dtype=model_output.dtype),
+            )
