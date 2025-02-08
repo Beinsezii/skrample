@@ -27,12 +27,14 @@ def dual_sample(
     schedule = torch.stack([b.timesteps, b.sigmas[:-1]], dim=1)  # type: ignore  # FloatTensor
     timestep, sigma = schedule[steps.start]
 
-    a_sample = a.merge_noise(a_sample, noise, sigma.item())
-
     if isinstance(b, FlowMatchEulerDiscreteScheduler):
         b_sample = b.scale_noise(sample=b_sample, timestep=timestep.unsqueeze(0), noise=noise)  # type: ignore  # FloatTensor
+        subnormal = True
     else:
         b_sample = b.add_noise(original_samples=b_sample, noise=noise, timesteps=timestep.unsqueeze(0))
+        subnormal = False
+
+    a_sample = a.merge_noise(a_sample, noise, sigma.item(), subnormal=subnormal)
 
     prior_steps: list[SKSamples] = []
     for step in steps:
@@ -41,8 +43,8 @@ def dual_sample(
 
         timestep, sigma = schedule[step]
 
-        a_output = a.scale_input(a_sample, sigma.item()) * model
-        sampled = a.sample(a_sample, a_output, schedule.numpy(), step, prior_steps)
+        a_output = a.scale_input(a_sample, sigma.item(), subnormal=subnormal) * model
+        sampled = a.sample(a_sample, a_output, schedule.numpy(), step, prior_steps, subnormal)
         a_sample = sampled.sampled
         prior_steps.append(sampled)
 

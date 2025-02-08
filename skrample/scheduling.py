@@ -11,8 +11,15 @@ class SkrampleSchedule(ABC):
     # keep diffusers names for now
     num_train_timesteps: int = 1000
 
+    @property
+    def subnormal(self) -> bool:
+        """Whether or not the sigma values all fall within 0..1.
+        Needs alternative sampling strategies."""
+        return False
+
     @abstractmethod
     def __call__(self, steps: int, mu: float | None = None) -> NDArray[np.float32]:
+        "Return the full noise schedule, timesteps stacked on top of sigmas."
         pass
 
     def timesteps(self, steps: int, mu: float | None = None) -> NDArray[np.float32]:
@@ -55,6 +62,10 @@ class Flow(SkrampleSchedule):
     # base_shift: float = 0.5
     # max_shift: float = 1.15
     # use_dynamic_shifting: bool = True
+
+    @property
+    def subnormal(self) -> bool:
+        return True
 
     def __call__(self, steps: int, mu: float | None = None) -> NDArray[np.float32]:
         # # # The actual schedule code

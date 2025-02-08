@@ -47,7 +47,7 @@ class SkrampleWrapperScheduler:
     @property
     def init_noise_sigma(self) -> float:
         # idk why tf diffusers uses this instead of add_noise() for some shit
-        return self.sampler.merge_noise(0, 1, self.schedule_np[0, 1].item())  # type: ignore
+        return self.sampler.merge_noise(0, 1, self.schedule_np[0, 1].item(), subnormal=self.schedule.subnormal)  # type: ignore
 
     @property
     def order(self) -> int:
@@ -102,7 +102,7 @@ class SkrampleWrapperScheduler:
         schedule = self.schedule_np
         step = schedule[:, 0].tolist().index(timestep.item())
         sigma = schedule[step, 1].item()
-        return self.sampler.merge_noise(sample, noise, sigma)
+        return self.sampler.merge_noise(sample, noise, sigma, subnormal=self.schedule.subnormal)
 
     def add_noise(self, original_samples: Tensor, noise: Tensor, timesteps: Tensor) -> Tensor:
         return self.scale_noise(original_samples, timesteps[0], noise)
@@ -111,7 +111,7 @@ class SkrampleWrapperScheduler:
         schedule = self.schedule_np
         step = schedule[:, 0].tolist().index(timestep if isinstance(timestep, (int | float)) else timestep.item())
         sigma = schedule[step, 1].item()
-        return self.sampler.scale_input(sample, sigma)
+        return self.sampler.scale_input(sample, sigma, subnormal=self.schedule.subnormal)
 
     def step(
         self,
@@ -137,6 +137,7 @@ class SkrampleWrapperScheduler:
                 schedule=schedule,
                 step=step,
                 previous=self._previous,
+                subnormal=self.schedule.subnormal,
             )
             self._previous.append(sampled)
             return (
