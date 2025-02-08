@@ -15,10 +15,10 @@ else:
 
 
 def safe_log(x: float) -> float:
-    if x == 0:
-        return float("inf")
-    else:
+    try:
         return math.log(x)
+    except ValueError:
+        return float("inf")
 
 
 def sigma_normal(sigma: float, subnormal: bool = False) -> tuple[float, float]:
