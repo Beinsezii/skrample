@@ -2,9 +2,10 @@ import torch
 from diffusers.schedulers.scheduling_dpmsolver_multistep import DPMSolverMultistepScheduler
 from diffusers.schedulers.scheduling_euler_discrete import EulerDiscreteScheduler
 from diffusers.schedulers.scheduling_flow_match_euler_discrete import FlowMatchEulerDiscreteScheduler
+from diffusers.schedulers.scheduling_unipc_multistep import UniPCMultistepScheduler
 from testing_common import compare_tensors, hf_scheduler_config
 
-from skrample.sampling import DPM, EPSILON, FLOW, VELOCITY, Euler, EulerFlow, SkrampleSampler, SKSamples
+from skrample.sampling import DPM, EPSILON, FLOW, VELOCITY, Euler, EulerFlow, SkrampleSampler, SKSamples, UniPC
 
 
 def dual_sample(
@@ -103,6 +104,21 @@ def test_dpm():
                 DPMSolverMultistepScheduler.from_config(  # type: ignore  # Diffusers return BS
                     hf_scheduler_config("stabilityai/stable-diffusion-xl-base-1.0"),
                     algorithm_type="dpmsolver++",
+                    final_sigmas_type="zero",
+                    solver_order=order,
+                    prediction_type=predictor[1],
+                ),
+                message=f"{predictor[0].__name__} o{order}",
+            )
+
+
+def test_unipc():
+    for predictor in [(EPSILON, "epsilon"), (VELOCITY, "v_prediction"), (FLOW, "flow_prediction")]:
+        for order in range(1, 5):  # technically it can do N order? Let's just test till 4th now
+            compare_samplers(
+                UniPC(predictor=predictor[0], order=order),
+                UniPCMultistepScheduler.from_config(  # type: ignore  # Diffusers return BS
+                    hf_scheduler_config("stabilityai/stable-diffusion-xl-base-1.0"),
                     final_sigmas_type="zero",
                     solver_order=order,
                     prediction_type=predictor[1],
