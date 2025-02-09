@@ -260,13 +260,13 @@ class UniPC(HighOrderSampler):
         rks: list[float] = []
         D1s: list[Sample] = []
         for i in range(1, effective_order):
-            si = step - (i + 1)
-            mi = previous[-(i + 1)].prediction
-            sigma_si, alpha_si = sigma_normal(schedule[si, 1].item(), subnormal)
-            lambda_si = math.log(alpha_si) - math.log(sigma_si)
-            rk = (lambda_si - lambda_p1) / h
+            step_pO1 = step - (i + 1)
+            prediction_pO1 = previous[-(i + 1)].prediction
+            sigma_pO1, alpha_pO1 = sigma_normal(schedule[step_pO1, 1].item(), subnormal)
+            lambda_pO1 = math.log(alpha_pO1) - math.log(sigma_pO1)
+            rk = (lambda_pO1 - lambda_p1) / h
             rks.append(rk)
-            D1s.append((mi - prediction_p1) / rk)
+            D1s.append((prediction_pO1 - prediction_p1) / rk)
 
         rks.append(1.0)
 
