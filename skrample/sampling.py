@@ -83,6 +83,32 @@ class SkrampleSampler(ABC):
 
 
 @dataclass
+class HighOrderSampler(SkrampleSampler):
+    order: int = 1
+
+    @property
+    def min_order(self) -> int:
+        return 1
+
+    @property
+    @abstractmethod
+    def max_order(self) -> int:
+        pass
+
+    def effective_order(self, step: int, schedule: NDArray, previous: list[SKSamples]) -> int:
+        return max(
+            self.min_order,
+            min(
+                self.max_order,
+                step + 1,
+                self.order,
+                len(previous) + 1,
+                len(schedule) - step,  # lower for final is the default
+            ),
+        )
+
+
+@dataclass
 class Euler(SkrampleSampler):
     def sample(
         self,
@@ -133,12 +159,14 @@ class EulerFlow(SkrampleSampler):
 
 
 @dataclass
-class DPM(SkrampleSampler):
+class DPM(HighOrderSampler):
     """https://arxiv.org/abs/2211.01095
     Page 4 Algo 2 for order=2
     Section 5 for SDE"""
 
-    order: int = 1
+    @property
+    def max_order(self) -> int:
+        return 2  # TODO: 3, 4+?
 
     def sample(
         self,
@@ -163,12 +191,7 @@ class DPM(SkrampleSampler):
         # 1st order
         sampled = (signorm_n1 / signorm) * sample - (alpha_n1 * (math.exp(-h) - 1.0)) * prediction
 
-        effective_order = min(
-            step + 1,
-            self.order,
-            len(previous) + 1,
-            len(schedule) - step,  # lower for final is the default
-        )
+        effective_order = self.effective_order(step, schedule, previous)
 
         if effective_order >= 2:
             sigma_p1 = self.get_sigma(step - 1, schedule)
@@ -193,10 +216,13 @@ class DPM(SkrampleSampler):
 
 
 @dataclass
-class UniPC(SkrampleSampler):
-    order: int = 1
+class UniPC(HighOrderSampler):
     # TODO: custom solvers?
     # solver: SkrampleSampler | None = None
+
+    @property
+    def max_order(self) -> int:
+        return 9  # TODO: 4+ is super unstable. Probably either workaround or clamp
 
     # diffusers.schedulers.scheduling_unipc_multistep.UniPCMultistepScheduler.multistep_uni_c_bh_update
     def unified_corrector(
@@ -210,14 +236,8 @@ class UniPC(SkrampleSampler):
     ) -> Sample:
         import torch
 
-        # Slightly clamping for some reason
-        # Effectively offset by +1 step
-        effective_order = min(
-            step + 1,
-            self.order,
-            len(previous),
-            len(schedule) - step + 1,
-        )
+        # -1 step since it effectively corrects the prior step before the next prediction
+        effective_order = self.effective_order(step - 1, schedule, previous[:-1])  # remove extra sample
 
         sigma = self.get_sigma(step, schedule)
         sigma_p1 = self.get_sigma(step - 1, schedule)
@@ -333,6 +353,8 @@ class UniPC(SkrampleSampler):
             len(previous),
             len(schedule) - step,  # lower for final is the default
         )
+
+        effective_order = self.effective_order(step, schedule, previous[:-1])  # remove extra sample
 
         sigma = self.get_sigma(step, schedule)
         sigma_n1 = self.get_sigma(step + 1, schedule)
