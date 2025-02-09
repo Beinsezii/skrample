@@ -88,6 +88,7 @@ def test_euler():
 
 def test_euler_flow():
     compare_samplers(
+        # Euler(predictor=FLOW),
         EulerFlow(),
         FlowMatchEulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
             hf_scheduler_config("black-forest-labs/FLUX.1-dev")

@@ -122,19 +122,23 @@ class Euler(SkrampleSampler):
         sigma = self.get_sigma(step, schedule)
         sigma_n1 = self.get_sigma(step + 1, schedule)
 
-        prediction = self.predictor(self.scale_input(sample, sigma), output, sigma, subnormal)
+        signorm, alpha = sigma_normal(sigma, subnormal)
+        signorm_n1, alpha_n1 = sigma_normal(sigma_n1, subnormal)
+
+        prediction = self.predictor(sample, output, sigma, subnormal)
+
+        sample /= alpha
+
+        sampled = sample + ((sample - prediction) / sigma) * (sigma_n1 - sigma)
+
+        sampled *= alpha_n1
 
         return SKSamples(
-            sampled=sample + ((sample - prediction) / sigma) * (sigma_n1 - sigma),
+            # sampled=sample + ((sample - prediction) / sigma) * (sigma_n1 - sigma),
+            sampled=sampled,
             prediction=prediction,
             sample=sample,
         )
-
-    def scale_input(self, sample: Sample, sigma: float, subnormal: bool = False) -> Sample:
-        return sample / ((sigma**2 + 1) ** 0.5)
-
-    def merge_noise(self, sample: Sample, noise: Sample, sigma: float, subnormal: bool = False) -> Sample:
-        return sample + noise * sigma
 
 
 @dataclass
