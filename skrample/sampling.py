@@ -18,7 +18,7 @@ def safe_log(x: float) -> float:
     try:
         return math.log(x)
     except ValueError:
-        return float("inf")
+        return math.inf
 
 
 def sigma_normal(sigma: float, subnormal: bool = False) -> tuple[float, float]:
@@ -265,7 +265,11 @@ class UniPC(HighOrderSampler):
             sigma_pO1, alpha_pO1 = sigma_normal(schedule[step_pO1, 1].item(), subnormal)
             lambda_pO1 = safe_log(alpha_pO1) - safe_log(sigma_pO1)
             rk = (lambda_pO1 - lambda_p1) / h
-            rks.append(rk)
+            if math.isfinite(rk):  # for subnormal
+                rks.append(rk)
+            else:
+                rks.append(0)  # TODO: proper value?
+
             D1s.append((prediction_pO1 - prediction_p1) / rk)
 
         rks.append(1.0)
@@ -347,7 +351,10 @@ class UniPC(HighOrderSampler):
             sigma_pO, alpha_pO = sigma_normal(schedule[step_pO, 1].item(), subnormal)
             lambda_pO = safe_log(alpha_pO) - safe_log(sigma_pO)
             rk = (lambda_pO - lambda_) / h
-            rks.append(rk)
+            if math.isfinite(rk):  # for subnormal
+                rks.append(rk)
+            else:
+                rks.append(0)  # TODO: proper value?
             D1s.append((prediction_pO - prediction) / rk)
 
         rks.append(1.0)
