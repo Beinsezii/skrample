@@ -252,8 +252,8 @@ class UniPC(HighOrderSampler):
         prediction_p1 = previous[-1].prediction
         sample_p1 = previous[-1].sample
 
-        lambda_ = math.log(alpha) - math.log(signorm)
-        lambda_p1 = math.log(alpha_p1) - math.log(signorm_p1)
+        lambda_ = safe_log(alpha) - safe_log(signorm)
+        lambda_p1 = safe_log(alpha_p1) - safe_log(signorm_p1)
 
         h = abs(lambda_ - lambda_p1)
 
@@ -263,7 +263,7 @@ class UniPC(HighOrderSampler):
             step_pO1 = step - (i + 1)
             prediction_pO1 = previous[-(i + 1)].prediction
             sigma_pO1, alpha_pO1 = sigma_normal(schedule[step_pO1, 1].item(), subnormal)
-            lambda_pO1 = math.log(alpha_pO1) - math.log(sigma_pO1)
+            lambda_pO1 = safe_log(alpha_pO1) - safe_log(sigma_pO1)
             rk = (lambda_pO1 - lambda_p1) / h
             rks.append(rk)
             D1s.append((prediction_pO1 - prediction_p1) / rk)
@@ -345,7 +345,7 @@ class UniPC(HighOrderSampler):
             step_pO = step - i
             prediction_pO = previous[-i].prediction
             sigma_pO, alpha_pO = sigma_normal(schedule[step_pO, 1].item(), subnormal)
-            lambda_pO = math.log(alpha_pO) - math.log(sigma_pO)
+            lambda_pO = safe_log(alpha_pO) - safe_log(sigma_pO)
             rk = (lambda_pO - lambda_) / h
             rks.append(rk)
             D1s.append((prediction_pO - prediction) / rk)
