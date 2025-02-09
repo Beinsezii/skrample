@@ -217,12 +217,16 @@ class DPM(HighOrderSampler):
 
 @dataclass
 class UniPC(HighOrderSampler):
-    # TODO: custom solvers?
-    # solver: SkrampleSampler | None = None
+    # TODO: Euler bork.
+    # Either need to convert Euler to use same scaling fns
+    # or override UniPC's to use the solver's scalers.
+    solver: SkrampleSampler | None = None
 
     @property
     def max_order(self) -> int:
-        return 9  # TODO: 4+ is super unstable. Probably either workaround or clamp
+        # TODO: seems more stable after converting to python scalars
+        # 4-6 is mostly stable now, 7-9 depends on the model. What ranges are actually useful..?
+        return 9
 
     # diffusers.schedulers.scheduling_unipc_multistep.UniPCMultistepScheduler.multistep_uni_c_bh_update
     def unified_corrector(
@@ -406,18 +410,17 @@ class UniPC(HighOrderSampler):
         if previous:
             sample = self.unified_corrector(sample, prediction, schedule, step, previous, subnormal)
 
-        # TODO: custom solvers?
-        # if self.solver:
-        #     sampled = self.solver.sample(sample, output, schedule, step, previous, subnormal).sampled
-        # else:
-        sampled = self.unified_predictor(
-            sample,
-            prediction,
-            schedule,
-            step,
-            previous,
-            subnormal,
-        )
+        if self.solver:
+            sampled = self.solver.sample(sample, output, schedule, step, previous, subnormal).sampled
+        else:
+            sampled = self.unified_predictor(
+                sample,
+                prediction,
+                schedule,
+                step,
+                previous,
+                subnormal,
+            )
 
         return SKSamples(
             sampled=sampled,
