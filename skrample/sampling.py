@@ -228,7 +228,7 @@ class UniPC(HighOrderSampler):
     def unified_corrector(
         self,
         sample: Sample,
-        output: Sample,
+        prediction: Sample,
         schedule: NDArray,
         step: int,
         previous: list[SKSamples] = [],
@@ -237,7 +237,7 @@ class UniPC(HighOrderSampler):
         import torch
 
         # -1 step since it effectively corrects the prior step before the next prediction
-        effective_order = self.effective_order(step - 1, schedule, previous[:-1])  # remove extra sample
+        effective_order = self.effective_order(step - 1, schedule, previous[:-1])
 
         sigma = self.get_sigma(step, schedule)
         sigma_p1 = self.get_sigma(step - 1, schedule)
@@ -245,7 +245,7 @@ class UniPC(HighOrderSampler):
         signorm, alpha = sigma_normal(sigma, subnormal)
         signorm_p1, alpha_p1 = sigma_normal(sigma_p1, subnormal)
 
-        this_model_output = output
+        this_model_output = prediction
         this_sample = sample
 
         model_output_list = previous
@@ -339,7 +339,7 @@ class UniPC(HighOrderSampler):
     def unified_predictor(
         self,
         sample: Sample,
-        output: Sample,
+        prediction: Sample,
         schedule: NDArray,
         step: int,
         previous: list[SKSamples] = [],
@@ -354,7 +354,7 @@ class UniPC(HighOrderSampler):
             len(schedule) - step,  # lower for final is the default
         )
 
-        effective_order = self.effective_order(step, schedule, previous[:-1])  # remove extra sample
+        effective_order = self.effective_order(step, schedule, previous)
 
         sigma = self.get_sigma(step, schedule)
         sigma_n1 = self.get_sigma(step + 1, schedule)
@@ -365,12 +365,8 @@ class UniPC(HighOrderSampler):
         model_output_list = previous
         order = effective_order
 
-        m0 = model_output_list[-1].prediction
+        m0 = prediction
         x = sample
-
-        # TODO: custom solvers?
-        # if self.solver:
-        #     return self.solver.sample(sample, output, schedule, step, previous, subnormal).sampled
 
         # if self.solver_p:
         #     s0 = self.timestep_list[-1]
@@ -391,7 +387,7 @@ class UniPC(HighOrderSampler):
         D1s = []
         for i in range(1, order):
             si = step - i
-            mi = model_output_list[-(i + 1)].prediction
+            mi = model_output_list[-i].prediction
             sigma_si, alpha_si = sigma_normal(torch.tensor(schedule[si, 1]), subnormal)
             lambda_si = torch.log(alpha_si) - torch.log(sigma_si)
             rk = (lambda_si - lambda_s0) / h
@@ -468,12 +464,16 @@ class UniPC(HighOrderSampler):
         if previous:
             sample = self.unified_corrector(sample, prediction, schedule, step, previous, subnormal)
 
+        # TODO: custom solvers?
+        # if self.solver:
+        #     sampled = self.solver.sample(sample, output, schedule, step, previous, subnormal).sampled
+        # else:
         sampled = self.unified_predictor(
             sample,
-            output,
+            prediction,
             schedule,
             step,
-            previous + [SKSamples(prediction=prediction, sampled=sample, sample=sample)],
+            previous,
             subnormal,
         )
 
