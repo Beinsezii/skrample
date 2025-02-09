@@ -14,15 +14,22 @@ from skrample.scheduling import SkrampleSchedule
 class SkrampleWrapperScheduler:
     sampler: SkrampleSampler
     schedule: SkrampleSchedule
+    compute_scale: torch.dtype | None
 
     _steps: int
     _mu: float | None = None
     _device: torch.device = torch.device("cpu")
     _previous: list[SKSamples] = []
 
-    def __init__(self, sampler: SkrampleSampler, schedule: SkrampleSchedule):
+    def __init__(
+        self,
+        sampler: SkrampleSampler,
+        schedule: SkrampleSchedule,
+        compute_scale: torch.dtype | None = torch.float32,
+    ):
         self.sampler = sampler
         self.schedule = schedule
+        self.compute_scale = compute_scale
 
         self._steps = schedule.num_train_timesteps
 
@@ -132,8 +139,8 @@ class SkrampleWrapperScheduler:
             raise ValueError
         else:
             sampled = self.sampler.sample(
-                sample=sample.to(torch.float32),
-                output=model_output.to(torch.float32),
+                sample=sample.to(dtype=self.compute_scale),
+                output=model_output.to(dtype=self.compute_scale),
                 schedule=schedule,
                 step=step,
                 previous=self._previous,
