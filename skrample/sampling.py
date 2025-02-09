@@ -234,7 +234,7 @@ class UniPC(HighOrderSampler):
         previous: list[SKSamples] = [],
         subnormal: bool = False,
     ) -> Sample:
-        import torch
+        import torch  # einsum operates on the full sample, so numpy would involve lots of data movement.
 
         # -1 step since it effectively corrects the prior step before the next prediction
         effective_order = self.effective_order(step - 1, schedule, previous[:-1])
@@ -245,95 +245,70 @@ class UniPC(HighOrderSampler):
         signorm, alpha = sigma_normal(sigma, subnormal)
         signorm_p1, alpha_p1 = sigma_normal(sigma_p1, subnormal)
 
-        this_model_output = prediction
-        this_sample = sample
+        prediction_p1 = previous[-1].prediction
+        sample_p1 = previous[-1].sample
 
-        model_output_list = previous
-        order = effective_order
+        lambda_ = math.log(alpha) - math.log(signorm)
+        lambda_p1 = math.log(alpha_p1) - math.log(signorm_p1)
 
-        m0 = model_output_list[-1].prediction
-        # x = last_sample
-        x = model_output_list[-1].sample
-        x_t = this_sample
-        model_t = this_model_output
+        h = abs(lambda_ - lambda_p1)
 
-        sigma_t, sigma_s0 = torch.tensor(sigma), torch.tensor(sigma_p1)
-        alpha_t, sigma_t = torch.tensor(alpha), torch.tensor(signorm)
-        alpha_s0, sigma_s0 = torch.tensor(alpha_p1), torch.tensor(signorm_p1)
-
-        lambda_t = torch.log(alpha_t) - torch.log(sigma_t)
-        lambda_s0 = torch.log(alpha_s0) - torch.log(sigma_s0)
-
-        h = lambda_t - lambda_s0
-        device = this_sample.device
-
-        rks = []
-        D1s = []
-        for i in range(1, order):
+        rks: list[float] = []
+        D1s: list[Sample] = []
+        for i in range(1, effective_order):
             si = step - (i + 1)
-            mi = model_output_list[-(i + 1)].prediction
-            sigma_si, alpha_si = sigma_normal(torch.tensor(schedule[si, 1]), subnormal)
-            lambda_si = torch.log(alpha_si) - torch.log(sigma_si)
-            rk = (lambda_si - lambda_s0) / h
+            mi = previous[-(i + 1)].prediction
+            sigma_si, alpha_si = sigma_normal(schedule[si, 1].item(), subnormal)
+            lambda_si = math.log(alpha_si) - math.log(sigma_si)
+            rk = (lambda_si - lambda_p1) / h
             rks.append(rk)
-            D1s.append((mi - m0) / rk)
+            D1s.append((mi - prediction_p1) / rk)
 
         rks.append(1.0)
-        rks = torch.tensor(rks, device=device)
 
-        R = []
-        b = []
+        R: list[list[float]] = []
+        b: list[float] = []
 
         # hh = -h if self.predict_x0 else h
         hh = -h
-        h_phi_1 = torch.expm1(hh)  # h\phi_1(h) = e^h - 1
+        h_phi_1 = math.expm1(hh)  # h\phi_1(h) = e^h - 1
         h_phi_k = h_phi_1 / hh - 1
-
-        factorial_i = 1
 
         # # BH1
         # B_h = hh
         # BH2
-        B_h = torch.expm1(hh)
+        B_h = math.expm1(hh)
 
+        factorial_i = 1
         for i in range(1, effective_order + 1):
-            R.append(torch.pow(rks, i - 1))
+            R.append([math.pow(v, i - 1) for v in rks])
             b.append(h_phi_k * factorial_i / B_h)
             factorial_i *= i + 1
             h_phi_k = h_phi_k / hh - 1 / factorial_i
 
-        R = torch.stack(R)
-        b = torch.tensor(b, device=device)
-
-        if len(D1s) > 0:
-            D1s = torch.stack(D1s, dim=1)
-        else:
-            D1s = None
-
         # for order 1, we use a simplified version
-        if order == 1:
-            rhos_c = torch.tensor([0.5], dtype=x.dtype, device=device)
+        if effective_order == 1:
+            rhos_c = torch.tensor([0.5], dtype=sample_p1.dtype, device=sample.device)
         else:
-            rhos_c = torch.linalg.solve(R, b).to(device).to(x.dtype)
+            rhos_c = torch.linalg.solve(
+                torch.tensor(R, dtype=sample.dtype, device=sample.device),
+                torch.tensor(b, dtype=sample.dtype, device=sample.device),
+            )
 
-        # if self.predict_x0:
-        x_t_ = sigma_t / sigma_s0 * x - alpha_t * h_phi_1 * m0
-        if D1s is not None:
-            corr_res = torch.einsum("k,bkc...->bc...", rhos_c[:-1], D1s)
+        if D1s:
+            corr_res = torch.einsum("k,bkc...->bc...", rhos_c[:-1], torch.stack(D1s, dim=1))
         else:
             corr_res = 0
-        D1_t = model_t - m0
-        x_t = x_t_ - alpha_t * B_h * (corr_res + rhos_c[-1] * D1_t)
+
+        # if self.predict_x0:
+        x_t_ = signorm / signorm_p1 * sample_p1 - alpha * h_phi_1 * prediction_p1
+        D1_t = prediction - prediction_p1
+        sample = x_t_ - alpha * B_h * (corr_res + rhos_c[-1] * D1_t)
         # else:
         #     x_t_ = alpha_t / alpha_s0 * x - sigma_t * h_phi_1 * m0
-        #     if D1s is not None:
-        #         corr_res = torch.einsum("k,bkc...->bc...", rhos_c[:-1], D1s)
-        #     else:
-        #         corr_res = 0
         #     D1_t = model_t - m0
         #     x_t = x_t_ - sigma_t * B_h * (corr_res + rhos_c[-1] * D1_t)
-        x_t = x_t.to(x.dtype)
-        return x_t
+        return sample
 
     # diffusers.schedulers.scheduling_unipc_multistep.UniPCMultistepScheduler.multistep_uni_p_bh_update
     def unified_predictor(
@@ -345,7 +320,7 @@ class UniPC(HighOrderSampler):
         previous: list[SKSamples] = [],
         subnormal: bool = False,
     ) -> Sample:
-        import torch  # linalg.solve, einsum
+        import torch  # einsum operates on the full sample, so numpy would involve lots of data movement.
 
         effective_order = self.effective_order(step, schedule, previous)
 
@@ -403,10 +378,7 @@ class UniPC(HighOrderSampler):
                     torch.tensor(b[:-1], device=sample.device, dtype=sample.dtype),
                 )
 
-            # if self.predict_x0:
             pred_res = torch.einsum("k,bkc...->bc...", rhos_p, torch.stack(D1s, dim=1))
-            # else:
-            #     pred_res = torch.einsum("k,bkc...->bc...", rhos_p, D1s)
         else:
             pred_res = 0
 
