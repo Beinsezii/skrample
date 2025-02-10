@@ -30,48 +30,73 @@ def sigma_normal(sigma: float, subnormal: bool = False) -> tuple[float, float]:
 
 
 def EPSILON(sample: Sample, output: Sample, sigma: float, subnormal: bool = False) -> Sample:
+    "If a model does not specify, this is usually what it needs."
     sigma, alpha = sigma_normal(sigma, subnormal)
     return (sample - sigma * output) / alpha
 
 
 def SAMPLE(sample: Sample, output: Sample, sigma: float, subnormal: bool = False) -> Sample:
+    "No prediction. Only for single step afaik."
     return output
 
 
 def VELOCITY(sample: Sample, output: Sample, sigma: float, subnormal: bool = False) -> Sample:
+    "Rare, models will usually explicitly say they require velocity/vpred/zero terminal SNR"
     sigma, alpha = sigma_normal(sigma, subnormal)
     return alpha * sample - sigma * output
 
 
 def FLOW(sample: Sample, output: Sample, sigma: float, subnormal: bool = False) -> Sample:
+    "Flow matching models use this, notably FLUX.1 and SD3"
     return sample - sigma * output
 
 
 @dataclass(frozen=True)
 class SKSamples:
-    sampled: Sample
+    """Sampler result struct for easy management of multiple sampling stages.
+    This should be accumulated in a list for the denoising loop in order to use higher order features"""
+
+    final: Sample
+    "Final result. What you probably want"
+
     prediction: Sample
+    "Just the prediction from SkrampleSampler.predictor if it's used"
+
     sample: Sample
+    "An intermediate sample stage or input samples. Mostly for internal use by advanced samplers"
 
 
 @dataclass
 class SkrampleSampler(ABC):
+    """Generic sampler structure with basic configurables and a stateless design.
+    Abstract class not to be used directly.
+
+    Unless otherwise specified, the Sample type is a stand-in that is
+    type checked against torch.Tensor but should be generic enough to use with ndarrays or even raw floats"""
+
     predictor: Callable[[Sample, Sample, float, bool], Sample] = EPSILON
+    "Predictor function. Most models are EPSILON, FLUX/SD3 are FLOW, VELOCITY and SAMPLE are rare."
 
     @staticmethod
-    def get_sigma(step: int, schedule: NDArray) -> float:
-        return schedule[step, 1].item() if step < len(schedule) else 0
+    def get_sigma(step: int, sigma_schedule: NDArray) -> float:
+        "Just returns zero if step > len"
+        return sigma_schedule[step].item() if step < len(sigma_schedule) else 0
 
     @abstractmethod
     def sample(
         self,
         sample: Sample,
         output: Sample,
-        schedule: NDArray,
+        sigma_schedule: NDArray,
         step: int,
         previous: list[SKSamples] = [],
         subnormal: bool = False,
     ) -> SKSamples:
+        """sigma_schedule is just the sigmas, IE SkrampleSchedule()[:, 1].
+
+        `subnormal` is whether or not the noise schedule is all <= 1.0, IE Flow.
+        All SkrampleSchedules contain a `.subnormal` property with this defined.
+        """
         pass
 
     def scale_input(self, sample: Sample, sigma: float, subnormal: bool = False) -> Sample:
@@ -84,6 +109,9 @@ class SkrampleSampler(ABC):
 
 @dataclass
 class HighOrderSampler(SkrampleSampler):
+    """Samplers inheriting this trait support order > 1, and will require
+    `prevous` be managed and passed to function accordingly."""
+
     order: int = 1
 
     @property
@@ -96,6 +124,7 @@ class HighOrderSampler(SkrampleSampler):
         pass
 
     def effective_order(self, step: int, schedule: NDArray, previous: list[SKSamples]) -> int:
+        "The order used in calculation given a step, schedule length, and previous sample count"
         return max(
             self.min_order,
             min(
@@ -110,24 +139,25 @@ class HighOrderSampler(SkrampleSampler):
 
 @dataclass
 class Euler(SkrampleSampler):
+    """Basic sampler, the "safe" choice."""
     def sample(
         self,
         sample: Sample,
         output: Sample,
-        schedule: NDArray,
+        sigma_schedule: NDArray,
         step: int,
         previous: list[SKSamples] = [],
         subnormal: bool = False,
     ) -> SKSamples:
-        sigma = self.get_sigma(step, schedule)
-        sigma_n1 = self.get_sigma(step + 1, schedule)
+        sigma = self.get_sigma(step, sigma_schedule)
+        sigma_n1 = self.get_sigma(step + 1, sigma_schedule)
 
         signorm, alpha = sigma_normal(sigma, subnormal)
         signorm_n1, alpha_n1 = sigma_normal(sigma_n1, subnormal)
 
         prediction = self.predictor(sample, output, sigma, subnormal)
 
-        # Dual branch *works* but blows up if sigma schedule is exactly `[1.0, 0.0]`
+        # Dual branch *works* but blows up if sigma sigma_schedule is exactly `[1.0, 0.0]`
         # DPM works anyways so I'm not sure it's worth having a separate EulerFlow sampler just for that edge case
         if sigma_n1 == 0:  # get_sigma returns exact zero on +1 index
             # More accurate to how diffusers does it. / 0 on leading
@@ -141,7 +171,7 @@ class Euler(SkrampleSampler):
             sampled = (sample + term2) * (signorm_n1 / sigma_n1)
 
         return SKSamples(
-            sampled=sampled,
+            final=sampled,
             prediction=prediction,
             sample=sample,
         )
@@ -149,7 +179,9 @@ class Euler(SkrampleSampler):
 
 @dataclass
 class DPM(HighOrderSampler):
-    """https://arxiv.org/abs/2211.01095
+    """Good sampler, supports basically everything. Recommended default.
+
+    https://arxiv.org/abs/2211.01095
     Page 4 Algo 2 for order=2
     Section 5 for SDE"""
 
@@ -161,13 +193,13 @@ class DPM(HighOrderSampler):
         self,
         sample: Sample,
         output: Sample,
-        schedule: NDArray,
+        sigma_schedule: NDArray,
         step: int,
         previous: list[SKSamples] = [],
         subnormal: bool = False,
     ) -> SKSamples:
-        sigma = self.get_sigma(step, schedule)
-        sigma_n1 = self.get_sigma(step + 1, schedule)
+        sigma = self.get_sigma(step, sigma_schedule)
+        sigma_n1 = self.get_sigma(step + 1, sigma_schedule)
 
         signorm, alpha = sigma_normal(sigma, subnormal)
         signorm_n1, alpha_n1 = sigma_normal(sigma_n1, subnormal)
@@ -180,10 +212,10 @@ class DPM(HighOrderSampler):
         # 1st order
         sampled = (signorm_n1 / signorm) * sample - (alpha_n1 * (math.exp(-h) - 1.0)) * prediction
 
-        effective_order = self.effective_order(step, schedule, previous)
+        effective_order = self.effective_order(step, sigma_schedule, previous)
 
         if effective_order >= 2:
-            sigma_p1 = self.get_sigma(step - 1, schedule)
+            sigma_p1 = self.get_sigma(step - 1, sigma_schedule)
             signorm_p1, alpha_p1 = sigma_normal(sigma_p1, subnormal)
 
             lambda_p1 = safe_log(alpha_p1) - safe_log(signorm_p1)
@@ -198,7 +230,7 @@ class DPM(HighOrderSampler):
             sampled -= 0.5 * (alpha_n1 * (math.exp(-h) - 1.0)) * prediction_p1
 
         return SKSamples(
-            sampled=sampled,
+            final=sampled,
             prediction=prediction,
             sample=sample,
         )
@@ -206,10 +238,14 @@ class DPM(HighOrderSampler):
 
 @dataclass
 class UniPC(HighOrderSampler):
-    # TODO: Euler bork.
-    # Either need to convert Euler to use same scaling fns
-    # or override UniPC's to use the solver's scalers.
+    """Unique sampler that can correct other samplers or its own prediction function.
+    The additional correction essentially adds +1 order on top of what is set.
+
+    Requires `torch`, inputs MUST be `torch.Tensor`"""
+
     solver: SkrampleSampler | None = None
+    """If set, will use another sampler then perform its own correction.
+    May break, particularly if the solver uses different scaling for noise or input."""
 
     @property
     def max_order(self) -> int:
@@ -217,12 +253,12 @@ class UniPC(HighOrderSampler):
         # 4-6 is mostly stable now, 7-9 depends on the model. What ranges are actually useful..?
         return 9
 
-    # diffusers.schedulers.scheduling_unipc_multistep.UniPCMultistepScheduler.multistep_uni_c_bh_update
+    # diffusers.sigma_schedulers.scheduling_unipc_multistep.UniPCMultistepScheduler.multistep_uni_c_bh_update
     def unified_corrector(
         self,
         sample: Sample,
         prediction: Sample,
-        schedule: NDArray,
+        sigma_schedule: NDArray,
         step: int,
         previous: list[SKSamples] = [],
         subnormal: bool = False,
@@ -230,10 +266,10 @@ class UniPC(HighOrderSampler):
         import torch  # einsum operates on the full sample, so numpy would involve lots of data movement.
 
         # -1 step since it effectively corrects the prior step before the next prediction
-        effective_order = self.effective_order(step - 1, schedule, previous[:-1])
+        effective_order = self.effective_order(step - 1, sigma_schedule, previous[:-1])
 
-        sigma = self.get_sigma(step, schedule)
-        sigma_p1 = self.get_sigma(step - 1, schedule)
+        sigma = self.get_sigma(step, sigma_schedule)
+        sigma_p1 = self.get_sigma(step - 1, sigma_schedule)
 
         signorm, alpha = sigma_normal(sigma, subnormal)
         signorm_p1, alpha_p1 = sigma_normal(sigma_p1, subnormal)
@@ -251,7 +287,7 @@ class UniPC(HighOrderSampler):
         for i in range(1, effective_order):
             step_pO1 = step - (i + 1)
             prediction_pO1 = previous[-(i + 1)].prediction
-            sigma_pO1, alpha_pO1 = sigma_normal(schedule[step_pO1, 1].item(), subnormal)
+            sigma_pO1, alpha_pO1 = sigma_normal(self.get_sigma(step_pO1, sigma_schedule), subnormal)
             lambda_pO1 = safe_log(alpha_pO1) - safe_log(sigma_pO1)
             rk = (lambda_pO1 - lambda_p1) / h
             if math.isfinite(rk):  # for subnormal
@@ -307,22 +343,22 @@ class UniPC(HighOrderSampler):
         #     x_t = x_t_ - sigma_t * B_h * (corr_res + rhos_c[-1] * D1_t)
         return sample
 
-    # diffusers.schedulers.scheduling_unipc_multistep.UniPCMultistepScheduler.multistep_uni_p_bh_update
+    # diffusers.sigma_schedulers.scheduling_unipc_multistep.UniPCMultistepScheduler.multistep_uni_p_bh_update
     def unified_predictor(
         self,
         sample: Sample,
         prediction: Sample,
-        schedule: NDArray,
+        sigma_schedule: NDArray,
         step: int,
         previous: list[SKSamples] = [],
         subnormal: bool = False,
     ) -> Sample:
         import torch  # einsum operates on the full sample, so numpy would involve lots of data movement.
 
-        effective_order = self.effective_order(step, schedule, previous)
+        effective_order = self.effective_order(step, sigma_schedule, previous)
 
-        sigma = self.get_sigma(step, schedule)
-        sigma_n1 = self.get_sigma(step + 1, schedule)
+        sigma = self.get_sigma(step, sigma_schedule)
+        sigma_n1 = self.get_sigma(step + 1, sigma_schedule)
 
         signorm, alpha = sigma_normal(sigma, subnormal)
         signorm_n1, alpha_n1 = sigma_normal(sigma_n1, subnormal)
@@ -337,7 +373,7 @@ class UniPC(HighOrderSampler):
         for i in range(1, effective_order):
             step_pO = step - i
             prediction_pO = previous[-i].prediction
-            sigma_pO, alpha_pO = sigma_normal(schedule[step_pO, 1].item(), subnormal)
+            sigma_pO, alpha_pO = sigma_normal(self.get_sigma(step_pO, sigma_schedule), subnormal)
             lambda_pO = safe_log(alpha_pO) - safe_log(sigma_pO)
             rk = (lambda_pO - lambda_) / h
             if math.isfinite(rk):  # for subnormal
@@ -395,31 +431,31 @@ class UniPC(HighOrderSampler):
         self,
         sample: Sample,
         output: Sample,
-        schedule: NDArray,
+        sigma_schedule: NDArray,
         step: int,
         previous: list[SKSamples] = [],
         subnormal: bool = False,
     ) -> SKSamples:
-        sigma = self.get_sigma(step, schedule)
+        sigma = self.get_sigma(step, sigma_schedule)
         prediction = self.predictor(sample, output, sigma, subnormal)
 
         if previous:
-            sample = self.unified_corrector(sample, prediction, schedule, step, previous, subnormal)
+            sample = self.unified_corrector(sample, prediction, sigma_schedule, step, previous, subnormal)
 
         if self.solver:
-            sampled = self.solver.sample(sample, output, schedule, step, previous, subnormal).sampled
+            sampled = self.solver.sample(sample, output, sigma_schedule, step, previous, subnormal).final
         else:
             sampled = self.unified_predictor(
                 sample,
                 prediction,
-                schedule,
+                sigma_schedule,
                 step,
                 previous,
                 subnormal,
             )
 
         return SKSamples(
-            sampled=sampled,
+            final=sampled,
             prediction=prediction,
             sample=sample,
         )

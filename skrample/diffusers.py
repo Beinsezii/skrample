@@ -141,13 +141,13 @@ class SkrampleWrapperScheduler:
             sampled = self.sampler.sample(
                 sample=sample.to(dtype=self.compute_scale),
                 output=model_output.to(dtype=self.compute_scale),
-                schedule=schedule,
+                sigma_schedule=schedule[:, 1],
                 step=step,
                 previous=self._previous,
                 subnormal=self.schedule.subnormal,
             )
             self._previous.append(sampled)
             return (
-                sampled.sampled.to(device=model_output.device, dtype=model_output.dtype),
+                sampled.final.to(device=model_output.device, dtype=model_output.dtype),
                 sampled.prediction.to(device=model_output.device, dtype=model_output.dtype),
             )

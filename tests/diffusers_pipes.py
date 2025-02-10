@@ -10,7 +10,7 @@ from diffusers.schedulers.scheduling_flow_match_euler_discrete import FlowMatchE
 from testing_common import compare_tensors
 
 from skrample.diffusers import SkrampleWrapperScheduler
-from skrample.sampling import Euler, EulerFlow
+from skrample.sampling import FLOW, Euler
 from skrample.scheduling import Flow, Scaled
 
 
@@ -95,7 +95,7 @@ def test_flux_i2i():
     pipe.enable_model_cpu_offload(device=dv)
     assert isinstance(pipe, FluxImg2ImgPipeline)
 
-    a = SkrampleWrapperScheduler(EulerFlow(), Flow(shift=3))
+    a = SkrampleWrapperScheduler(Euler(predictor=FLOW), Flow(shift=3))
     b = FlowMatchEulerDiscreteScheduler.from_config(pipe.scheduler.config)
     assert isinstance(b, FlowMatchEulerDiscreteScheduler)
 

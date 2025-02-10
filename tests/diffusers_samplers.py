@@ -45,8 +45,8 @@ def dual_sample(
         timestep, sigma = schedule[step]
 
         a_output = a.scale_input(a_sample, sigma.item(), subnormal=subnormal) * model
-        sampled = a.sample(a_sample, a_output, schedule.numpy(), step, prior_steps, subnormal)
-        a_sample = sampled.sampled
+        sampled = a.sample(a_sample, a_output, schedule[:, 1].numpy(), step, prior_steps, subnormal)
+        a_sample = sampled.final
         prior_steps.append(sampled)
 
         if isinstance(b, FlowMatchEulerDiscreteScheduler):
