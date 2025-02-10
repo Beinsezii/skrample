@@ -5,7 +5,7 @@ from diffusers.schedulers.scheduling_flow_match_euler_discrete import FlowMatchE
 from diffusers.schedulers.scheduling_unipc_multistep import UniPCMultistepScheduler
 from testing_common import compare_tensors, hf_scheduler_config
 
-from skrample.sampling import DPM, EPSILON, FLOW, VELOCITY, Euler, EulerFlow, SkrampleSampler, SKSamples, UniPC
+from skrample.sampling import DPM, EPSILON, FLOW, VELOCITY, Euler, SkrampleSampler, SKSamples, UniPC
 
 
 def dual_sample(
@@ -63,10 +63,10 @@ def compare_samplers(
     a: SkrampleSampler,
     b: EulerDiscreteScheduler,
     mu: float | None = None,
-    margin: float = 1e-4,
+    margin: float = 1e-8,
     message: str = "",
 ):
-    for step_range in [range(0, 11), range(7, 16), range(2, 22)]:
+    for step_range in [range(0, 2), range(0, 11), range(0, 201), range(3, 6), range(2, 23), range(31, 200)]:
         compare_tensors(
             *dual_sample(a, b, step_range, mu),
             message=str(step_range) + (" | " + message if message else ""),
@@ -88,8 +88,7 @@ def test_euler():
 
 def test_euler_flow():
     compare_samplers(
-        # Euler(predictor=FLOW),
-        EulerFlow(),
+        Euler(predictor=FLOW),
         FlowMatchEulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
             hf_scheduler_config("black-forest-labs/FLUX.1-dev")
         ),
@@ -115,7 +114,10 @@ def test_dpm():
 
 def test_unipc():
     for predictor in [(EPSILON, "epsilon"), (VELOCITY, "v_prediction"), (FLOW, "flow_prediction")]:
-        for order in range(1, 5):  # technically it can do N order? Let's just test till 4th now
+        # technically it can do N order, but diffusers actually breaks down super hard with high order + steps
+        # They use torch scalars for everything which rounds worse and accumulates error way faster as steps and order increase
+        # Considering Diffusers just NaNs out in like half the order as mine, I'm fine with fudging the margins
+        for order, margin in zip(range(1, 4), (1e-8, 1e-7, 1e-3)):
             compare_samplers(
                 UniPC(predictor=predictor[0], order=order),
                 UniPCMultistepScheduler.from_config(  # type: ignore  # Diffusers return BS
@@ -125,4 +127,5 @@ def test_unipc():
                     prediction_type=predictor[1],
                 ),
                 message=f"{predictor[0].__name__} o{order}",
+                margin=margin,
             )

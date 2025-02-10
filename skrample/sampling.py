@@ -127,37 +127,22 @@ class Euler(SkrampleSampler):
 
         prediction = self.predictor(sample, output, sigma, subnormal)
 
-        sample /= alpha
-
-        sampled = sample + ((sample - prediction) / sigma) * (sigma_n1 - sigma)
-
-        sampled *= alpha_n1
+        # Dual branch *works* but blows up if sigma schedule is exactly `[1.0, 0.0]`
+        # DPM works anyways so I'm not sure it's worth having a separate EulerFlow sampler just for that edge case
+        if sigma_n1 == 0:  # get_sigma returns exact zero on +1 index
+            # More accurate to how diffusers does it. / 0 on leading
+            sampled = (sample + ((sample - prediction * alpha) / sigma) * (sigma_n1 - sigma)) * (alpha_n1 / alpha)
+        else:
+            # Moved / to signorm instead so / 0 is on trailing
+            # Works but result is very slightly less accurate. Like +- 1e-14
+            # thx Qwen
+            sample = (sample * sigma) / signorm
+            term2 = (sample - prediction) * (sigma_n1 / sigma - 1)
+            sampled = (sample + term2) * (signorm_n1 / sigma_n1)
 
         return SKSamples(
-            # sampled=sample + ((sample - prediction) / sigma) * (sigma_n1 - sigma),
             sampled=sampled,
             prediction=prediction,
-            sample=sample,
-        )
-
-
-@dataclass
-class EulerFlow(SkrampleSampler):
-    def sample(
-        self,
-        sample: Sample,
-        output: Sample,
-        schedule: NDArray,
-        step: int,
-        previous: list[SKSamples] = [],
-        subnormal: bool = False,
-    ) -> SKSamples:
-        sigma = self.get_sigma(step, schedule)
-        sigma_n1 = self.get_sigma(step + 1, schedule)
-
-        return SKSamples(
-            sampled=sample + (sigma_n1 - sigma) * output,
-            prediction=output,
             sample=sample,
         )
 
