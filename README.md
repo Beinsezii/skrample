@@ -13,7 +13,7 @@ Early alpha, contains only a few features and a Diffusers wrapper class.
 
 ### Schedules
 - Scaled
- - `uniform` flag, AKA `"trailing"` in diffusers
+  - `uniform` flag, AKA `"trailing"` in diffusers
 - Flow
  - Dynamic and non-dynamic shifting
 
