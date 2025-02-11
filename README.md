@@ -10,6 +10,7 @@ Early alpha, contains only a few features and a Diffusers wrapper class.
   - 1st order, 2nd order
 - UniPC
   - N order, limited to 9 for stability
+  - Custom solver via other SkrampleSampler types
 
 ### Schedules
 - Scaled
