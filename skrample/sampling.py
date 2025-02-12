@@ -140,6 +140,7 @@ class HighOrderSampler(SkrampleSampler):
 @dataclass
 class Euler(SkrampleSampler):
     """Basic sampler, the "safe" choice."""
+
     def sample(
         self,
         sample: Sample,

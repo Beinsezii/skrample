@@ -33,6 +33,7 @@ class SkrampleSchedule(ABC):
 class Scaled(SkrampleSchedule):
     beta_start: float = 0.00085
     beta_end: float = 0.012
+    scale: float = 2
 
     # Let's name this "uniform" instead of trailing since it basically just avoids the truncation.
     # Think that's what ComfyUI does
@@ -46,7 +47,15 @@ class Scaled(SkrampleSchedule):
             # They use a truncated ratio for ...reasons?
             timesteps = np.flip(np.arange(0, steps, dtype=np.float32) * (self.num_train_timesteps // steps)).round()
 
-        betas = np.linspace(self.beta_start**0.5, self.beta_end**0.5, self.num_train_timesteps, dtype=np.float32) ** 2
+        betas = (
+            np.linspace(
+                self.beta_start ** (1 / self.scale),
+                self.beta_end ** (1 / self.scale),
+                self.num_train_timesteps,
+                dtype=np.float32,
+            )
+            ** self.scale
+        )
         alphas_cumprod = np.cumprod(1 - betas, axis=0)
         sigmas = ((1 - alphas_cumprod) / alphas_cumprod) ** 0.5
         sigmas = np.interp(timesteps, np.arange(0, len(sigmas)), sigmas).astype(np.float32)
