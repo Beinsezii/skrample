@@ -17,6 +17,7 @@ Early alpha, contains only a few features and a Diffusers wrapper class.
   - `uniform` flag, AKA `"trailing"` in diffusers
 - Flow
  - Dynamic and non-dynamic shifting
+- ZSNR
 
 ### Predictors
 - Epsilon
