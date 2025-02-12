@@ -74,7 +74,7 @@ class ZSNR(SkrampleSchedule):
 
     # Just some funny number I made up when working on the diffusers PR that worked well. F32 smallest subnormal
     epsilon = 2**-24
-    "Amount to shift the zero value by to keep calculatoins finite."
+    "Amount to shift the zero value by to keep calculations finite."
 
     def schedule(self, steps: int) -> NDArray[np.float32]:
         # ZSNR is always uniform/trailing
