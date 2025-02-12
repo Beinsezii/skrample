@@ -18,17 +18,17 @@ class SkrampleSchedule(ABC):
         return False
 
     @abstractmethod
-    def schedule(self, steps: int) -> NDArray[np.float32]:
+    def schedule(self, steps: int) -> NDArray[np.float64]:
         "Return the full noise schedule, timesteps stacked on top of sigmas."
         pass
 
-    def timesteps(self, steps: int) -> NDArray[np.float32]:
+    def timesteps(self, steps: int) -> NDArray[np.float64]:
         return self.schedule(steps)[:, 0]
 
-    def sigmas(self, steps: int) -> NDArray[np.float32]:
+    def sigmas(self, steps: int) -> NDArray[np.float64]:
         return self.schedule(steps)[:, 1]
 
-    def __call__(self, steps: int) -> NDArray[np.float32]:
+    def __call__(self, steps: int) -> NDArray[np.float64]:
         return self.schedule(steps)
 
 
@@ -42,26 +42,26 @@ class Scaled(SkrampleSchedule):
     # Think that's what ComfyUI does
     uniform: bool = True
 
-    def schedule(self, steps: int) -> NDArray[np.float32]:
+    def schedule(self, steps: int) -> NDArray[np.float64]:
         # # https://arxiv.org/abs/2305.08891 Table 2
         if self.uniform:
-            timesteps = np.linspace(self.num_train_timesteps - 1, 0, steps + 1, dtype=np.float32).round()[:-1]
+            timesteps = np.linspace(self.num_train_timesteps - 1, 0, steps + 1, dtype=np.float64).round()[:-1]
         else:
             # They use a truncated ratio for ...reasons?
-            timesteps = np.flip(np.arange(0, steps, dtype=np.float32) * (self.num_train_timesteps // steps)).round()
+            timesteps = np.flip(np.arange(0, steps, dtype=np.float64) * (self.num_train_timesteps // steps)).round()
 
         betas = (
             np.linspace(
                 self.beta_start ** (1 / self.scale),
                 self.beta_end ** (1 / self.scale),
                 self.num_train_timesteps,
-                dtype=np.float32,
+                dtype=np.float64,
             )
             ** self.scale
         )
         alphas_cumprod = np.cumprod(1 - betas, axis=0)
         sigmas = ((1 - alphas_cumprod) / alphas_cumprod) ** 0.5
-        sigmas = np.interp(timesteps, np.arange(0, len(sigmas)), sigmas).astype(np.float32)
+        sigmas = np.interp(timesteps, np.arange(0, len(sigmas)), sigmas)
 
         return np.stack([timesteps, sigmas], axis=1)
 
@@ -75,19 +75,19 @@ class ZSNR(Scaled):
     # ZSNR should always uniform/trailing
     uniform: bool = True
 
-    def schedule(self, steps: int) -> NDArray[np.float32]:
+    def schedule(self, steps: int) -> NDArray[np.float64]:
         # from super()
         if self.uniform:
-            timesteps = np.linspace(self.num_train_timesteps - 1, 0, steps + 1, dtype=np.float32).round()[:-1]
+            timesteps = np.linspace(self.num_train_timesteps - 1, 0, steps + 1, dtype=np.float64).round()[:-1]
         else:
-            timesteps = np.flip(np.arange(0, steps, dtype=np.float32) * (self.num_train_timesteps // steps)).round()
+            timesteps = np.flip(np.arange(0, steps, dtype=np.float64) * (self.num_train_timesteps // steps)).round()
 
         betas = (
             np.linspace(
                 self.beta_start ** (1 / self.scale),
                 self.beta_end ** (1 / self.scale),
                 self.num_train_timesteps,
-                dtype=np.float32,
+                dtype=np.float64,
             )
             ** self.scale
         )
@@ -114,7 +114,7 @@ class ZSNR(Scaled):
 
         # from super()
         sigmas = ((1 - alphas_cumprod) / alphas_cumprod) ** 0.5
-        sigmas = np.interp(timesteps, np.arange(0, len(sigmas)), sigmas).astype(np.float32)
+        sigmas = np.interp(timesteps, np.arange(0, len(sigmas)), sigmas)
 
         return np.stack([timesteps, sigmas], axis=1)
 
@@ -133,7 +133,7 @@ class Flow(SkrampleSchedule):
     def subnormal(self) -> bool:
         return True
 
-    def schedule(self, steps: int) -> NDArray[np.float32]:
+    def schedule(self, steps: int) -> NDArray[np.float64]:
         # # # The actual schedule code
         #
         # # Strange it's 1000 -> 1 instead of 999 -> 0?
@@ -143,11 +143,11 @@ class Flow(SkrampleSchedule):
         #     sigma_start = self.shift * sigma_start / (1 + (self.shift - 1) * sigma_start)
         #     sigma_end = self.shift * sigma_end / (1 + (self.shift - 1) * sigma_end)
         #
-        # sigmas = np.linspace(sigma_start, sigma_end, steps, dtype=np.float32)
-        # sigmas = np.linspace(sigma_start, sigma_end, steps + 1, dtype=np.float32)[:-1]
+        # sigmas = np.linspace(sigma_start, sigma_end, steps, dtype=np.float64)
+        # sigmas = np.linspace(sigma_start, sigma_end, steps + 1, dtype=np.float64)[:-1]
 
         # What the flux pipeline overrides it to. Seems more correct?
-        sigmas = np.linspace(1, 1 / steps, steps, dtype=np.float32)
+        sigmas = np.linspace(1, 1 / steps, steps, dtype=np.float64)
 
         if self.mu is not None:  # dynamic
             sigmas = math.exp(self.mu) / (math.exp(self.mu) + (1 / sigmas - 1))
