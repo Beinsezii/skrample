@@ -18,15 +18,18 @@ class SkrampleSchedule(ABC):
         return False
 
     @abstractmethod
-    def __call__(self, steps: int, mu: float | None = None) -> NDArray[np.float32]:
+    def schedule(self, steps: int) -> NDArray[np.float32]:
         "Return the full noise schedule, timesteps stacked on top of sigmas."
         pass
 
-    def timesteps(self, steps: int, mu: float | None = None) -> NDArray[np.float32]:
-        return self(steps, mu)[:, 0]
+    def timesteps(self, steps: int) -> NDArray[np.float32]:
+        return self.schedule(steps)[:, 0]
 
-    def sigmas(self, steps: int, mu: float | None = None) -> NDArray[np.float32]:
-        return self(steps, mu)[:, 1]
+    def sigmas(self, steps: int) -> NDArray[np.float32]:
+        return self.schedule(steps)[:, 1]
+
+    def __call__(self, steps: int) -> NDArray[np.float32]:
+        return self.schedule(steps)
 
 
 @dataclass
@@ -39,7 +42,7 @@ class Scaled(SkrampleSchedule):
     # Think that's what ComfyUI does
     uniform: bool = True
 
-    def __call__(self, steps: int, mu: float | None = None) -> NDArray[np.float32]:
+    def schedule(self, steps: int) -> NDArray[np.float32]:
         # # https://arxiv.org/abs/2305.08891 Table 2
         if self.uniform:
             timesteps = np.linspace(self.num_train_timesteps - 1, 0, steps + 1, dtype=np.float32).round()[:-1]
@@ -73,7 +76,7 @@ class ZSNR(SkrampleSchedule):
     epsilon = 2**-24
     "Amount to shift the zero value by to keep calculatoins finite."
 
-    def __call__(self, steps: int, mu: float | None = None) -> NDArray[np.float32]:
+    def schedule(self, steps: int) -> NDArray[np.float32]:
         # ZSNR is always uniform/trailing
         timesteps = np.linspace(self.num_train_timesteps - 1, 0, steps + 1, dtype=np.float32).round()[:-1]
 
@@ -116,6 +119,7 @@ class ZSNR(SkrampleSchedule):
 
 @dataclass
 class Flow(SkrampleSchedule):
+    mu: float | None = None
     shift: float = 3.0
     # base_image_seq_len: int = 256
     # max_image_seq_len: float = 4096
@@ -127,7 +131,7 @@ class Flow(SkrampleSchedule):
     def subnormal(self) -> bool:
         return True
 
-    def __call__(self, steps: int, mu: float | None = None) -> NDArray[np.float32]:
+    def schedule(self, steps: int) -> NDArray[np.float32]:
         # # # The actual schedule code
         #
         # # Strange it's 1000 -> 1 instead of 999 -> 0?
@@ -143,8 +147,8 @@ class Flow(SkrampleSchedule):
         # What the flux pipeline overrides it to. Seems more correct?
         sigmas = np.linspace(1, 1 / steps, steps, dtype=np.float32)
 
-        if mu is not None:  # dynamic
-            sigmas = math.exp(mu) / (math.exp(mu) + (1 / sigmas - 1))
+        if self.mu is not None:  # dynamic
+            sigmas = math.exp(self.mu) / (math.exp(self.mu) + (1 / sigmas - 1))
         else:  # non-dynamic
             sigmas = self.shift * sigmas / (1 + (self.shift - 1) * sigmas)
 

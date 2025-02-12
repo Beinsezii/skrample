@@ -22,13 +22,13 @@ def compare_schedules(
             b.set_timesteps(num_inference_steps=steps)
 
         compare_tensors(
-            torch.from_numpy(a.timesteps(steps, mu=mu)),
+            torch.from_numpy(a.timesteps(steps)),
             b.timesteps,
             f"TIMESTEPS @ {steps}",
             margin=ts_margin,
         )
         compare_tensors(
-            torch.from_numpy(a.sigmas(steps, mu=mu)),
+            torch.from_numpy(a.sigmas(steps)),
             b.sigmas[:-1],  # type: ignore  # FloatTensor
             f"SIGMAS @ {steps}",
             margin=sig_margin,
@@ -65,7 +65,7 @@ def test_zsnr():
 
 def test_flow_dynamic():
     compare_schedules(
-        Flow(),
+        Flow(mu=0.7),
         FlowMatchEulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
             hf_scheduler_config("black-forest-labs/FLUX.1-dev"),
         ),

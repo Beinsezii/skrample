@@ -8,7 +8,7 @@ from numpy.typing import NDArray
 from torch import Tensor
 
 from skrample.sampling import SkrampleSampler, SKSamples
-from skrample.scheduling import SkrampleSchedule
+from skrample.scheduling import Flow, SkrampleSchedule
 
 
 class SkrampleWrapperScheduler:
@@ -17,7 +17,6 @@ class SkrampleWrapperScheduler:
     compute_scale: torch.dtype | None
 
     _steps: int
-    _mu: float | None = None
     _device: torch.device = torch.device("cpu")
     _previous: list[SKSamples] = []
 
@@ -35,7 +34,7 @@ class SkrampleWrapperScheduler:
 
     @property
     def schedule_np(self) -> NDArray[np.float32]:
-        return self.schedule(steps=self._steps, mu=self._mu)
+        return self.schedule(steps=self._steps)
 
     @property
     def schedule_pt(self) -> Tensor:
@@ -99,7 +98,8 @@ class SkrampleWrapperScheduler:
                 return
 
         self._steps = num_inference_steps
-        self._mu = mu
+        if isinstance(self.schedule, Flow):
+            self.schedule.mu = mu
         self._previous = []
 
         if device is not None:

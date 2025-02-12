@@ -106,6 +106,24 @@ class SkrampleSampler(ABC):
         sigma, alpha = sigma_normal(sigma, subnormal)
         return sample * alpha + noise * sigma
 
+    def __call__(
+        self,
+        sample: Sample,
+        output: Sample,
+        sigma_schedule: NDArray,
+        step: int,
+        previous: list[SKSamples] = [],
+        subnormal: bool = False,
+    ) -> SKSamples:
+        return self.sample(
+            sample=sample,
+            output=output,
+            sigma_schedule=sigma_schedule,
+            step=step,
+            previous=previous,
+            subnormal=subnormal,
+        )
+
 
 @dataclass
 class HighOrderSampler(SkrampleSampler):
