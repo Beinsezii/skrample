@@ -67,18 +67,20 @@ class Scaled(SkrampleSchedule):
 
 
 @dataclass
-class ZSNR(SkrampleSchedule):
-    beta_start: float = 0.00085
-    beta_end: float = 0.012
-    scale: float = 2
-
+class ZSNR(Scaled):
     # Just some funny number I made up when working on the diffusers PR that worked well. F32 smallest subnormal
     epsilon = 2**-24
     "Amount to shift the zero value by to keep calculations finite."
 
+    # ZSNR should always uniform/trailing
+    uniform: bool = True
+
     def schedule(self, steps: int) -> NDArray[np.float32]:
-        # ZSNR is always uniform/trailing
-        timesteps = np.linspace(self.num_train_timesteps - 1, 0, steps + 1, dtype=np.float32).round()[:-1]
+        # from super()
+        if self.uniform:
+            timesteps = np.linspace(self.num_train_timesteps - 1, 0, steps + 1, dtype=np.float32).round()[:-1]
+        else:
+            timesteps = np.flip(np.arange(0, steps, dtype=np.float32) * (self.num_train_timesteps // steps)).round()
 
         betas = (
             np.linspace(
@@ -90,10 +92,9 @@ class ZSNR(SkrampleSchedule):
             ** self.scale
         )
 
-        ### https://arxiv.org/pdf/2305.08891.pdf (Algorithm 1)
+        ### from https://arxiv.org/pdf/2305.08891.pdf (Algorithm 1)
         # Convert betas to alphas_bar_sqrt
-        alphas_cumprod = np.cumprod(1 - betas, axis=0)
-        alphas_bar_sqrt = np.sqrt(alphas_cumprod)
+        alphas_bar_sqrt = np.cumprod(1 - betas, axis=0) ** 0.5
 
         # Store old values.
         alphas_bar_sqrt_0 = alphas_bar_sqrt[0].item()
@@ -111,6 +112,7 @@ class ZSNR(SkrampleSchedule):
         alphas_cumprod[-1] = self.epsilon  # Epsilon to avoid inf
         ###
 
+        # from super()
         sigmas = ((1 - alphas_cumprod) / alphas_cumprod) ** 0.5
         sigmas = np.interp(timesteps, np.arange(0, len(sigmas)), sigmas).astype(np.float32)
 
