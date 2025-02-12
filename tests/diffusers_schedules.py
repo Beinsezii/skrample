@@ -3,7 +3,7 @@ from diffusers.schedulers.scheduling_euler_discrete import EulerDiscreteSchedule
 from diffusers.schedulers.scheduling_flow_match_euler_discrete import FlowMatchEulerDiscreteScheduler
 from testing_common import compare_tensors, hf_scheduler_config
 
-from skrample.scheduling import Flow, Scaled, SkrampleSchedule
+from skrample.scheduling import ZSNR, Flow, Scaled, SkrampleSchedule
 
 
 def compare_schedules(
@@ -50,6 +50,15 @@ def test_scaled_uniform():
         EulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
             hf_scheduler_config("stabilityai/stable-diffusion-xl-base-1.0"),
             timestep_spacing="trailing",
+        ),
+    )
+
+
+def test_zsnr():
+    compare_schedules(
+        ZSNR(),
+        EulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
+            hf_scheduler_config("bghira/terminus-xl-velocity-v2"),
         ),
     )
 

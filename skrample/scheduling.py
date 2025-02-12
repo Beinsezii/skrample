@@ -64,6 +64,57 @@ class Scaled(SkrampleSchedule):
 
 
 @dataclass
+class ZSNR(SkrampleSchedule):
+    beta_start: float = 0.00085
+    beta_end: float = 0.012
+    scale: float = 2
+
+    # Just some funny number I made up when working on the diffusers PR that worked well. F32 smallest subnormal
+    epsilon = 2**-24
+    "Amount to shift the zero value by to keep calculatoins finite."
+
+    def __call__(self, steps: int, mu: float | None = None) -> NDArray[np.float32]:
+        # ZSNR is always uniform/trailing
+        timesteps = np.linspace(self.num_train_timesteps - 1, 0, steps + 1, dtype=np.float32).round()[:-1]
+
+        betas = (
+            np.linspace(
+                self.beta_start ** (1 / self.scale),
+                self.beta_end ** (1 / self.scale),
+                self.num_train_timesteps,
+                dtype=np.float32,
+            )
+            ** self.scale
+        )
+
+        ### https://arxiv.org/pdf/2305.08891.pdf (Algorithm 1)
+        # Convert betas to alphas_bar_sqrt
+        alphas_cumprod = np.cumprod(1 - betas, axis=0)
+        alphas_bar_sqrt = np.sqrt(alphas_cumprod)
+
+        # Store old values.
+        alphas_bar_sqrt_0 = alphas_bar_sqrt[0].item()
+        alphas_bar_sqrt_T = alphas_bar_sqrt[-1].item()
+
+        # Shift so the last timestep is zero.
+        alphas_bar_sqrt -= alphas_bar_sqrt_T
+
+        # Scale so the first timestep is back to the old value.
+        alphas_bar_sqrt *= alphas_bar_sqrt_0 / (alphas_bar_sqrt_0 - alphas_bar_sqrt_T)
+
+        # Convert alphas_bar_sqrt to betas
+        alphas_cumprod = alphas_bar_sqrt**2  # Revert sqrt
+
+        alphas_cumprod[-1] = self.epsilon  # Epsilon to avoid inf
+        ###
+
+        sigmas = ((1 - alphas_cumprod) / alphas_cumprod) ** 0.5
+        sigmas = np.interp(timesteps, np.arange(0, len(sigmas)), sigmas).astype(np.float32)
+
+        return np.stack([timesteps, sigmas], axis=1)
+
+
+@dataclass
 class Flow(SkrampleSchedule):
     shift: float = 3.0
     # base_image_seq_len: int = 256
