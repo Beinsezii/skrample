@@ -45,7 +45,7 @@ def dual_sample(
         timestep, sigma = schedule[step]
 
         a_output = a.scale_input(a_sample, sigma.item(), subnormal=subnormal) * model
-        sampled = a.sample(a_sample, a_output, schedule[:, 1].numpy(), step, prior_steps, subnormal)
+        sampled = a.sample(a_sample, a_output, schedule[:, 1].numpy(), step, previous=prior_steps, subnormal=subnormal)
         a_sample = sampled.final
         prior_steps.append(sampled)
 

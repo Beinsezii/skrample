@@ -7,7 +7,7 @@ import torch
 from numpy.typing import NDArray
 from torch import Tensor
 
-from skrample.sampling import SkrampleSampler, SKSamples
+from skrample.sampling import SkrampleSampler, SKSamples, StochasticSampler
 from skrample.scheduling import Flow, SkrampleSchedule
 
 
@@ -129,11 +129,21 @@ class SkrampleWrapperScheduler:
         s_tmin: float = 0.0,
         s_tmax: float = float("inf"),
         s_noise: float = 1.0,
-        generator: torch.Generator | None = None,
+        generator: torch.Generator | list[torch.Generator] | None = None,
         return_dict: bool = True,
     ) -> tuple[Tensor, Tensor]:
         schedule = self.schedule_np
         step = schedule[:, 0].tolist().index(timestep if isinstance(timestep, (int, float)) else timestep.item())
+
+        if isinstance(self.sampler, StochasticSampler) and self.sampler.add_noise:
+            noise = torch.randn(
+                sample.shape[1:],  # exclude batch to give same noise "seed" to all images
+                generator=torch.manual_seed(step),  # should we even use the generators?
+                dtype=torch.float32,  # lock to cpu f32 for consistent seeds
+                device="cpu",
+            ).to(device=sample.device, dtype=self.compute_scale)
+        else:
+            noise = None
 
         if return_dict:
             raise ValueError
@@ -143,6 +153,7 @@ class SkrampleWrapperScheduler:
                 output=model_output.to(dtype=self.compute_scale),
                 sigma_schedule=schedule[:, 1],
                 step=step,
+                noise=noise,
                 previous=self._previous,
                 subnormal=self.schedule.subnormal,
             )

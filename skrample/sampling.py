@@ -89,10 +89,14 @@ class SkrampleSampler(ABC):
         output: Sample,
         sigma_schedule: NDArray,
         step: int,
+        noise: Sample | None = None,
         previous: list[SKSamples] = [],
         subnormal: bool = False,
     ) -> SKSamples:
         """sigma_schedule is just the sigmas, IE SkrampleSchedule()[:, 1].
+
+        `noise` is noise specific to this step for StochasticSampler or other schedulers that compute against noise.
+        This is NOT the input noise, which is added directly into the sample with `merge_noise()`
 
         `subnormal` is whether or not the noise schedule is all <= 1.0, IE Flow.
         All SkrampleSchedules contain a `.subnormal` property with this defined.
@@ -112,6 +116,7 @@ class SkrampleSampler(ABC):
         output: Sample,
         sigma_schedule: NDArray,
         step: int,
+        noise: Sample | None = None,
         previous: list[SKSamples] = [],
         subnormal: bool = False,
     ) -> SKSamples:
@@ -120,6 +125,7 @@ class SkrampleSampler(ABC):
             output=output,
             sigma_schedule=sigma_schedule,
             step=step,
+            noise=noise,
             previous=previous,
             subnormal=subnormal,
         )
@@ -156,6 +162,12 @@ class HighOrderSampler(SkrampleSampler):
 
 
 @dataclass
+class StochasticSampler(SkrampleSampler):
+    add_noise: bool = False
+    "Flag for whether or not to add the given noise"
+
+
+@dataclass
 class Euler(SkrampleSampler):
     """Basic sampler, the "safe" choice."""
 
@@ -165,6 +177,7 @@ class Euler(SkrampleSampler):
         output: Sample,
         sigma_schedule: NDArray,
         step: int,
+        noise: Sample | None = None,
         previous: list[SKSamples] = [],
         subnormal: bool = False,
     ) -> SKSamples:
@@ -197,7 +210,7 @@ class Euler(SkrampleSampler):
 
 
 @dataclass
-class DPM(HighOrderSampler):
+class DPM(HighOrderSampler, StochasticSampler):
     """Good sampler, supports basically everything. Recommended default.
 
     https://arxiv.org/abs/2211.01095
@@ -214,6 +227,7 @@ class DPM(HighOrderSampler):
         output: Sample,
         sigma_schedule: NDArray,
         step: int,
+        noise: Sample | None = None,
         previous: list[SKSamples] = [],
         subnormal: bool = False,
     ) -> SKSamples:
@@ -227,9 +241,20 @@ class DPM(HighOrderSampler):
         lambda_n1 = safe_log(alpha_n1) - safe_log(signorm_n1)
         h = abs(lambda_n1 - lambda_)
 
+        if noise is not None and self.add_noise:
+            exp1 = math.exp(-h)
+            exp2 = 1.0 - math.exp(-2 * h)
+            noise_factor = signorm_n1 * math.sqrt(exp2) * noise
+        else:
+            exp1 = 1
+            exp2 = 1.0 - math.exp(-h)
+            noise_factor = 0
+
         prediction = self.predictor(sample, output, sigma, subnormal)
+
+        sampled = noise_factor + (signorm_n1 / signorm * exp1) * sample
         # 1st order
-        sampled = (signorm_n1 / signorm) * sample - (alpha_n1 * (math.exp(-h) - 1.0)) * prediction
+        sampled += (alpha_n1 * exp2) * prediction
 
         effective_order = self.effective_order(step, sigma_schedule, previous)
 
@@ -246,7 +271,7 @@ class DPM(HighOrderSampler):
             prediction_p1 = (1.0 / r) * (prediction - prediction_p1)
 
             # 2nd order
-            sampled -= 0.5 * (alpha_n1 * (math.exp(-h) - 1.0)) * prediction_p1
+            sampled += (0.5 * alpha_n1 * exp2) * prediction_p1
 
         return SKSamples(
             final=sampled,
@@ -452,6 +477,7 @@ class UniPC(HighOrderSampler):
         output: Sample,
         sigma_schedule: NDArray,
         step: int,
+        noise: Sample | None = None,
         previous: list[SKSamples] = [],
         subnormal: bool = False,
     ) -> SKSamples:
@@ -462,7 +488,7 @@ class UniPC(HighOrderSampler):
             sample = self.unified_corrector(sample, prediction, sigma_schedule, step, previous, subnormal)
 
         if self.solver:
-            sampled = self.solver.sample(sample, output, sigma_schedule, step, previous, subnormal).final
+            sampled = self.solver.sample(sample, output, sigma_schedule, step, noise, previous, subnormal).final
         else:
             sampled = self.unified_predictor(
                 sample,
