@@ -8,6 +8,7 @@ Early alpha, contains only a few features and a Diffusers wrapper class.
 - Euler
 - DPM
   - 1st order, 2nd order
+  - SDE
 - UniPC
   - N order, limited to 9 for stability
   - Custom solver via other SkrampleSampler types
@@ -40,3 +41,7 @@ Early alpha, contains only a few features and a Diffusers wrapper class.
   - [X] Steps
   - [X] Higher order
   - [ ] Generators
+
+## Implementations
+### quickdif
+A basic test bed is available for https://github.com/Beinsezii/quickdif.git on the `skrample` branch
