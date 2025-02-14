@@ -235,3 +235,30 @@ class Exponential(ScheduleModifier):
         timesteps = self._sigmas_to_timesteps(sigmas)
 
         return np.stack([timesteps.flatten(), sigmas], axis=1)
+
+
+@dataclass
+class Beta(ScheduleModifier):
+    alpha: float = 0.6
+    beta: float = 0.6
+
+    def schedule(self, steps: int) -> NDArray[np.float64]:
+        import scipy
+
+        sigmas = self.base.sigmas(steps)
+
+        sigma_min = sigmas[-1].item()
+        sigma_max = sigmas[0].item()
+
+        sigmas = np.array(
+            [
+                sigma_min + (ppf * (sigma_max - sigma_min))
+                for ppf in [
+                    scipy.stats.beta.ppf(timestep, self.alpha, self.beta) for timestep in 1 - np.linspace(0, 1, steps)
+                ]
+            ]
+        )
+
+        timesteps = self._sigmas_to_timesteps(sigmas)
+
+        return np.stack([timesteps.flatten(), sigmas], axis=1)

@@ -3,7 +3,7 @@ from diffusers.schedulers.scheduling_euler_discrete import EulerDiscreteSchedule
 from diffusers.schedulers.scheduling_flow_match_euler_discrete import FlowMatchEulerDiscreteScheduler
 from testing_common import compare_tensors, hf_scheduler_config
 
-from skrample.scheduling import ZSNR, Exponential, Flow, Karras, Scaled, SkrampleSchedule
+from skrample.scheduling import ZSNR, Beta, Exponential, Flow, Karras, Scaled, SkrampleSchedule
 
 
 def compare_schedules(
@@ -54,17 +54,17 @@ def test_scaled_uniform():
     )
 
 
-# def test_scaled_beta():
-#     compare_schedules(
-#         Scaled(),
-#         EulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
-#             hf_scheduler_config("stabilityai/stable-diffusion-xl-base-1.0"),
-#             timestep_spacing="trailing",
-#             use_beta_sigmas=True,
-#         ),
-#     )
-#
-#
+def test_scaled_beta():
+    compare_schedules(
+        Beta(Scaled()),
+        EulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
+            hf_scheduler_config("stabilityai/stable-diffusion-xl-base-1.0"),
+            timestep_spacing="trailing",
+            use_beta_sigmas=True,
+        ),
+    )
+
+
 def test_scaled_exponential():
     compare_schedules(
         Exponential(Scaled()),
@@ -116,16 +116,16 @@ def test_flow():
     )
 
 
-# def test_flow_beta():
-#     compare_schedules(
-#         Flow(),
-#         FlowMatchEulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
-#             hf_scheduler_config("stabilityai/stable-diffusion-3-medium-diffusers"),
-#             use_beta_sigmas=True,
-#         ),
-#     )
-#
-#
+def test_flow_beta():
+    compare_schedules(
+        Beta(Flow()),
+        FlowMatchEulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
+            hf_scheduler_config("stabilityai/stable-diffusion-3-medium-diffusers"),
+            use_beta_sigmas=True,
+        ),
+    )
+
+
 def test_flow_exponential():
     compare_schedules(
         Exponential(Flow()),
