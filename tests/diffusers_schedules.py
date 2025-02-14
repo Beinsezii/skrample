@@ -3,7 +3,7 @@ from diffusers.schedulers.scheduling_euler_discrete import EulerDiscreteSchedule
 from diffusers.schedulers.scheduling_flow_match_euler_discrete import FlowMatchEulerDiscreteScheduler
 from testing_common import compare_tensors, hf_scheduler_config
 
-from skrample.scheduling import ZSNR, Flow, Karras, Scaled, SkrampleSchedule
+from skrample.scheduling import ZSNR, Exponential, Flow, Karras, Scaled, SkrampleSchedule
 
 
 def compare_schedules(
@@ -17,7 +17,7 @@ def compare_schedules(
         if isinstance(b, FlowMatchEulerDiscreteScheduler):
             # b.set_timesteps(num_inference_steps=steps, mu=mu)
             # # flux pipe hardcodes sigmas to this...
-            b.set_timesteps(sigmas=torch.linspace(1.0, 1 / steps, steps), mu=mu)
+            b.set_timesteps(sigmas=torch.linspace(1.0, 1 / steps, steps), mu=mu)  # type: ignore
         else:
             b.set_timesteps(num_inference_steps=steps)
 
@@ -65,15 +65,15 @@ def test_scaled_uniform():
 #     )
 #
 #
-# def test_scaled_exponential():
-#     compare_schedules(
-#         Scaled(),
-#         EulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
-#             hf_scheduler_config("stabilityai/stable-diffusion-xl-base-1.0"),
-#             timestep_spacing="trailing",
-#             use_exponential_sigmas=True,
-#         ),
-#     )
+def test_scaled_exponential():
+    compare_schedules(
+        Exponential(Scaled()),
+        EulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
+            hf_scheduler_config("stabilityai/stable-diffusion-xl-base-1.0"),
+            timestep_spacing="trailing",
+            use_exponential_sigmas=True,
+        ),
+    )
 
 
 def test_scaled_karras():
@@ -126,14 +126,14 @@ def test_flow():
 #     )
 #
 #
-# def test_flow_exponential():
-#     compare_schedules(
-#         Flow(),
-#         FlowMatchEulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
-#             hf_scheduler_config("stabilityai/stable-diffusion-3-medium-diffusers"),
-#             use_exponential_sigmas=True,
-#         ),
-#     )
+def test_flow_exponential():
+    compare_schedules(
+        Exponential(Flow()),
+        FlowMatchEulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
+            hf_scheduler_config("stabilityai/stable-diffusion-3-medium-diffusers"),
+            use_exponential_sigmas=True,
+        ),
+    )
 
 
 def test_flow_karras():

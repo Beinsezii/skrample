@@ -198,12 +198,16 @@ class Flow(ScheduleCommon):
 
 
 @dataclass
-class Karras(SkrampleSchedule):
+class ScheduleModifier(SkrampleSchedule):
     base: SkrampleSchedule
-    rho: float = 7.0
 
     def _sigmas_to_timesteps(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
         return self.base._sigmas_to_timesteps(sigmas)
+
+
+@dataclass
+class Karras(ScheduleModifier):
+    rho: float = 7.0
 
     def schedule(self, steps: int) -> NDArray[np.float64]:
         sigmas = self.base.sigmas(steps)
@@ -215,6 +219,18 @@ class Karras(SkrampleSchedule):
         min_inv_rho = sigma_min ** (1 / self.rho)
         max_inv_rho = sigma_max ** (1 / self.rho)
         sigmas = (max_inv_rho + ramp * (min_inv_rho - max_inv_rho)) ** self.rho
+
+        timesteps = self._sigmas_to_timesteps(sigmas)
+
+        return np.stack([timesteps.flatten(), sigmas], axis=1)
+
+
+@dataclass
+class Exponential(ScheduleModifier):
+    def schedule(self, steps: int) -> NDArray[np.float64]:
+        sigmas = self.base.sigmas(steps)
+
+        sigmas = np.exp(np.linspace(math.log(sigmas[0]), math.log(sigmas[-1]), steps))
 
         timesteps = self._sigmas_to_timesteps(sigmas)
 
