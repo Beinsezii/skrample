@@ -8,14 +8,15 @@ from numpy.typing import NDArray
 
 @dataclass
 class SkrampleSchedule(ABC):
-    # keep diffusers names for now
-    num_train_timesteps: int = 1000
-
     @property
     def subnormal(self) -> bool:
         """Whether or not the sigma values all fall within 0..1.
         Needs alternative sampling strategies."""
         return False
+
+    @abstractmethod
+    def _sigmas_to_timesteps(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
+        pass
 
     @abstractmethod
     def schedule(self, steps: int) -> NDArray[np.float64]:
@@ -33,7 +34,13 @@ class SkrampleSchedule(ABC):
 
 
 @dataclass
-class Scaled(SkrampleSchedule):
+class ScheduleCommon(SkrampleSchedule):
+    # keep diffusers names for now
+    num_train_timesteps: int = 1000
+
+
+@dataclass
+class Scaled(ScheduleCommon):
     beta_start: float = 0.00085
     beta_end: float = 0.012
     scale: float = 2
@@ -41,6 +48,34 @@ class Scaled(SkrampleSchedule):
     # Let's name this "uniform" instead of trailing since it basically just avoids the truncation.
     # Think that's what ComfyUI does
     uniform: bool = True
+
+    # TODO: where does this funky math come from. I don't think it matches the inverse of schedule()
+    def _sigmas_to_timesteps(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
+        # it uses the full dist
+        log_sigmas = np.flip(np.log(self.sigmas(self.num_train_timesteps)))
+
+        # below here just a copy of diffusers' _sigma_to_t
+
+        # get log sigma
+        log_sigma = np.log(np.maximum(sigmas, 1e-10))
+
+        # get distribution
+        dists = log_sigma - log_sigmas[:, np.newaxis]
+
+        # get sigmas range
+        low_idx = np.cumsum((dists >= 0), axis=0).argmax(axis=0).clip(max=log_sigmas.shape[0] - 2)
+        high_idx = low_idx + 1
+
+        low = log_sigmas[low_idx]
+        high = log_sigmas[high_idx]
+
+        # interpolate sigmas
+        w = (low - log_sigma) / (low - high)
+        w = np.clip(w, 0, 1)
+
+        # transform interpolation to time range
+        t = (1 - w) * low_idx + w * high_idx
+        return t
 
     def schedule(self, steps: int) -> NDArray[np.float64]:
         # # https://arxiv.org/abs/2305.08891 Table 2
@@ -120,7 +155,7 @@ class ZSNR(Scaled):
 
 
 @dataclass
-class Flow(SkrampleSchedule):
+class Flow(ScheduleCommon):
     mu: float | None = None
     shift: float = 3.0
     # base_image_seq_len: int = 256
@@ -132,6 +167,9 @@ class Flow(SkrampleSchedule):
     @property
     def subnormal(self) -> bool:
         return True
+
+    def _sigmas_to_timesteps(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
+        return sigmas * self.num_train_timesteps
 
     def schedule(self, steps: int) -> NDArray[np.float64]:
         # # # The actual schedule code
@@ -157,3 +195,27 @@ class Flow(SkrampleSchedule):
         timesteps = sigmas * self.num_train_timesteps
 
         return np.stack([timesteps, sigmas], axis=1)
+
+
+@dataclass
+class Karras(SkrampleSchedule):
+    base: SkrampleSchedule
+    rho: float = 7.0
+
+    def _sigmas_to_timesteps(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
+        return self.base._sigmas_to_timesteps(sigmas)
+
+    def schedule(self, steps: int) -> NDArray[np.float64]:
+        sigmas = self.base.sigmas(steps)
+
+        sigma_min = sigmas[-1].item()
+        sigma_max = sigmas[0].item()
+
+        ramp = np.linspace(0, 1, steps, dtype=np.float64)
+        min_inv_rho = sigma_min ** (1 / self.rho)
+        max_inv_rho = sigma_max ** (1 / self.rho)
+        sigmas = (max_inv_rho + ramp * (min_inv_rho - max_inv_rho)) ** self.rho
+
+        timesteps = self._sigmas_to_timesteps(sigmas)
+
+        return np.stack([timesteps.flatten(), sigmas], axis=1)
