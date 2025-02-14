@@ -20,6 +20,11 @@ Early alpha, contains only a few features and a Diffusers wrapper class.
   - Dynamic and non-dynamic shifting
 - ZSNR
 
+### Schedule modifiers
+- Karras
+- Exponential
+- Beta
+
 ### Predictors
 - Epsilon
 - Velocity / vpred
