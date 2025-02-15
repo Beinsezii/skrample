@@ -23,7 +23,8 @@ def dual_sample(
     # Inputs
     a_sample = torch.zeros([1, 4, 128, 128], dtype=torch.float32)
     b_sample = a_sample.clone()
-    initial_noise = torch.randn(a_sample.shape, generator=torch.manual_seed(0), dtype=a_sample.dtype)
+    seed = torch.manual_seed(0)
+    initial_noise = torch.randn(a_sample.shape, generator=seed, dtype=a_sample.dtype)
 
     if isinstance(b, FlowMatchEulerDiscreteScheduler):
         b.set_timesteps(steps.stop, mu=mu)
@@ -46,7 +47,6 @@ def dual_sample(
     prior_steps: list[SKSamples] = []
     for step in steps:
         # Just some pseud-random transform that shouldn't blow up the values
-        seed = torch.manual_seed(step)
         model = torch.randn([128, 128], generator=seed, dtype=a_sample.dtype)
         noise = torch.randn(a_sample.shape, generator=seed.clone_state(), dtype=a_sample.dtype)
 
