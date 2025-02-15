@@ -1,3 +1,5 @@
+from inspect import signature
+
 import torch
 from diffusers.schedulers.scheduling_dpmsolver_multistep import DPMSolverMultistepScheduler
 from diffusers.schedulers.scheduling_euler_discrete import EulerDiscreteScheduler
@@ -44,9 +46,9 @@ def dual_sample(
     prior_steps: list[SKSamples] = []
     for step in steps:
         # Just some pseud-random transform that shouldn't blow up the values
-        model = torch.randn([128, 128], generator=torch.manual_seed(step), dtype=a_sample.dtype)
-
-        noise = torch.randn(a_sample.shape, generator=torch.manual_seed(step + steps.stop * 2), dtype=a_sample.dtype)
+        seed = torch.manual_seed(step)
+        model = torch.randn([128, 128], generator=seed, dtype=a_sample.dtype)
+        noise = torch.randn(a_sample.shape, generator=seed.clone_state(), dtype=a_sample.dtype)
 
         timestep, sigma = schedule[step]
 
@@ -60,7 +62,10 @@ def dual_sample(
         else:
             b_output = b.scale_model_input(sample=b_sample, timestep=timestep) * model
 
-        b_sample = b.step(model_output=b_output, sample=b_sample, timestep=timestep, variance_noise=noise)[0]  # type: ignore  # FloatTensor
+        if "generator" in signature(b.step).parameters:  # why, diffusers, why
+            b_sample = b.step(model_output=b_output, sample=b_sample, timestep=timestep, generator=seed)[0]  # type: ignore  # FloatTensor
+        else:
+            b_sample = b.step(model_output=b_output, sample=b_sample, timestep=timestep)[0]  # type: ignore  # FloatTensor
 
     return a_sample, b_sample
 
