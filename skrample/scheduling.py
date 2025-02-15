@@ -15,7 +15,7 @@ class SkrampleSchedule(ABC):
         return False
 
     @abstractmethod
-    def _sigmas_to_timesteps(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
+    def sigmas_to_timesteps(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
         pass
 
     @abstractmethod
@@ -50,10 +50,10 @@ class Scaled(ScheduleCommon):
     uniform: bool = True
     "Equivalent to spacing='trailing' in diffusers"
 
-    # TODO: where does this funky math come from. I don't think it matches the inverse of schedule()
-    def _sigmas_to_timesteps(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
-        # it uses the full dist
-        log_sigmas = np.flip(np.log(self.sigmas(self.num_train_timesteps)))
+    def sigmas_to_timesteps(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
+        # it uses full distribution pre-interp
+        scaled_sigmas = self.scaled_sigmas(self.alphas_cumprod(self.betas()))
+        log_sigmas = np.log(scaled_sigmas)
 
         # below here just a copy of diffusers' _sigma_to_t
 
@@ -156,7 +156,7 @@ class Flow(ScheduleCommon):
     def subnormal(self) -> bool:
         return True
 
-    def _sigmas_to_timesteps(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
+    def sigmas_to_timesteps(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
         return sigmas * self.num_train_timesteps
 
     def schedule(self, steps: int) -> NDArray[np.float64]:
@@ -192,8 +192,8 @@ class ScheduleModifier(SkrampleSchedule):
     def subnormal(self) -> bool:
         return self.base.subnormal
 
-    def _sigmas_to_timesteps(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
-        return self.base._sigmas_to_timesteps(sigmas)
+    def sigmas_to_timesteps(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
+        return self.base.sigmas_to_timesteps(sigmas)
 
 
 @dataclass
@@ -211,7 +211,7 @@ class Karras(ScheduleModifier):
         max_inv_rho = sigma_max ** (1 / self.rho)
         sigmas = (max_inv_rho + ramp * (min_inv_rho - max_inv_rho)) ** self.rho
 
-        timesteps = self._sigmas_to_timesteps(sigmas)
+        timesteps = self.sigmas_to_timesteps(sigmas)
 
         return np.stack([timesteps.flatten(), sigmas], axis=1)
 
@@ -231,7 +231,7 @@ class Exponential(ScheduleModifier):
         ramp = np.linspace(1, 0, steps, dtype=np.float64) ** self.rho
         sigmas = np.exp(ramp * (math.log(sigma_max) - math.log(sigma_min)) + math.log(sigma_min))
 
-        timesteps = self._sigmas_to_timesteps(sigmas)
+        timesteps = self.sigmas_to_timesteps(sigmas)
 
         return np.stack([timesteps, sigmas], axis=1)
 
@@ -252,6 +252,6 @@ class Beta(ScheduleModifier):
         pparr = scipy.stats.beta.ppf(1 - np.linspace(0, 1, steps, dtype=np.float64), self.alpha, self.beta)
         sigmas = sigma_min + (pparr * (sigma_max - sigma_min))
 
-        timesteps = self._sigmas_to_timesteps(sigmas)
+        timesteps = self.sigmas_to_timesteps(sigmas)
 
         return np.stack([timesteps.flatten(), sigmas], axis=1)
