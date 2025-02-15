@@ -165,11 +165,10 @@ class Flow(ScheduleCommon):
         # # Strange it's 1000 -> 1 instead of 999 -> 0?
         # sigma_start, sigma_end = 1, 1 / self.num_train_timesteps
         #
-        # if mu is None:
+        # if self.mu is None:
         #     sigma_start = self.shift * sigma_start / (1 + (self.shift - 1) * sigma_start)
         #     sigma_end = self.shift * sigma_end / (1 + (self.shift - 1) * sigma_end)
         #
-        # sigmas = np.linspace(sigma_start, sigma_end, steps, dtype=np.float64)
         # sigmas = np.linspace(sigma_start, sigma_end, steps + 1, dtype=np.float64)[:-1]
 
         # What the flux pipeline overrides it to. Seems more correct?
