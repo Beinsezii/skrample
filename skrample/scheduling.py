@@ -218,14 +218,22 @@ class Karras(ScheduleModifier):
 
 @dataclass
 class Exponential(ScheduleModifier):
+    "Also known as 'polyexponential' when rho != 1"
+
+    rho: float = 1.0
+    "Ramp power"
+
     def schedule(self, steps: int) -> NDArray[np.float64]:
         sigmas = self.base.sigmas(steps)
+        sigma_min = sigmas[-1].item()
+        sigma_max = sigmas[0].item()
 
-        sigmas = np.exp(np.linspace(math.log(sigmas[0]), math.log(sigmas[-1]), steps))
+        ramp = np.linspace(1, 0, steps, dtype=np.float64) ** self.rho
+        sigmas = np.exp(ramp * (math.log(sigma_max) - math.log(sigma_min)) + math.log(sigma_min))
 
         timesteps = self._sigmas_to_timesteps(sigmas)
 
-        return np.stack([timesteps.flatten(), sigmas], axis=1)
+        return np.stack([timesteps, sigmas], axis=1)
 
 
 @dataclass
