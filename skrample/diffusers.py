@@ -1,6 +1,6 @@
-import collections
 import dataclasses
 import math
+from collections import OrderedDict
 
 import numpy as np
 import torch
@@ -16,7 +16,7 @@ class SkrampleWrapperScheduler:
     schedule: SkrampleSchedule
     compute_scale: torch.dtype | None
 
-    _steps: int
+    _steps: int = 50
     _device: torch.device = torch.device("cpu")
     _previous: list[SKSamples] = []
 
@@ -30,10 +30,8 @@ class SkrampleWrapperScheduler:
         self.schedule = schedule
         self.compute_scale = compute_scale
 
-        self._steps = schedule.num_train_timesteps
-
     @property
-    def schedule_np(self) -> NDArray[np.float32]:
+    def schedule_np(self) -> NDArray[np.float64]:
         return self.schedule(steps=self._steps)
 
     @property
@@ -76,7 +74,10 @@ class SkrampleWrapperScheduler:
             | dataclasses.asdict(self.sampler)
             | dataclasses.asdict(self.schedule)
         )
-        return collections.namedtuple("FrozenDict", field_names=fake_config.keys())(**fake_config)
+        fake_config_object = OrderedDict(**fake_config)
+        for k, v in fake_config_object.items():
+            setattr(fake_config_object, k, v)
+        return fake_config_object
 
     def time_shift(self, mu: float, sigma: float, t: Tensor):
         return math.exp(mu) / (math.exp(mu) + (1 / t - 1) ** sigma)

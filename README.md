@@ -35,7 +35,7 @@ Early alpha, contains only a few features and a Diffusers wrapper class.
 - [X] Compatibility for pipelines
   - [X] SD1
   - [X] SDXL
-  - [ ] SD3
+  - [X] SD3
   - [X] Flux
   - [ ] Others?
 - [ ] Import from config
