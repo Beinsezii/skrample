@@ -159,7 +159,7 @@ class Flow(ScheduleCommon):
     def sigmas_to_timesteps(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
         return sigmas * self.num_train_timesteps
 
-    def schedule(self, steps: int) -> NDArray[np.float64]:
+    def sigmas(self, steps: int) -> NDArray[np.float64]:
         # # # The actual schedule code
         #
         # # Strange it's 1000 -> 1 instead of 999 -> 0?
@@ -179,7 +179,11 @@ class Flow(ScheduleCommon):
         else:  # non-dynamic
             sigmas = self.shift * sigmas / (1 + (self.shift - 1) * sigmas)
 
-        timesteps = sigmas * self.num_train_timesteps
+        return sigmas
+
+    def schedule(self, steps: int) -> NDArray[np.float64]:
+        sigmas = self.sigmas(steps)
+        timesteps = self.sigmas_to_timesteps(sigmas)
 
         return np.stack([timesteps, sigmas], axis=1)
 
