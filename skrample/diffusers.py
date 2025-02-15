@@ -40,11 +40,11 @@ class SkrampleWrapperScheduler:
 
     @property
     def timesteps(self) -> Tensor:
-        return self.schedule_pt[:, 0]
+        return torch.from_numpy(self.schedule.timesteps(steps=self._steps)).to(self._device)
 
     @property
     def sigmas(self) -> Tensor:
-        sigmas = self.schedule_pt[:, 1]
+        sigmas = torch.from_numpy(self.schedule.sigmas(steps=self._steps)).to(self._device)
         # diffusers expects the extra zero
         return torch.cat([sigmas, torch.zeros([1], device=sigmas.device, dtype=sigmas.dtype)])
 
