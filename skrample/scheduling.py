@@ -114,7 +114,7 @@ class Scaled(ScheduleCommon):
 @dataclass
 class ZSNR(Scaled):
     # Just some funny number I made up when working on the diffusers PR that worked well. F32 smallest subnormal
-    epsilon = 2**-24
+    epsilon: float = 2**-24
     "Amount to shift the zero value by to keep calculations finite."
 
     uniform: bool = True
