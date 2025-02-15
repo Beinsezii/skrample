@@ -48,6 +48,7 @@ class Scaled(ScheduleCommon):
     # Let's name this "uniform" instead of trailing since it basically just avoids the truncation.
     # Think that's what ComfyUI does
     uniform: bool = True
+    "Equivalent to spacing='trailing' in diffusers"
 
     # TODO: where does this funky math come from. I don't think it matches the inverse of schedule()
     def _sigmas_to_timesteps(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -77,15 +78,16 @@ class Scaled(ScheduleCommon):
         t = (1 - w) * low_idx + w * high_idx
         return t
 
-    def schedule(self, steps: int) -> NDArray[np.float64]:
+    def timesteps(self, steps: int) -> NDArray[np.float64]:
         # # https://arxiv.org/abs/2305.08891 Table 2
         if self.uniform:
-            timesteps = np.linspace(self.num_train_timesteps - 1, 0, steps + 1, dtype=np.float64).round()[:-1]
+            return np.linspace(self.num_train_timesteps - 1, 0, steps + 1, dtype=np.float64).round()[:-1]
         else:
             # They use a truncated ratio for ...reasons?
-            timesteps = np.flip(np.arange(0, steps, dtype=np.float64) * (self.num_train_timesteps // steps)).round()
+            return np.flip(np.arange(0, steps, dtype=np.float64) * (self.num_train_timesteps // steps)).round()
 
-        betas = (
+    def betas(self) -> NDArray[np.float64]:
+        return (
             np.linspace(
                 self.beta_start ** (1 / self.scale),
                 self.beta_end ** (1 / self.scale),
@@ -94,8 +96,16 @@ class Scaled(ScheduleCommon):
             )
             ** self.scale
         )
-        alphas_cumprod = np.cumprod(1 - betas, axis=0)
-        sigmas = ((1 - alphas_cumprod) / alphas_cumprod) ** 0.5
+
+    def alphas_cumprod(self, betas: NDArray[np.float64]) -> NDArray[np.float64]:
+        return np.cumprod(1 - betas, axis=0)
+
+    def scaled_sigmas(self, alphas_cumprod: NDArray[np.float64]) -> NDArray[np.float64]:
+        return ((1 - alphas_cumprod) / alphas_cumprod) ** 0.5
+
+    def schedule(self, steps: int) -> NDArray[np.float64]:
+        sigmas = self.scaled_sigmas(self.alphas_cumprod(self.betas()))
+        timesteps = self.timesteps(steps)
         sigmas = np.interp(timesteps, np.arange(0, len(sigmas)), sigmas)
 
         return np.stack([timesteps, sigmas], axis=1)
@@ -107,26 +117,10 @@ class ZSNR(Scaled):
     epsilon = 2**-24
     "Amount to shift the zero value by to keep calculations finite."
 
-    # ZSNR should always uniform/trailing
     uniform: bool = True
+    "ZSNR should always uniform/trailing"
 
-    def schedule(self, steps: int) -> NDArray[np.float64]:
-        # from super()
-        if self.uniform:
-            timesteps = np.linspace(self.num_train_timesteps - 1, 0, steps + 1, dtype=np.float64).round()[:-1]
-        else:
-            timesteps = np.flip(np.arange(0, steps, dtype=np.float64) * (self.num_train_timesteps // steps)).round()
-
-        betas = (
-            np.linspace(
-                self.beta_start ** (1 / self.scale),
-                self.beta_end ** (1 / self.scale),
-                self.num_train_timesteps,
-                dtype=np.float64,
-            )
-            ** self.scale
-        )
-
+    def alphas_cumprod(self, betas: NDArray[np.float64]) -> NDArray[np.float64]:
         ### from https://arxiv.org/pdf/2305.08891.pdf (Algorithm 1)
         # Convert betas to alphas_bar_sqrt
         alphas_bar_sqrt = np.cumprod(1 - betas, axis=0) ** 0.5
@@ -145,13 +139,7 @@ class ZSNR(Scaled):
         alphas_cumprod = alphas_bar_sqrt**2  # Revert sqrt
 
         alphas_cumprod[-1] = self.epsilon  # Epsilon to avoid inf
-        ###
-
-        # from super()
-        sigmas = ((1 - alphas_cumprod) / alphas_cumprod) ** 0.5
-        sigmas = np.interp(timesteps, np.arange(0, len(sigmas)), sigmas)
-
-        return np.stack([timesteps, sigmas], axis=1)
+        return alphas_cumprod
 
 
 @dataclass
