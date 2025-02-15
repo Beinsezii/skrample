@@ -241,14 +241,8 @@ class Beta(ScheduleModifier):
         sigma_min = sigmas[-1].item()
         sigma_max = sigmas[0].item()
 
-        sigmas = np.array(
-            [
-                sigma_min + (ppf * (sigma_max - sigma_min))
-                for ppf in [
-                    scipy.stats.beta.ppf(timestep, self.alpha, self.beta) for timestep in 1 - np.linspace(0, 1, steps)
-                ]
-            ]
-        )
+        pparr = scipy.stats.beta.ppf(1 - np.linspace(0, 1, steps, dtype=np.float64), self.alpha, self.beta)
+        sigmas = sigma_min + (pparr * (sigma_max - sigma_min))
 
         timesteps = self._sigmas_to_timesteps(sigmas)
 
