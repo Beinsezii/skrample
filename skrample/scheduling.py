@@ -189,6 +189,10 @@ class Flow(ScheduleCommon):
 class ScheduleModifier(SkrampleSchedule):
     base: SkrampleSchedule
 
+    @property
+    def subnormal(self) -> bool:
+        return self.base.subnormal
+
     def _sigmas_to_timesteps(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
         return self.base._sigmas_to_timesteps(sigmas)
 
