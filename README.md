@@ -45,7 +45,8 @@ Early alpha, contains only a few features and a Diffusers wrapper class.
 - [ ] Manage state
   - [X] Steps
   - [X] Higher order
-  - [ ] Generators
+  - [X] Generators
+  - [ ] Config as presented
 
 ## Implementations
 ### quickdif

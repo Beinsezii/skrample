@@ -137,12 +137,30 @@ class SkrampleWrapperScheduler:
         step = schedule[:, 0].tolist().index(timestep if isinstance(timestep, (int, float)) else timestep.item())
 
         if isinstance(self.sampler, StochasticSampler) and self.sampler.add_noise:
-            noise = torch.randn(
-                sample.shape[1:],  # exclude batch to give same noise "seed" to all images
-                generator=torch.manual_seed(step),  # should we even use the generators?
-                dtype=torch.float32,  # lock to cpu f32 for consistent seeds
-                device="cpu",
-            ).to(device=sample.device, dtype=self.compute_scale)
+            if isinstance(generator, list) and len(generator) == sample.shape[0]:
+                seeds = generator
+            elif isinstance(generator, torch.Generator) and sample.shape[0] == 1:
+                seeds = [generator]
+            else:
+                # use median element +4 decimals as seed for a balance of determinism without lacking variety
+                # multiply by step index to spread the values and minimize clash
+                # does not work across batch sizes but at least Flux will have something mostly deterministic
+                seeds = [
+                    torch.Generator().manual_seed(int(b.view(b.numel())[b.numel() // 2].item() * 1e4) * (step + 1))
+                    for b in sample
+                ]
+
+            noise = torch.stack(
+                [
+                    torch.randn(
+                        sample.shape[1:],  # exclude batch
+                        generator=g,  # should we even use the generators?
+                        dtype=torch.float32,  # lock to cpu f32 for consistent seeds
+                        device="cpu",
+                    ).to(device=sample.device, dtype=self.compute_scale)
+                    for g in seeds
+                ]
+            )
         else:
             noise = None
 
