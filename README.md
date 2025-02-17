@@ -38,15 +38,16 @@ Early alpha, contains only a few features and a Diffusers wrapper class.
   - [X] SD3
   - [X] Flux
   - [ ] Others?
-- [ ] Import from config
+- [X] Import from config
   - [ ] Sampler
-  - [ ] Schedule
-  - [ ] Predictor
-- [ ] Manage state
+    - Not sure this is even worthwhile. All Skrample samplers work everywhere
+  - [X] Schedule
+  - [X] Predictor
+- [X] Manage state
   - [X] Steps
   - [X] Higher order
   - [X] Generators
-  - [ ] Config as presented
+  - [X] Config as presented
 
 ## Implementations
 ### quickdif
