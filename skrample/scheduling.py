@@ -43,7 +43,7 @@ class ScheduleCommon(SkrampleSchedule):
 class Scaled(ScheduleCommon):
     beta_start: float = 0.00085
     beta_end: float = 0.012
-    scale: float = 2
+    beta_scale: float = 2
 
     # Let's name this "uniform" instead of trailing since it basically just avoids the truncation.
     # Think that's what ComfyUI does
@@ -89,12 +89,12 @@ class Scaled(ScheduleCommon):
     def betas(self) -> NDArray[np.float64]:
         return (
             np.linspace(
-                self.beta_start ** (1 / self.scale),
-                self.beta_end ** (1 / self.scale),
+                self.beta_start ** (1 / self.beta_scale),
+                self.beta_end ** (1 / self.beta_scale),
                 self.num_train_timesteps,
                 dtype=np.float64,
             )
-            ** self.scale
+            ** self.beta_scale
         )
 
     def alphas_cumprod(self, betas: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -198,6 +198,14 @@ class ScheduleModifier(SkrampleSchedule):
 
     def sigmas_to_timesteps(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
         return self.base.sigmas_to_timesteps(sigmas)
+
+
+@dataclass
+class NoMod(ScheduleModifier):
+    "Does nothing. For generic programming against ScheduleModifier"
+
+    def schedule(self, steps: int) -> NDArray[np.float64]:
+        return self.base.schedule(steps)
 
 
 @dataclass

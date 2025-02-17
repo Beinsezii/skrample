@@ -14,6 +14,9 @@ else:
     Sample = float
 
 
+PREDICTOR = Callable[[Sample, Sample, float, bool], Sample]
+
+
 def safe_log(x: float) -> float:
     try:
         return math.log(x)
