@@ -66,7 +66,7 @@ def compare_schedulers(
 
 def test_sdxl_i2i():
     gc.collect()
-    dt, dv = torch.float32, torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+    dt, dv = torch.float16, torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     pipe = StableDiffusionXLImg2ImgPipeline.from_pretrained("stabilityai/stable-diffusion-xl-base-1.0", torch_dtype=dt)
     pipe.enable_model_cpu_offload(device=dv)
     assert isinstance(pipe, StableDiffusionXLImg2ImgPipeline)
