@@ -1,6 +1,10 @@
+import random
+
+import numpy as np
 import torch
 from testing_common import compare_tensors
 
+from skrample.sampling import DPM, Euler, SKSamples, UniPC
 from skrample.scheduling import Flow, Scaled
 
 
@@ -9,3 +13,40 @@ def test_sigmas_to_timesteps():
         timesteps = schedule.timesteps(123)
         timesteps_inv = schedule.sigmas_to_timesteps(schedule.sigmas(123))
         compare_tensors(torch.tensor(timesteps), torch.tensor(timesteps_inv), margin=0)  # shocked this rounds good
+
+
+def test_sampler_generics():
+    eps = 1e-32
+    for sampler in Euler(), DPM(order=2), UniPC(order=3):
+        for schedule in Scaled(), Flow():
+            i, o = random.random(), random.random()
+            prev = [SKSamples(random.random(), random.random(), random.random()) for _ in range(9)]  # type: ignore
+
+            scalar = sampler.sample(
+                i,  # type: ignore
+                o,  # type: ignore
+                schedule.sigmas(10),
+                4,
+                previous=prev,
+            ).final  # type: ignore
+
+            # Enforce FP64 as that should be equivalent to python scalar
+            ndarr = sampler.sample(
+                np.array([i], dtype=np.float64),  # type: ignore
+                np.array([o], dtype=np.float64),  # type: ignore
+                schedule.sigmas(10),
+                4,
+                previous=prev,
+            ).final.item()
+
+            tensor = sampler.sample(
+                torch.tensor([i], dtype=torch.float64),
+                torch.tensor([o], dtype=torch.float64),
+                schedule.sigmas(10),
+                4,
+                previous=prev,
+            ).final.item()
+
+            assert abs(tensor - scalar) < eps
+            assert abs(tensor - ndarr) < eps
+            assert abs(scalar - ndarr) < eps
