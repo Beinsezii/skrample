@@ -4,14 +4,19 @@ version = "0.1.0"
 description = "get skrampled"
 readme = "README.md"
 authors = [{ name = "Beinsezii", email = "beinsezii@gmail.com" }]
-requires-python = ">=3.11"
-dependencies = ["numpy>=2.0", "torch>=2.4"]
+requires-python = ">=3.12"
+dependencies = ["numpy>=2.0"]
 
 [build-system]
 requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
+beta-schedule = ["scipy>=1.12"]
+diffusers-wrapper = ["torch>=2.5"]
+
+all = ['skrample[beta-schedule,diffusers-wrapper]']
+
 dev = [
     "accelerate>=1.3",
     "diffusers>=0.32",
