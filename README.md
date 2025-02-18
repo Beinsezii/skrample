@@ -4,6 +4,12 @@ Composable sampling functions for diffusion models
 ## Status
 Early alpha, contains only a few features and a Diffusers wrapper class.
 
+### Feature Flags
+ - `beta-schedule` : For the `Beta()` schedule modifier
+ - `diffusers-wrapper` : For the `diffusers` integration module
+ - `all` : All of the above
+ - `dev` : For running `tests/`
+
 ### Samplers
 - Euler
 - DPM
