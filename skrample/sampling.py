@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable
 
+import numpy as np
 from numpy.typing import NDArray
 
 if TYPE_CHECKING:
@@ -286,9 +287,7 @@ class DPM(HighOrderSampler, StochasticSampler):
 @dataclass
 class UniPC(HighOrderSampler):
     """Unique sampler that can correct other samplers or its own prediction function.
-    The additional correction essentially adds +1 order on top of what is set.
-
-    Requires `torch`, inputs MUST be `torch.Tensor`"""
+    The additional correction essentially adds +1 order on top of what is set."""
 
     solver: SkrampleSampler | None = None
     """If set, will use another sampler then perform its own correction.
@@ -311,9 +310,8 @@ class UniPC(HighOrderSampler):
         h_X: float,
         order: int,
         prior: bool,
-    ) -> tuple[float, Sample, float | Sample, float]:
-        import torch  # einsum operates on the full sample, so numpy would involve lots of data movement.
-
+    ) -> tuple[float, list[float], float | Sample, float]:
+        "B_h, rhos, result, h_phi_1_X"
         # hh = -h if self.predict_x0 else h
         hh_X = -h_X
         h_phi_1_X = math.expm1(hh_X)  # h\phi_1(h) = e^h - 1
@@ -353,18 +351,13 @@ class UniPC(HighOrderSampler):
             h_phi_k = h_phi_k / hh_X - 1 / factorial_i
 
         if order <= 2 - prior:
-            rhos = torch.tensor([0.5], dtype=prediction.dtype, device=prediction.device)
+            rhos: list[float] = [0.5]
         else:
+            # small array order x order, fast to do it in just np
             i = len(rks)
-            rhos = torch.linalg.solve(
-                torch.tensor(R[:i], dtype=prediction.dtype, device=prediction.device),
-                torch.tensor(b[:i], dtype=prediction.dtype, device=prediction.device),
-            )
+            rhos = np.linalg.solve(R[:i], b[:i]).tolist()  # type: ignore
 
-        if D1s:
-            uni_res = torch.einsum("k,bkc...->bc...", rhos[:-1] if prior else rhos, torch.stack(D1s, dim=1))
-        else:
-            uni_res = 0
+        uni_res = sum(map(math.prod, zip(rhos, D1s)))
 
         return B_h, rhos, uni_res, h_phi_1_X
 
