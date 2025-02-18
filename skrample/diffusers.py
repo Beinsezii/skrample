@@ -139,7 +139,7 @@ class SkrampleWrapperScheduler:
 
     _steps: int = 50
     _device: torch.device = torch.device("cpu")
-    _previous: list[SKSamples] = []
+    _previous: list[SKSamples[Tensor]] = []
 
     def __init__(
         self,

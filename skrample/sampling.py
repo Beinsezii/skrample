@@ -9,10 +9,10 @@ from numpy.typing import NDArray
 if TYPE_CHECKING:
     from torch import Tensor
 
-    Sample = Tensor
+    Sample = Tensor | float | NDArray
 else:
     # Avoid pulling all of torch as the code doesn't explicitly depend on it.
-    Sample = float
+    Sample = NDArray | float
 
 
 PREDICTOR = Callable[[Sample, Sample, float, bool], Sample]
@@ -33,40 +33,40 @@ def sigma_normal(sigma: float, subnormal: bool = False) -> tuple[float, float]:
         return sigma * alpha, alpha
 
 
-def EPSILON(sample: Sample, output: Sample, sigma: float, subnormal: bool = False) -> Sample:
+def EPSILON[T: Sample](sample: T, output: T, sigma: float, subnormal: bool = False) -> T:
     "If a model does not specify, this is usually what it needs."
     sigma, alpha = sigma_normal(sigma, subnormal)
-    return (sample - sigma * output) / alpha
+    return (sample - sigma * output) / alpha  # type: ignore
 
 
-def SAMPLE(sample: Sample, output: Sample, sigma: float, subnormal: bool = False) -> Sample:
+def SAMPLE[T: Sample](sample: T, output: T, sigma: float, subnormal: bool = False) -> T:
     "No prediction. Only for single step afaik."
     return output
 
 
-def VELOCITY(sample: Sample, output: Sample, sigma: float, subnormal: bool = False) -> Sample:
+def VELOCITY[T: Sample](sample: T, output: T, sigma: float, subnormal: bool = False) -> T:
     "Rare, models will usually explicitly say they require velocity/vpred/zero terminal SNR"
     sigma, alpha = sigma_normal(sigma, subnormal)
-    return alpha * sample - sigma * output
+    return alpha * sample - sigma * output  # type: ignore
 
 
-def FLOW(sample: Sample, output: Sample, sigma: float, subnormal: bool = False) -> Sample:
+def FLOW[T: Sample](sample: T, output: T, sigma: float, subnormal: bool = False) -> T:
     "Flow matching models use this, notably FLUX.1 and SD3"
-    return sample - sigma * output
+    return sample - sigma * output  # type: ignore
 
 
 @dataclass(frozen=True)
-class SKSamples:
+class SKSamples[T: Sample]:
     """Sampler result struct for easy management of multiple sampling stages.
     This should be accumulated in a list for the denoising loop in order to use higher order features"""
 
-    final: Sample
+    final: T
     "Final result. What you probably want"
 
-    prediction: Sample
+    prediction: T
     "Just the prediction from SkrampleSampler.predictor if it's used"
 
-    sample: Sample
+    sample: T
     "An intermediate sample stage or input samples. Mostly for internal use by advanced samplers"
 
 
@@ -78,7 +78,7 @@ class SkrampleSampler(ABC):
     Unless otherwise specified, the Sample type is a stand-in that is
     type checked against torch.Tensor but should be generic enough to use with ndarrays or even raw floats"""
 
-    predictor: Callable[[Sample, Sample, float, bool], Sample] = EPSILON
+    predictor: PREDICTOR = EPSILON
     "Predictor function. Most models are EPSILON, FLUX/SD3 are FLOW, VELOCITY and SAMPLE are rare."
 
     @staticmethod
@@ -87,16 +87,16 @@ class SkrampleSampler(ABC):
         return sigma_schedule[step].item() if step < len(sigma_schedule) else 0
 
     @abstractmethod
-    def sample(
+    def sample[T: Sample](
         self,
-        sample: Sample,
-        output: Sample,
+        sample: T,
+        output: T,
         sigma_schedule: NDArray,
         step: int,
-        noise: Sample | None = None,
-        previous: list[SKSamples] = [],
+        noise: T | None = None,
+        previous: list[SKSamples[T]] = [],
         subnormal: bool = False,
-    ) -> SKSamples:
+    ) -> SKSamples[T]:
         """sigma_schedule is just the sigmas, IE SkrampleSchedule()[:, 1].
 
         `noise` is noise specific to this step for StochasticSampler or other schedulers that compute against noise.
@@ -107,23 +107,23 @@ class SkrampleSampler(ABC):
         """
         pass
 
-    def scale_input(self, sample: Sample, sigma: float, subnormal: bool = False) -> Sample:
+    def scale_input[T: Sample](self, sample: T, sigma: float, subnormal: bool = False) -> T:
         return sample
 
-    def merge_noise(self, sample: Sample, noise: Sample, sigma: float, subnormal: bool = False) -> Sample:
+    def merge_noise[T: Sample](self, sample: T, noise: T, sigma: float, subnormal: bool = False) -> T:
         sigma, alpha = sigma_normal(sigma, subnormal)
-        return sample * alpha + noise * sigma
+        return sample * alpha + noise * sigma  # type: ignore
 
-    def __call__(
+    def __call__[T: Sample](
         self,
-        sample: Sample,
-        output: Sample,
+        sample: T,
+        output: T,
         sigma_schedule: NDArray,
         step: int,
-        noise: Sample | None = None,
-        previous: list[SKSamples] = [],
+        noise: T | None = None,
+        previous: list[SKSamples[T]] = [],
         subnormal: bool = False,
-    ) -> SKSamples:
+    ) -> SKSamples[T]:
         return self.sample(
             sample=sample,
             output=output,
@@ -175,23 +175,23 @@ class StochasticSampler(SkrampleSampler):
 class Euler(SkrampleSampler):
     """Basic sampler, the "safe" choice."""
 
-    def sample(
+    def sample[T: Sample](
         self,
-        sample: Sample,
-        output: Sample,
+        sample: T,
+        output: T,
         sigma_schedule: NDArray,
         step: int,
-        noise: Sample | None = None,
-        previous: list[SKSamples] = [],
+        noise: T | None = None,
+        previous: list[SKSamples[T]] = [],
         subnormal: bool = False,
-    ) -> SKSamples:
+    ) -> SKSamples[T]:
         sigma = self.get_sigma(step, sigma_schedule)
         sigma_n1 = self.get_sigma(step + 1, sigma_schedule)
 
         signorm, alpha = sigma_normal(sigma, subnormal)
         signorm_n1, alpha_n1 = sigma_normal(sigma_n1, subnormal)
 
-        prediction = self.predictor(sample, output, sigma, subnormal)
+        prediction: T = self.predictor(sample, output, sigma, subnormal)  # type: ignore
 
         # Dual branch *works* but blows up if sigma sigma_schedule is exactly `[1.0, 0.0]`
         # DPM works anyways so I'm not sure it's worth having a separate EulerFlow sampler just for that edge case
@@ -202,11 +202,11 @@ class Euler(SkrampleSampler):
             # Moved / to signorm instead so / 0 is on trailing
             # Works but result is very slightly less accurate. Like +- 1e-14
             # thx Qwen
-            sample = (sample * sigma) / signorm
-            term2 = (sample - prediction) * (sigma_n1 / sigma - 1)
-            sampled = (sample + term2) * (signorm_n1 / sigma_n1)
+            term1 = (sample * sigma) / signorm
+            term2 = (term1 - prediction) * (sigma_n1 / sigma - 1)
+            sampled = (term1 + term2) * (signorm_n1 / sigma_n1)
 
-        return SKSamples(
+        return SKSamples(  # type: ignore
             final=sampled,
             prediction=prediction,
             sample=sample,
@@ -225,16 +225,16 @@ class DPM(HighOrderSampler, StochasticSampler):
     def max_order(self) -> int:
         return 2  # TODO: 3, 4+?
 
-    def sample(
+    def sample[T: Sample](
         self,
-        sample: Sample,
-        output: Sample,
+        sample: T,
+        output: T,
         sigma_schedule: NDArray,
         step: int,
-        noise: Sample | None = None,
-        previous: list[SKSamples] = [],
+        noise: T | None = None,
+        previous: list[SKSamples[T]] = [],
         subnormal: bool = False,
-    ) -> SKSamples:
+    ) -> SKSamples[T]:
         sigma = self.get_sigma(step, sigma_schedule)
         sigma_n1 = self.get_sigma(step + 1, sigma_schedule)
 
@@ -254,7 +254,7 @@ class DPM(HighOrderSampler, StochasticSampler):
             exp2 = 1.0 - math.exp(-h)
             noise_factor = 0
 
-        prediction = self.predictor(sample, output, sigma, subnormal)
+        prediction: T = self.predictor(sample, output, sigma, subnormal)  # type: ignore
 
         sampled = noise_factor + (signorm_n1 / signorm * exp1) * sample
         # 1st order
@@ -277,7 +277,7 @@ class DPM(HighOrderSampler, StochasticSampler):
             # 2nd order
             sampled += (0.5 * alpha_n1 * exp2) * prediction_p1
 
-        return SKSamples(
+        return SKSamples(  # type: ignore
             final=sampled,
             prediction=prediction,
             sample=sample,
@@ -299,18 +299,18 @@ class UniPC(HighOrderSampler):
         # 4-6 is mostly stable now, 7-9 depends on the model. What ranges are actually useful..?
         return 9
 
-    def _uni_p_c_prelude(
+    def _uni_p_c_prelude[T: Sample](
         self,
-        prediction: Sample,
+        prediction: T,
         step: int,
         sigma_schedule: NDArray,
-        previous: list[SKSamples],
+        previous: list[SKSamples[T]],
         subnormal: bool,
         lambda_X: float,
         h_X: float,
         order: int,
         prior: bool,
-    ) -> tuple[float, list[float], float | Sample, float]:
+    ) -> tuple[float, list[float], float | T, float]:
         "B_h, rhos, result, h_phi_1_X"
         # hh = -h if self.predict_x0 else h
         hh_X = -h_X
@@ -361,18 +361,18 @@ class UniPC(HighOrderSampler):
 
         return B_h, rhos, uni_res, h_phi_1_X
 
-    def sample(
+    def sample[T: Sample](
         self,
-        sample: Sample,
-        output: Sample,
+        sample: T,
+        output: T,
         sigma_schedule: NDArray,
         step: int,
-        noise: Sample | None = None,
-        previous: list[SKSamples] = [],
+        noise: T | None = None,
+        previous: list[SKSamples[T]] = [],
         subnormal: bool = False,
-    ) -> SKSamples:
+    ) -> SKSamples[T]:
         sigma = self.get_sigma(step, sigma_schedule)
-        prediction = self.predictor(sample, output, sigma, subnormal)
+        prediction: T = self.predictor(sample, output, sigma, subnormal)  # type: ignore
 
         sigma = self.get_sigma(step, sigma_schedule)
         signorm, alpha = sigma_normal(sigma, subnormal)
@@ -397,7 +397,7 @@ class UniPC(HighOrderSampler):
             # if self.predict_x0:
             x_t_ = signorm / signorm_p1 * sample_p1 - alpha * h_phi_1_p1 * prediction_p1
             D1_t = prediction - prediction_p1
-            sample = x_t_ - alpha * B_h_p1 * (uni_c_res + rhos_c[-1] * D1_t)
+            sample = x_t_ - alpha * B_h_p1 * (uni_c_res + rhos_c[-1] * D1_t)  # type: ignore
             # else:
             #     x_t_ = alpha_t / alpha_s0 * x - sigma_t * h_phi_1 * m0
             #     D1_t = model_t - m0
@@ -424,7 +424,7 @@ class UniPC(HighOrderSampler):
             #     x_t_ = alpha_t / alpha_s0 * x - sigma_t * h_phi_1 * m0
             #     x_t = x_t_ - sigma_t * B_h * pred_res
 
-        return SKSamples(
+        return SKSamples(  # type: ignore
             final=sampled,
             prediction=prediction,
             sample=sample,

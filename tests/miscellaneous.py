@@ -22,21 +22,15 @@ def test_sampler_generics():
             i, o = random.random(), random.random()
             prev = [SKSamples(random.random(), random.random(), random.random()) for _ in range(9)]  # type: ignore
 
-            scalar = sampler.sample(
-                i,  # type: ignore
-                o,  # type: ignore
-                schedule.sigmas(10),
-                4,
-                previous=prev,
-            ).final  # type: ignore
+            scalar = sampler.sample(i, o, schedule.sigmas(10), 4, previous=prev).final
 
             # Enforce FP64 as that should be equivalent to python scalar
             ndarr = sampler.sample(
-                np.array([i], dtype=np.float64),  # type: ignore
-                np.array([o], dtype=np.float64),  # type: ignore
+                np.array([i], dtype=np.float64),
+                np.array([o], dtype=np.float64),
                 schedule.sigmas(10),
                 4,
-                previous=prev,
+                previous=prev,  # type: ignore
             ).final.item()
 
             tensor = sampler.sample(
@@ -44,7 +38,7 @@ def test_sampler_generics():
                 torch.tensor([o], dtype=torch.float64),
                 schedule.sigmas(10),
                 4,
-                previous=prev,
+                previous=prev,  # type: ignore
             ).final.item()
 
             assert abs(tensor - scalar) < eps
