@@ -218,7 +218,7 @@ class SkrampleWrapperScheduler:
     @property
     def init_noise_sigma(self) -> float:
         # idk why tf diffusers uses this instead of add_noise() for some shit
-        return self.sampler.merge_noise(0, 1, self.schedule_np[0, 1].item(), subnormal=self.schedule.subnormal)  # type: ignore
+        return self.sampler.merge_noise(0, 1, self.schedule_np[0, 1].item(), subnormal=self.schedule.subnormal)
 
     @property
     def order(self) -> int:
