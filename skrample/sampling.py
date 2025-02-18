@@ -7,12 +7,12 @@ import numpy as np
 from numpy.typing import NDArray
 
 if TYPE_CHECKING:
-    from torch import Tensor
+    from torch.types import Tensor
 
-    Sample = Tensor | float | NDArray
+    Sample = float | NDArray[np.floating] | Tensor
 else:
     # Avoid pulling all of torch as the code doesn't explicitly depend on it.
-    Sample = NDArray | float
+    Sample = float | NDArray[np.floating]
 
 
 PREDICTOR = Callable[[Sample, Sample, float, bool], Sample]
