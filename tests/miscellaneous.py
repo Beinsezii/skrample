@@ -20,7 +20,7 @@ def test_sampler_generics():
     for sampler in Euler(), DPM(order=2), UniPC(order=3):
         for schedule in Scaled(), Flow():
             i, o = random.random(), random.random()
-            prev = [SKSamples(random.random(), random.random(), random.random()) for _ in range(9)]  # type: ignore
+            prev = [SKSamples(random.random(), random.random(), random.random()) for _ in range(9)]
 
             scalar = sampler.sample(i, o, schedule.sigmas(10), 4, previous=prev).final
 
