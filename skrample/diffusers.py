@@ -126,7 +126,7 @@ def as_diffusers_config(sampler: SkrampleSampler, schedule: SkrampleSchedule) ->
         | {
             DIFFUSERS_VALUE_MAP_REV[(k, v)][0]: DIFFUSERS_VALUE_MAP_REV[(k, v)][1]
             for k, v in skrample_config.items()
-            if (k, v) in DIFFUSERS_VALUE_MAP_REV
+            if isinstance(v, Hashable) and (k, v) in DIFFUSERS_VALUE_MAP_REV
         }
     )
 
