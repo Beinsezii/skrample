@@ -2,6 +2,7 @@ from inspect import signature
 
 import torch
 from diffusers.schedulers.scheduling_dpmsolver_multistep import DPMSolverMultistepScheduler
+from diffusers.schedulers.scheduling_euler_ancestral_discrete import EulerAncestralDiscreteScheduler
 from diffusers.schedulers.scheduling_euler_discrete import EulerDiscreteScheduler
 from diffusers.schedulers.scheduling_flow_match_euler_discrete import FlowMatchEulerDiscreteScheduler
 from diffusers.schedulers.scheduling_unipc_multistep import UniPCMultistepScheduler
@@ -90,6 +91,18 @@ def test_euler():
         compare_samplers(
             Euler(predictor=predictor[0]),
             EulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
+                hf_scheduler_config("stabilityai/stable-diffusion-xl-base-1.0"),
+                prediction_type=predictor[1],
+            ),
+            message=predictor[0].__name__,
+        )
+
+
+def test_euler_ancestral():
+    for predictor in [(EPSILON, "epsilon"), (VELOCITY, "v_prediction")]:
+        compare_samplers(
+            Euler(add_noise=True, predictor=predictor[0]),
+            EulerAncestralDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
                 hf_scheduler_config("stabilityai/stable-diffusion-xl-base-1.0"),
                 prediction_type=predictor[1],
             ),

@@ -172,8 +172,9 @@ class StochasticSampler(SkrampleSampler):
 
 
 @dataclass
-class Euler(SkrampleSampler):
-    """Basic sampler, the "safe" choice."""
+class Euler(StochasticSampler):
+    """Basic sampler, the "safe" choice.
+    Add noise for ancestral sampling."""
 
     def sample[T: Sample](
         self,
@@ -191,20 +192,31 @@ class Euler(SkrampleSampler):
         signorm, alpha = sigma_normal(sigma, subnormal)
         signorm_n1, alpha_n1 = sigma_normal(sigma_n1, subnormal)
 
+        # TODO: subnormal
+        if self.add_noise and noise is not None and not subnormal:
+            sigma_up = (sigma_n1**2 * (sigma**2 - sigma_n1**2) / sigma**2) ** 0.5
+            sigma_down = (sigma_n1**2 - sigma_up**2) ** 0.5
+            noise_factor = noise * sigma_up
+            sigma_factor = sigma_down
+        else:
+            noise_factor = 0
+            sigma_factor = sigma_n1
+
         prediction: T = self.predictor(sample, output, sigma, subnormal)  # type: ignore
 
         # Dual branch *works* but blows up if sigma sigma_schedule is exactly `[1.0, 0.0]`
         # DPM works anyways so I'm not sure it's worth having a separate EulerFlow sampler just for that edge case
         if sigma_n1 == 0:  # get_sigma returns exact zero on +1 index
             # More accurate to how diffusers does it. / 0 on leading
-            sampled = (sample + ((sample - prediction * alpha) / sigma) * (sigma_n1 - sigma)) * (alpha_n1 / alpha)
+            scaled = sample / alpha
+            sampled = (scaled + ((scaled - prediction) / sigma) * (sigma_factor - sigma) + noise_factor) * alpha_n1
         else:
             # Moved / to signorm instead so / 0 is on trailing
             # Works but result is very slightly less accurate. Like +- 1e-14
             # thx Qwen
             term1 = (sample * sigma) / signorm
-            term2 = (term1 - prediction) * (sigma_n1 / sigma - 1)
-            sampled = (term1 + term2) * (signorm_n1 / sigma_n1)
+            term2 = (term1 - prediction) * (sigma_factor / sigma - 1)
+            sampled = (term1 + term2 + noise_factor) * (signorm_n1 / sigma_n1)
 
         return SKSamples(  # type: ignore
             final=sampled,
