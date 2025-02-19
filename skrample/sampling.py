@@ -192,10 +192,14 @@ class Euler(StochasticSampler):
         signorm, alpha = sigma_normal(sigma, subnormal)
         signorm_n1, alpha_n1 = sigma_normal(sigma_n1, subnormal)
 
-        # TODO: subnormal
-        if self.add_noise and noise is not None and not subnormal:
-            sigma_up = (sigma_n1**2 * (sigma**2 - sigma_n1**2) / sigma**2) ** 0.5
-            sigma_down = (sigma_n1**2 - sigma_up**2) ** 0.5
+        if self.add_noise and noise is not None:
+            if subnormal:
+                sigma_up = sigma_n1 * (sigma - sigma_n1) ** 2 / sigma
+                sigma_down = sigma_n1 - sigma_up
+            else:
+                sigma_up = (sigma_n1**2 * (sigma**2 - sigma_n1**2) / sigma**2) ** 0.5
+                sigma_down = (sigma_n1**2 - sigma_up**2) ** 0.5
+
             noise_factor = noise * sigma_up
             sigma_factor = sigma_down
         else:
