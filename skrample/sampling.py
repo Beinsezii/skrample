@@ -29,7 +29,7 @@ def sigma_normal(sigma: float, subnormal: bool = False) -> tuple[float, float]:
     if subnormal:
         return sigma, 1 - sigma
     else:
-        alpha = 1 / ((sigma**2 + 1) ** 0.5)
+        alpha = math.cos(math.atan(sigma))
         return sigma * alpha, alpha
 
 
