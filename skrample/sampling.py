@@ -29,8 +29,8 @@ def sigma_normal(sigma: float, subnormal: bool = False) -> tuple[float, float]:
     if subnormal:
         return sigma, 1 - sigma
     else:
-        alpha = math.cos(math.atan(sigma))
-        return sigma * alpha, alpha
+        theta = math.atan(sigma)
+        return math.sin(theta), math.cos(theta)
 
 
 def EPSILON[T: Sample](sample: T, output: T, sigma: float, subnormal: bool = False) -> T:
