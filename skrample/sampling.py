@@ -208,19 +208,15 @@ class Euler(StochasticSampler):
 
         prediction: T = self.predictor(sample, output, sigma, subnormal)  # type: ignore
 
-        # Dual branch *works* but blows up if sigma sigma_schedule is exactly `[1.0, 0.0]`
-        # DPM works anyways so I'm not sure it's worth having a separate EulerFlow sampler just for that edge case
-        if sigma_n1 == 0:  # get_sigma returns exact zero on +1 index
-            # More accurate to how diffusers does it. / 0 on leading
-            scaled = sample / alpha
-            sampled = (scaled + ((scaled - prediction) / sigma) * (sigma_factor - sigma) + noise_factor) * alpha_n1
-        else:
-            # Moved / to signorm instead so / 0 is on trailing
-            # Works but result is very slightly less accurate. Like +- 1e-14
-            # thx Qwen
-            term1 = (sample * sigma) / signorm
-            term2 = (term1 - prediction) * (sigma_factor / sigma - 1)
-            sampled = (term1 + term2 + noise_factor) * (signorm_n1 / sigma_n1)
+        try:
+            ratio = signorm_n1 / sigma_n1
+        except ZeroDivisionError:
+            ratio = 1
+
+        # thx Qwen
+        term1 = (sample * sigma) / signorm
+        term2 = (term1 - prediction) * (sigma_factor / sigma - 1)
+        sampled = (term1 + term2 + noise_factor) * ratio
 
         return SKSamples(  # type: ignore
             final=sampled,
