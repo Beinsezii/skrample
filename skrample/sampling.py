@@ -369,7 +369,7 @@ class UniPC(HighOrderSampler):
             i = len(rks)
             rhos = np.linalg.solve(R[:i], b[:i]).tolist()  # type: ignore
 
-        uni_res = sum(map(math.prod, zip(rhos, D1s)))
+        uni_res = math.sumprod(rhos[: len(D1s)], D1s)  # type: ignore  # Float
 
         return B_h, rhos, uni_res, h_phi_1_X
 
