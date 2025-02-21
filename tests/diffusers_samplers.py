@@ -122,7 +122,7 @@ def test_euler_flow():
 
 def test_dpm():
     for predictor in [(EPSILON, "epsilon"), (VELOCITY, "v_prediction"), (FLOW, "flow_prediction")]:
-        for order in range(1, 3):
+        for order in range(1, 3):  # Their third order is fucked up. Turns into barf @ super high steps
             for stochastic in [False, True]:
                 compare_samplers(
                     DPM(predictor=predictor[0], order=order, add_noise=stochastic),

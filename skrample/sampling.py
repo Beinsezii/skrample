@@ -235,7 +235,7 @@ class DPM(HighOrderSampler, StochasticSampler):
 
     @property
     def max_order(self) -> int:
-        return 2  # TODO: 3, 4+?
+        return 3  # TODO: 3, 4+?
 
     def sample[T: Sample](
         self,
@@ -259,18 +259,21 @@ class DPM(HighOrderSampler, StochasticSampler):
 
         if noise is not None and self.add_noise:
             exp1 = math.exp(-h)
-            exp2 = 1.0 - math.exp(-2 * h)
-            noise_factor = signorm_n1 * math.sqrt(exp2) * noise
+            hh = -2 * h
+            noise_factor = signorm_n1 * math.sqrt(1 - math.exp(hh)) * noise
         else:
             exp1 = 1
-            exp2 = 1.0 - math.exp(-h)
+            hh = -h
             noise_factor = 0
+
+        exp2 = math.expm1(hh)
 
         prediction: T = self.predictor(sample, output, sigma, subnormal)  # type: ignore
 
         sampled = noise_factor + (signorm_n1 / signorm * exp1) * sample
+
         # 1st order
-        sampled += (alpha_n1 * exp2) * prediction
+        sampled -= (alpha_n1 * exp2) * prediction
 
         effective_order = self.effective_order(step, sigma_schedule, previous)
 
@@ -284,10 +287,26 @@ class DPM(HighOrderSampler, StochasticSampler):
 
             # Calculate previous predicton from sample, output
             prediction_p1 = previous[-1].prediction
-            prediction_p1 = (1.0 / r) * (prediction - prediction_p1)
+            D1_0 = (1.0 / r) * (prediction - prediction_p1)
 
-            # 2nd order
-            sampled += (0.5 * alpha_n1 * exp2) * prediction_p1
+            if effective_order >= 3:
+                sigma_p2 = self.get_sigma(step - 2, sigma_schedule)
+                signorm_p2, alpha_p2 = sigma_normal(sigma_p2, subnormal)
+                lambda_p2 = safe_log(alpha_p2) - safe_log(signorm_p2)
+                h_p2 = lambda_p1 - lambda_p2
+                r_p2 = h_p2 / h
+
+                prediction_p2 = previous[-2].prediction
+
+                D1_1 = (1.0 / r_p2) * (prediction_p1 - prediction_p2)
+                D1 = D1_0 + (r / (r + r_p2)) * (D1_0 - D1_1)
+                D2 = (1.0 / (r + r_p2)) * (D1_0 - D1_1)
+
+                sampled -= (alpha_n1 * (exp2 / hh - 1.0)) * D1
+                sampled -= (alpha_n1 * ((exp2 - hh) / hh**2 - 0.5)) * D2
+
+            else:  # 2nd order. using this in O3 produces valid images but not going to risk correctness
+                sampled -= (0.5 * alpha_n1 * exp2) * D1_0
 
         return SKSamples(  # type: ignore
             final=sampled,
