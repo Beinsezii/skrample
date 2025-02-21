@@ -194,7 +194,7 @@ class Euler(StochasticSampler):
 
         if self.add_noise and noise is not None:
             if subnormal:
-                sigma_up = sigma_n1 * (sigma - sigma_n1) ** 2 / sigma
+                sigma_up = 0  # TODO: correct values?
                 sigma_down = sigma_n1 - sigma_up
             else:
                 sigma_up = sigma_n1 * (1 - (sigma_n1**2 / sigma**2)) ** 0.5
