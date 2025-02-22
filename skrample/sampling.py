@@ -316,6 +316,41 @@ class DPM(HighOrderSampler, StochasticSampler):
 
 
 @dataclass
+class IPNDM(HighOrderSampler, Euler):
+    order: int = 4
+
+    @property
+    def max_order(self) -> int:
+        return 4
+
+    def sample[T: Sample](
+        self,
+        sample: T,
+        output: T,
+        sigma_schedule: NDArray,
+        step: int,
+        noise: T | None = None,
+        previous: list[SKSamples[T]] = [],
+        subnormal: bool = False,
+    ) -> SKSamples[T]:
+        effective_order = self.effective_order(step, sigma_schedule, previous)
+
+        if effective_order >= 4:
+            eps = (55 / 24 * output - 59 / 24 * previous[-1].sample) + (
+                37 / 24 * previous[-2].sample - 9 / 24 * previous[-3].sample
+            )
+        elif effective_order >= 3:
+            eps = 23 / 12 * output - 16 / 12 * previous[-1].sample + 5 / 12 * previous[-2].sample
+        elif effective_order >= 2:
+            eps = 3 / 2 * output - 1 / 2 * previous[-1].sample
+        else:
+            eps = output
+
+        result = super().sample(sample, eps, sigma_schedule, step, noise, previous, subnormal)  # type: ignore
+        return SKSamples(final=result.final, prediction=result.prediction, sample=output)  # type: ignore
+
+
+@dataclass
 class UniPC(HighOrderSampler):
     """Unique sampler that can correct other samplers or its own prediction function.
     The additional correction essentially adds +1 order on top of what is set."""

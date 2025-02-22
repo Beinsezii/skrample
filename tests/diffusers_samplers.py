@@ -137,6 +137,16 @@ def test_dpm():
                 )
 
 
+# # Diffusers ipndm doesnt support anything really. It even explodes in their own pipeline.
+# def test_ipndm():
+#     compare_samplers(
+#         IPNDM(),
+#         IPNDMScheduler.from_config(  # type: ignore  # Diffusers return BS
+#             hf_scheduler_config("stabilityai/stable-diffusion-xl-base-1.0")
+#         ),
+#     )
+
+
 def test_unipc():
     for predictor in [(EPSILON, "epsilon"), (VELOCITY, "v_prediction"), (FLOW, "flow_prediction")]:
         # technically it can do N order, but diffusers actually breaks down super hard with high order + steps
