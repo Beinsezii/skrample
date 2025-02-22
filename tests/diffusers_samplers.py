@@ -6,10 +6,9 @@ from diffusers.schedulers.scheduling_euler_ancestral_discrete import EulerAncest
 from diffusers.schedulers.scheduling_euler_discrete import EulerDiscreteScheduler
 from diffusers.schedulers.scheduling_flow_match_euler_discrete import FlowMatchEulerDiscreteScheduler
 from diffusers.schedulers.scheduling_unipc_multistep import UniPCMultistepScheduler
-from diffusers.schedulers.scheduling_ipndm import IPNDMScheduler
 from testing_common import compare_tensors, hf_scheduler_config
 
-from skrample.sampling import DPM, EPSILON, FLOW, IPNDM, VELOCITY, Euler, SkrampleSampler, SKSamples, UniPC
+from skrample.sampling import DPM, EPSILON, FLOW, VELOCITY, Euler, SkrampleSampler, SKSamples, UniPC
 
 DiffusersScheduler = (
     EulerDiscreteScheduler | DPMSolverMultistepScheduler | FlowMatchEulerDiscreteScheduler | UniPCMultistepScheduler
@@ -34,20 +33,14 @@ def dual_sample(
         b.set_timesteps(steps.stop)
 
     # Use the same exact schedule for both to reduce variables
-    if isinstance(b, IPNDMScheduler):
-        schedule = torch.stack([b.timesteps, b.betas[b.timesteps.to(torch.int64)].flip(0)], dim=1)  # type: ignore  # FloatTensor
-    else:
-        schedule = torch.stack([b.timesteps, b.sigmas[:-1]], dim=1)  # type: ignore  # FloatTensor
+    schedule = torch.stack([b.timesteps, b.sigmas[:-1]], dim=1)  # type: ignore  # FloatTensor
     timestep, sigma = schedule[steps.start]
 
     if isinstance(b, FlowMatchEulerDiscreteScheduler):
         b_sample = b.scale_noise(sample=b_sample, timestep=timestep.unsqueeze(0), noise=initial_noise)  # type: ignore  # FloatTensor
         subnormal = True
     else:
-        if hasattr(b, 'add_noise'):
-            b_sample = b.add_noise(original_samples=b_sample, noise=initial_noise, timesteps=timestep.unsqueeze(0))  # type: ignore  # IntTensor
-        else:
-            b_sample = a.merge_noise(b_sample, initial_noise, sigma.item())
+        b_sample = b.add_noise(original_samples=b_sample, noise=initial_noise, timesteps=timestep.unsqueeze(0))  # type: ignore  # IntTensor
         subnormal = False
 
     a_sample = a.merge_noise(a_sample, initial_noise, sigma.item(), subnormal=subnormal)
@@ -144,13 +137,14 @@ def test_dpm():
                 )
 
 
-def test_ipndm():
-    compare_samplers(
-        IPNDM(),
-        IPNDMScheduler.from_config(  # type: ignore  # Diffusers return BS
-            hf_scheduler_config("stabilityai/stable-diffusion-xl-base-1.0")
-        ),
-    )
+# # Diffusers ipndm doesnt support anything really. It even explodes in their own pipeline.
+# def test_ipndm():
+#     compare_samplers(
+#         IPNDM(),
+#         IPNDMScheduler.from_config(  # type: ignore  # Diffusers return BS
+#             hf_scheduler_config("stabilityai/stable-diffusion-xl-base-1.0")
+#         ),
+#     )
 
 
 def test_unipc():

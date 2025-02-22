@@ -323,12 +323,6 @@ class IPNDM(HighOrderSampler, Euler):
     def max_order(self) -> int:
         return 4
 
-    def effective_order(self, step: int, schedule: NDArray, previous: list[SKSamples]) -> int:
-        return max(  # does not reduce order at end
-            self.min_order,
-            min(self.max_order, step + 1, self.order, len(previous) + 1),
-        )
-
     def sample[T: Sample](
         self,
         sample: T,
@@ -339,49 +333,28 @@ class IPNDM(HighOrderSampler, Euler):
         previous: list[SKSamples[T]] = [],
         subnormal: bool = False,
     ) -> SKSamples[T]:
-        steps = np.linspace(1, 0, len(sigma_schedule) + 1, dtype=np.float64)[:-1]
-        steps = np.concatenate([steps, np.zeros([1])])
-        betas = np.sin(steps * math.pi / 2) ** 2
-        alphas = (1.0 - betas**2) ** 0.5
-
-        # alpha = alphas[step]
-        # signorm = betas[step]
-        # alpha_n1 = alphas[step + 1]
-        # signorm_n1 = betas[step + 1]
-
         sigma, sigma_n1 = self.get_sigma(step, sigma_schedule), self.get_sigma(step + 1, sigma_schedule)
-        signorm, alpha = sigma_normal(sigma, subnormal)
+        # signorm, alpha = sigma_normal(sigma, subnormal)
         signorm_n1, alpha_n1 = sigma_normal(sigma_n1, subnormal)
-
-        # ets = sample * signorm + output * alpha
-        ets = output
 
         effective_order = self.effective_order(step, sigma_schedule, previous)
 
         if effective_order >= 4:
-            ets_prime = (
-                55 / 24 * ets
-                - 59 / 24 * previous[-1].sample
-                + 37 / 24 * previous[-2].sample
-                - 9 / 24 * previous[-3].sample
+            eps = (55 / 24 * output - 59 / 24 * previous[-1].sample) + (
+                37 / 24 * previous[-2].sample - 9 / 24 * previous[-3].sample
             )
         elif effective_order >= 3:
-            ets_prime = 23 / 12 * ets - 16 / 12 * previous[-1].sample + 5 / 12 * previous[-2].sample
+            eps = 23 / 12 * output - 16 / 12 * previous[-1].sample + 5 / 12 * previous[-2].sample
         elif effective_order >= 2:
-            ets_prime = 3 / 2 * ets - 1 / 2 * previous[-1].sample
+            eps = 3 / 2 * output - 1 / 2 * previous[-1].sample
         else:
-            ets_prime = ets
+            eps = output
 
-        # pred = (sample - signorm * ets_prime) / max(alpha, 1e-24)
+        prediction = self.predictor(sample, eps, sigma, subnormal)
 
-        pred = self.predictor(sample, ets_prime, sigma, subnormal)
+        prev_sample = alpha_n1 * prediction + eps * signorm_n1
 
-        prev_sample = alpha_n1 * pred + ets_prime * signorm_n1
-
-        return SKSamples(final=prev_sample, prediction=pred, sample=ets)  # type: ignore
-
-    def merge_noise[T: Sample](self, sample: T, noise: T, sigma: float, subnormal: bool = False) -> T:
-        return noise
+        return SKSamples(final=prev_sample, prediction=prediction, sample=output)  # type: ignore
 
 
 @dataclass
