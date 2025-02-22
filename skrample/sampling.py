@@ -353,7 +353,8 @@ class IPNDM(HighOrderSampler, Euler):
         signorm, alpha = sigma_normal(sigma, subnormal)
         signorm_n1, alpha_n1 = sigma_normal(sigma_n1, subnormal)
 
-        ets = sample * signorm + output * alpha
+        # ets = sample * signorm + output * alpha
+        ets = output
 
         effective_order = self.effective_order(step, sigma_schedule, previous)
 
