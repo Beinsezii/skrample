@@ -333,10 +333,6 @@ class IPNDM(HighOrderSampler, Euler):
         previous: list[SKSamples[T]] = [],
         subnormal: bool = False,
     ) -> SKSamples[T]:
-        sigma, sigma_n1 = self.get_sigma(step, sigma_schedule), self.get_sigma(step + 1, sigma_schedule)
-        # signorm, alpha = sigma_normal(sigma, subnormal)
-        signorm_n1, alpha_n1 = sigma_normal(sigma_n1, subnormal)
-
         effective_order = self.effective_order(step, sigma_schedule, previous)
 
         if effective_order >= 4:
@@ -350,11 +346,8 @@ class IPNDM(HighOrderSampler, Euler):
         else:
             eps = output
 
-        prediction = self.predictor(sample, eps, sigma, subnormal)
-
-        prev_sample = alpha_n1 * prediction + eps * signorm_n1
-
-        return SKSamples(final=prev_sample, prediction=prediction, sample=output)  # type: ignore
+        result = super().sample(sample, eps, sigma_schedule, step, noise, previous, subnormal)  # type: ignore
+        return SKSamples(final=result.final, prediction=result.prediction, sample=output)  # type: ignore
 
 
 @dataclass
