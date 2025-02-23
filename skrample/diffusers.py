@@ -138,13 +138,15 @@ class SkrampleWrapperScheduler:
     schedule: SkrampleSchedule
     noise_type: type[TensorNoiseCommon] = Random
     compute_scale: torch.dtype | None = torch.float32
-    fake_config: dict[str, Any] = {  # Required for FluxPipeline to not die
-        "base_image_seq_len": 256,
-        "base_shift": 0.5,
-        "max_image_seq_len": 4096,
-        "max_shift": 1.15,
-        "use_dynamic_shifting": True,
-    }
+    fake_config: dict[str, Any] = dataclasses.field(
+        default_factory=lambda: {  # Required for FluxPipeline to not die
+            "base_image_seq_len": 256,
+            "base_shift": 0.5,
+            "max_image_seq_len": 4096,
+            "max_shift": 1.15,
+            "use_dynamic_shifting": True,
+        }
+    )
 
     def __post_init__(self):
         # State
