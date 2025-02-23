@@ -13,9 +13,11 @@ build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
 beta-schedule = ["scipy>=1.12"]
+brownian-noise = ["torchsde>=0.2.6"]
 diffusers-wrapper = ["torch>=2.5"]
+pytorch = ["torch>=2.5"]
 
-all = ['skrample[beta-schedule,diffusers-wrapper]']
+all = ["skrample[beta-schedule,brownian-noise,diffusers-wrapper,pytorch]"]
 
 dev = [
     "accelerate>=1.3",

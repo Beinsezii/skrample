@@ -9,6 +9,7 @@ from numpy.typing import NDArray
 from torch import Tensor
 
 from skrample import sampling, scheduling
+from skrample.pytorch.noise import BatchTensorNoise, Random, TensorNoiseCommon
 from skrample.sampling import PREDICTOR, SkrampleSampler, SKSamples, StochasticSampler
 from skrample.scheduling import ScheduleModifier, SkrampleSchedule
 
@@ -134,17 +135,20 @@ def as_diffusers_config(sampler: SkrampleSampler, schedule: SkrampleSchedule) ->
 class SkrampleWrapperScheduler:
     sampler: SkrampleSampler
     schedule: SkrampleSchedule
+    noise_type: type[TensorNoiseCommon]
     fake_config: dict[str, Any]
     compute_scale: torch.dtype | None
 
     _steps: int = 50
     _device: torch.device = torch.device("cpu")
     _previous: list[SKSamples[Tensor]] = []
+    _noise_generator: BatchTensorNoise | None = None
 
     def __init__(
         self,
         sampler: SkrampleSampler,
         schedule: SkrampleSchedule,
+        noise_type: type[TensorNoiseCommon] = Random,
         compute_scale: torch.dtype | None = torch.float32,
         fake_config: dict[str, Any] = {  # Required for FluxPipeline to not die
             "base_image_seq_len": 256,
@@ -158,6 +162,7 @@ class SkrampleWrapperScheduler:
         self.schedule = schedule
         self.compute_scale = compute_scale
         self.fake_config = fake_config
+        self.noise_type = noise_type
 
     @classmethod
     def from_diffusers_config(
@@ -166,6 +171,7 @@ class SkrampleWrapperScheduler:
         schedule: type[SkrampleSchedule] | None = None,
         schedule_modifier: type[ScheduleModifier] | None = None,
         predictor: PREDICTOR | None = None,
+        noise_type: type[TensorNoiseCommon] = Random,
         compute_scale: torch.dtype | None = None,
         sampler_props: dict[str, Any] = {},
         schedule_props: dict[str, Any] = {},
@@ -193,6 +199,7 @@ class SkrampleWrapperScheduler:
         return cls(
             built_sampler,
             built_schedule,
+            noise_type=noise_type,
             compute_scale=compute_scale,
             fake_config=config.copy(),
         )
@@ -256,7 +263,9 @@ class SkrampleWrapperScheduler:
             self.schedule.mu = mu
         elif isinstance(self.schedule, ScheduleModifier) and isinstance(self.schedule.base, scheduling.Flow):
             self.schedule.base.mu = mu
+
         self._previous = []
+        self._noise_generator = None
 
         if device is not None:
             self._device = torch.device(device)
@@ -292,30 +301,30 @@ class SkrampleWrapperScheduler:
         step = schedule[:, 0].tolist().index(timestep if isinstance(timestep, (int, float)) else timestep.item())  # type: ignore  # np v2 Number
 
         if isinstance(self.sampler, StochasticSampler) and self.sampler.add_noise:
-            if isinstance(generator, list) and len(generator) == sample.shape[0]:
-                seeds = generator
-            elif isinstance(generator, torch.Generator) and sample.shape[0] == 1:
-                seeds = [generator]
-            else:
-                # use median element +4 decimals as seed for a balance of determinism without lacking variety
-                # multiply by step index to spread the values and minimize clash
-                # does not work across batch sizes but at least Flux will have something mostly deterministic
-                seeds = [
-                    torch.Generator().manual_seed(int(b.view(b.numel())[b.numel() // 2].item() * 1e4) * (step + 1))
-                    for b in sample
-                ]
+            if self._noise_generator is None:
+                if isinstance(generator, list) and len(generator) == sample.shape[0]:
+                    seeds = generator
+                elif isinstance(generator, torch.Generator) and sample.shape[0] == 1:
+                    seeds = [generator]
+                else:
+                    # use median element +4 decimals as seed for a balance of determinism without lacking variety
+                    # multiply by step index to spread the values and minimize clash
+                    # does not work across batch sizes but at least Flux will have something mostly deterministic
+                    seeds = [
+                        torch.Generator().manual_seed(int(b.view(b.numel())[b.numel() // 2].item() * 1e4) * (step + 1))
+                        for b in sample
+                    ]
 
-            noise = torch.stack(
-                [
-                    torch.randn(
-                        sample.shape[1:],  # exclude batch
-                        generator=g,  # should we even use the generators?
-                        dtype=torch.float32,  # lock to cpu f32 for consistent seeds
-                        device="cpu",
-                    ).to(device=sample.device, dtype=self.compute_scale)
-                    for g in seeds
-                ]
-            )
+                self._noise_generator = BatchTensorNoise.from_batch_inputs(
+                    self.noise_type,
+                    sample,
+                    schedule,
+                    seeds,
+                    dtype=torch.float32,
+                    device=torch.device("cpu"),
+                )
+
+            noise = self._noise_generator.generate(step).to(dtype=self.compute_scale, device=model_output.device)
         else:
             noise = None
 
