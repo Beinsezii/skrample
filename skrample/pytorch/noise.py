@@ -17,6 +17,8 @@ class SkrampleTensorNoise(ABC):
 class TensorNoiseCommon(SkrampleTensorNoise):
     shape: tuple[int]
     seed: torch.Generator
+    dtype: torch.dtype
+    device: torch.device
 
     @classmethod
     @abstractmethod
@@ -33,9 +35,6 @@ class TensorNoiseCommon(SkrampleTensorNoise):
 
 @dataclass
 class Random(TensorNoiseCommon):
-    dtype: torch.dtype = torch.float32
-    device: torch.device = torch.device("cpu")
-
     def generate(self, step: int) -> torch.Tensor:
         return torch.randn(
             self.shape,
@@ -64,9 +63,6 @@ class Random(TensorNoiseCommon):
 @dataclass
 class Brownian(TensorNoiseCommon):
     sigma_schedule: np.typing.NDArray[np.float64]
-
-    dtype: torch.dtype = torch.float32
-    device: torch.device = torch.device("cpu")
 
     def __post_init__(self):
         import torchsde
