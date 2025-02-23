@@ -132,37 +132,26 @@ def as_diffusers_config(sampler: SkrampleSampler, schedule: SkrampleSchedule) ->
     )
 
 
+@dataclasses.dataclass
 class SkrampleWrapperScheduler:
     sampler: SkrampleSampler
     schedule: SkrampleSchedule
-    noise_type: type[TensorNoiseCommon]
-    fake_config: dict[str, Any]
-    compute_scale: torch.dtype | None
+    noise_type: type[TensorNoiseCommon] = Random
+    compute_scale: torch.dtype | None = torch.float32
+    fake_config: dict[str, Any] = {  # Required for FluxPipeline to not die
+        "base_image_seq_len": 256,
+        "base_shift": 0.5,
+        "max_image_seq_len": 4096,
+        "max_shift": 1.15,
+        "use_dynamic_shifting": True,
+    }
 
-    _steps: int = 50
-    _device: torch.device = torch.device("cpu")
-    _previous: list[SKSamples[Tensor]] = []
-    _noise_generator: BatchTensorNoise | None = None
-
-    def __init__(
-        self,
-        sampler: SkrampleSampler,
-        schedule: SkrampleSchedule,
-        noise_type: type[TensorNoiseCommon] = Random,
-        compute_scale: torch.dtype | None = torch.float32,
-        fake_config: dict[str, Any] = {  # Required for FluxPipeline to not die
-            "base_image_seq_len": 256,
-            "base_shift": 0.5,
-            "max_image_seq_len": 4096,
-            "max_shift": 1.15,
-            "use_dynamic_shifting": True,
-        },
-    ):
-        self.sampler = sampler
-        self.schedule = schedule
-        self.compute_scale = compute_scale
-        self.fake_config = fake_config
-        self.noise_type = noise_type
+    def __post_init__(self):
+        # State
+        self._steps: int = 50
+        self._device: torch.device = torch.device("cpu")
+        self._previous: list[SKSamples[Tensor]] = []
+        self._noise_generator: BatchTensorNoise | None = None
 
     @classmethod
     def from_diffusers_config(
