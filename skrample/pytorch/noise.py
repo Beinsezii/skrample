@@ -68,10 +68,6 @@ class Brownian(TensorNoiseCommon):
     dtype: torch.dtype = torch.float32
     device: torch.device = torch.device("cpu")
 
-    tol: float = 1e-6
-    pool_size: int = 24
-    halfway_tree: bool = True
-
     def __post_init__(self):
         import torchsde
 
@@ -83,9 +79,6 @@ class Brownian(TensorNoiseCommon):
             t1=sigma_max,
             size=self.shape,
             entropy=self.seed.initial_seed(),
-            tol=self.tol,
-            pool_size=self.pool_size,
-            halfway_tree=self.halfway_tree,
             dtype=self.dtype,
             device=self.device,
         )
