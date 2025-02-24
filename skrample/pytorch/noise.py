@@ -67,21 +67,19 @@ class Brownian(TensorNoiseCommon):
     def __post_init__(self):
         import torchsde
 
-        sigma_max = self.sigma_schedule[0].item()
-        sigma_min = self.sigma_schedule[-1].item()
-
         self._tree = torchsde.BrownianInterval(
-            t0=sigma_min,
-            t1=sigma_max,
             size=self.shape,
             entropy=self.seed.initial_seed(),
             dtype=self.dtype,
             device=self.device,
         )
 
+        self.sigma_schedule = self.sigma_schedule / self.sigma_schedule.max()
+
     def generate(self, step: int) -> torch.Tensor:
-        sigma = self.sigma_schedule[step]
-        sigma_next = 0 if step + 1 >= len(self.sigma_schedule) else self.sigma_schedule[step + 1]
+        schedule = self.sigma_schedule / self.sigma_schedule.max()
+        sigma = schedule[step]
+        sigma_next = 0 if step + 1 >= len(schedule) else schedule[step + 1]
 
         return self._tree(sigma_next, sigma) / abs(sigma_next - sigma) ** 0.5
 
