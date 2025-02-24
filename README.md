@@ -2,19 +2,25 @@
 Composable sampling functions for diffusion models
 
 ## Status
-Early alpha, contains only a few features and a Diffusers wrapper class.
+Vertical slice, gradually overtaking many diffusers features in [quickdif](https://github.com/Beinsezii/quickdif.git)
 
 ### Feature Flags
- - `beta-schedule` : For the `Beta()` schedule modifier
- - `diffusers-wrapper` : For the `diffusers` integration module
+ - `beta-schedule` -> `scipy` : For the `Beta()` schedule modifier
+ - `brownian-noise` -> `torchsde` : For the `Brownian()` noise generator
+ - `diffusers-wrapper` -> `torch` : For the `diffusers` integration module
+ - `pytorch` -> `torch` : For the `pytorch` module
+   - `pytorch.noise` : Custom generators
  - `all` : All of the above
  - `dev` : For running `tests/`
 
 ### Samplers
 - Euler
+  - Ancestral
 - DPM
-  - 1st order, 2nd order
+  - 1st order, 2nd order, 3rd order
   - SDE
+- IPNDM
+  - Ancestral (from Euler)
 - UniPC
   - N order, limited to 9 for stability
   - Custom solver via other SkrampleSampler types
@@ -35,6 +41,12 @@ Early alpha, contains only a few features and a Diffusers wrapper class.
 - Epsilon
 - Velocity / vpred
 - Flow
+
+### Noise generators
+- Random
+- Brownian
+- Offset
+- Pyramid
 
 ## Integrations
 ### Diffusers
