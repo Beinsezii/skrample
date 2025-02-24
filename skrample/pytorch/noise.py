@@ -15,7 +15,7 @@ class SkrampleTensorNoise(ABC):
 
 @dataclass
 class TensorNoiseCommon(SkrampleTensorNoise):
-    shape: tuple[int]
+    shape: tuple[int, ...]
     seed: torch.Generator
     dtype: torch.dtype
     device: torch.device
@@ -53,7 +53,7 @@ class Random(TensorNoiseCommon):
         device: torch.device = torch.device("cpu"),
     ) -> Self:
         return cls(
-            tuple(sample.shape),  # type: ignore
+            tuple(sample.shape),
             seed,
             dtype,
             device,
@@ -95,7 +95,7 @@ class Brownian(TensorNoiseCommon):
         device: torch.device = torch.device("cpu"),
     ) -> Self:
         return cls(
-            shape=tuple(sample.shape),  # type: ignore
+            shape=tuple(sample.shape),
             seed=seed,
             sigma_schedule=schedule[:, 1],
             dtype=dtype,
