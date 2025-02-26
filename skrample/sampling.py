@@ -197,7 +197,7 @@ class Euler(StochasticSampler):
                 sigma_up = 0  # TODO: correct values?
                 sigma_down = sigma_n1 - sigma_up
             else:
-                sigma_up = sigma_n1 * (1 - (sigma_n1**2 / sigma**2)) ** 0.5
+                sigma_up = sigma / 2 * math.sin(math.asin(sigma_n1 / sigma) * 2)
                 sigma_down = sigma_n1**2 / sigma
 
             noise_factor = noise * sigma_up
