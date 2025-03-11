@@ -26,6 +26,7 @@ Vertical slice, gradually overtaking many diffusers features in [quickdif](https
   - Custom solver via other SkrampleSampler types
 
 ### Schedules
+- Linear
 - Scaled
   - `uniform` flag, AKA `"trailing"` in diffusers
 - Flow
