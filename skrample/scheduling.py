@@ -143,14 +143,9 @@ class ZSNR(Scaled):
 
 
 @dataclass
-class Flow(ScheduleCommon):
-    mu: float | None = None
-    shift: float = 3.0
-    # base_image_seq_len: int = 256
-    # max_image_seq_len: float = 4096
-    # base_shift: float = 0.5
-    # max_shift: float = 1.15
-    # use_dynamic_shifting: bool = True
+class Linear(ScheduleCommon):
+    sigma_start: float = 1
+    sigma_end: float = 0
 
     @property
     def subnormal(self) -> bool:
@@ -158,6 +153,26 @@ class Flow(ScheduleCommon):
 
     def sigmas_to_timesteps(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
         return sigmas * self.num_train_timesteps
+
+    def sigmas(self, steps: int) -> NDArray[np.float64]:
+        return np.linspace(1, 1 / steps, steps, dtype=np.float64)
+
+    def schedule(self, steps: int) -> NDArray[np.float64]:
+        sigmas = self.sigmas(steps)
+        timesteps = self.sigmas_to_timesteps(sigmas)
+
+        return np.stack([timesteps, sigmas], axis=1)
+
+
+@dataclass
+class Flow(Linear):
+    mu: float | None = None
+    shift: float = 3.0
+    # base_image_seq_len: int = 256
+    # max_image_seq_len: float = 4096
+    # base_shift: float = 0.5
+    # max_shift: float = 1.15
+    # use_dynamic_shifting: bool = True
 
     def sigmas(self, steps: int) -> NDArray[np.float64]:
         # # # The actual schedule code
@@ -172,20 +187,14 @@ class Flow(ScheduleCommon):
         # sigmas = np.linspace(sigma_start, sigma_end, steps + 1, dtype=np.float64)[:-1]
 
         # What the flux pipeline overrides it to. Seems more correct?
-        sigmas = np.linspace(1, 1 / steps, steps, dtype=np.float64)
+        sigmas = super().sigmas(steps)
 
         if self.mu is not None:  # dynamic
             sigmas = math.exp(self.mu) / (math.exp(self.mu) + (1 / sigmas - 1))
         else:  # non-dynamic
             sigmas = self.shift * sigmas / (1 + (self.shift - 1) * sigmas)
 
-        return sigmas
-
-    def schedule(self, steps: int) -> NDArray[np.float64]:
-        sigmas = self.sigmas(steps)
-        timesteps = self.sigmas_to_timesteps(sigmas)
-
-        return np.stack([timesteps, sigmas], axis=1)
+        return sigmas  # type: ignore
 
 
 @dataclass
