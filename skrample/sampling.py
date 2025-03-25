@@ -1,7 +1,8 @@
 import math
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 import numpy as np
 from numpy.typing import NDArray
@@ -105,7 +106,6 @@ class SkrampleSampler(ABC):
         `subnormal` is whether or not the noise schedule is all <= 1.0, IE Flow.
         All SkrampleSchedules contain a `.subnormal` property with this defined.
         """
-        pass
 
     def scale_input[T: Sample](self, sample: T, sigma: float, subnormal: bool = False) -> T:
         return sample

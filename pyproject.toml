@@ -37,16 +37,11 @@ line-length = 120
 [tool.ruff.lint]
 select = [
     # "ANN",  # annotations
-    # "C4",   # comprehension
-    # "COM",  # commas
     # "PGH",  # blanked comment ignores
-    # "PIE",  # misc
-    # "PTH",  # pathlib
-    # "RUF",  # variety
     # "TD",   # todos
-    # "UP",   # syn upgrades
     "A",    # std types
     "BLE",  # blanket except
+    "C4",   # comprehension
     "E",    # style errors
     "EM",   # error messages
     "EXE",  # shebangs
@@ -61,18 +56,22 @@ select = [
     "LOG",  # logging
     "NPY",  # numpy
     "PERF", # perflint
+    "PIE",  # misc
     "PL",   # pylint
     "PT",   # pytest
     "Q",    # quotes
+    "RUF",  # variety
     "T10",  # pdb.trace
     "T20",  # print
     "TC",   # type checking
     "TRY",  # try/catch
+    "UP",   # syn upgrades
     "W",    # style warnings
 ]
 ignore = [
     "PIE808", # range start 0
     "PLR",    # silly
+    "UP015",  # open() mode='r'
 ]
 
 [tool.pytest.ini_options]
