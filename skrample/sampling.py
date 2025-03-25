@@ -194,7 +194,7 @@ class Euler(StochasticSampler):
 
         if self.add_noise and noise is not None:
             if subnormal:
-                sigma_up = 0  # TODO: correct values?
+                sigma_up = 0  # TODO(beinsezii): correct values?
                 sigma_down = sigma_n1 - sigma_up
             else:
                 sigma_up = sigma / 2 * math.sin(math.asin(sigma_n1 / sigma) * 2)
@@ -235,7 +235,7 @@ class DPM(HighOrderSampler, StochasticSampler):
 
     @property
     def max_order(self) -> int:
-        return 3  # TODO: 3, 4+?
+        return 3  # TODO(beinsezii): 3, 4+?
 
     def sample[T: Sample](
         self,
@@ -361,7 +361,7 @@ class UniPC(HighOrderSampler):
 
     @property
     def max_order(self) -> int:
-        # TODO: seems more stable after converting to python scalars
+        # TODO(beinsezii): seems more stable after converting to python scalars
         # 4-6 is mostly stable now, 7-9 depends on the model. What ranges are actually useful..?
         return 9
 
@@ -398,7 +398,7 @@ class UniPC(HighOrderSampler):
             if math.isfinite(rk):  # for subnormal
                 rks.append(rk)
             else:
-                rks.append(0)  # TODO: proper value?
+                rks.append(0)  # TODO(beinsezii): proper value?
             D1s.append((prediction_pO - prediction) / rk)
 
         if prior:

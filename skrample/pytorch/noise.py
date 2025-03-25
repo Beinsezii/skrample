@@ -136,7 +136,7 @@ class Pyramid(Random):
             # Perform the permutation and iteration, unsqueezeing because interpolate() expects B,C,H,W
             variance = variance.permute(permuted_dims).reshape(compact_permuation_shape)
             variance = torch.stack(
-                [  # TODO: is there a less jank interpolate that doesnt require hellish logic?
+                [  # TODO(beinsezii): is there a less jank interpolate that doesnt require hellish logic?
                     torch.nn.functional.interpolate(v.unsqueeze(0).unsqueeze(0), target, mode=mode).squeeze().squeeze()
                     for v in variance
                 ]
