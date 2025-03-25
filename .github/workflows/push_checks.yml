@@ -17,6 +17,7 @@ jobs:
         with:
           enable-cache: true
 
+      - run: uv venv --python 3.12
       - name: Install
         run: uv pip install .[dev] --extra-index-url https://download.pytorch.org/whl/cpu
 
