@@ -37,13 +37,13 @@ line-length = 120
 [tool.ruff.lint]
 select = [
     # "ANN",  # annotations
-    # "C4",   # comprehension
     # "COM",  # commas
     # "PGH",  # blanked comment ignores
     # "TD",   # todos
     # "UP",   # syn upgrades
     "A",    # std types
     "BLE",  # blanket except
+    "C4",   # comprehension
     "E",    # style errors
     "EM",   # error messages
     "EXE",  # shebangs

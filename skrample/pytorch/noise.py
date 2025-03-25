@@ -124,10 +124,10 @@ class Pyramid(Random):
             variance = torch.randn(running_shape, dtype=self.dtype, device=self.device, generator=self.seed)
 
             # Permutation so resized dims are on end
-            permutation = list(sorted(zip(mask, range(len(self.shape)), list(running_shape)), key=lambda t: t[0]))
-            permuted_mask = list(map(lambda t: t[0], permutation))
-            permuted_dims = list(map(lambda t: t[1], permutation))
-            permuted_shape = list(map(lambda t: t[2], permutation))
+            permutation = sorted(zip(mask, range(len(self.shape)), list(running_shape)), key=lambda t: t[0])
+            permuted_mask = [t[0] for t in permutation]
+            permuted_dims = [t[1] for t in permutation]
+            permuted_shape = [t[2] for t in permutation]
 
             # Compact leading non-resized dims for iteration
             leading = permuted_mask.index(True)
@@ -148,7 +148,7 @@ class Pyramid(Random):
 
             noise += variance.reshape(self.shape) * self.strength**i
 
-            if any([s <= 1 for m, s in zip(mask, running_shape) if m]):
+            if any(s <= 1 for m, s in zip(mask, running_shape) if m):
                 break  # Lowest resolution is 1x1
 
         return noise
