@@ -40,7 +40,6 @@ select = [
     # "C4",   # comprehension
     # "COM",  # commas
     # "PGH",  # blanked comment ignores
-    # "PIE",  # misc
     # "PTH",  # pathlib
     # "RUF",  # variety
     # "TD",   # todos
@@ -61,6 +60,7 @@ select = [
     "LOG",  # logging
     "NPY",  # numpy
     "PERF", # perflint
+    "PIE",  # misc
     "PL",   # pylint
     "PT",   # pytest
     "Q",    # quotes

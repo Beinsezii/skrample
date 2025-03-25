@@ -21,7 +21,6 @@ class SkrampleSchedule(ABC):
     @abstractmethod
     def schedule(self, steps: int) -> NDArray[np.float64]:
         "Return the full noise schedule, timesteps stacked on top of sigmas."
-        pass
 
     def timesteps(self, steps: int) -> NDArray[np.float64]:
         return self.schedule(steps)[:, 0]
