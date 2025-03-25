@@ -1,0 +1,33 @@
+name: Master CI
+
+on: 
+  push:
+    branches:
+      - 'master'
+  pull_request:
+    branches:
+      - 'master'
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --group dev --extra-index-url https://download.pytorch.org/whl/cpu
+
+      - name: Ruff
+        if: '!cancelled()'
+        run: uv run ruff skrample
+
+      - name: Pyright
+        if: '!cancelled()'
+        run: uv run pyright skrample
+
+      - name: Pytest
+        if: '!cancelled()'
+        run: uv run pytest tests/diffusers_samplers.py tests/diffusers_schedules.py tests/miscellaneous.py
