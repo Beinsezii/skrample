@@ -34,5 +34,46 @@ dev = [
 [tool.ruff]
 line-length = 120
 
+[tool.ruff.lint]
+select = [
+    # "A",    # std types
+    # "ANN",  # annotations
+    # "C4",   # comprehension
+    # "COM",  # commas
+    # "PGH",  # blanked comment ignores
+    # "PIE",  # misc
+    # "PTH",  # pathlib
+    # "RUF",  # variety
+    # "TD",   # todos
+    # "UP",   # syn upgrades
+    "BLE",  # blanket except
+    "E",    # style errors
+    "EM",   # error messages
+    "EXE",  # shebangs
+    "F",    # format
+    "FA",   # future
+    "FLY",  # expr fstring
+    "FURB", # syn upgrades
+    "G",    # log messages
+    "I",    # imports
+    "ICN",  # import conventions
+    "ISC",  # str cat
+    "LOG",  # logging
+    "NPY",  # numpy
+    "PERF", # perflint
+    "PL",   # pylint
+    "PT",   # pytest
+    "Q",    # quotes
+    "T10",  # pdb.trace
+    "T20",  # print
+    "TC",   # type checking
+    "TRY",  # try/catch
+    "W",    # style warnings
+]
+ignore = [
+    "PIE808", # range start 0
+    "PLR",    # silly
+]
+
 [tool.pytest.ini_options]
 python_files = "tests/*.py"
