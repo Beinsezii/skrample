@@ -40,7 +40,6 @@ select = [
     # "C4",   # comprehension
     # "COM",  # commas
     # "PGH",  # blanked comment ignores
-    # "RUF",  # variety
     # "TD",   # todos
     # "UP",   # syn upgrades
     "A",    # std types
@@ -63,6 +62,7 @@ select = [
     "PL",   # pylint
     "PT",   # pytest
     "Q",    # quotes
+    "RUF",  # variety
     "T10",  # pdb.trace
     "T20",  # print
     "TC",   # type checking

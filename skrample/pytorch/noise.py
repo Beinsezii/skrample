@@ -144,7 +144,7 @@ class Pyramid(Random):
 
             # Reverse the permutation
             unpermuted_dims = torch.tensor(permuted_dims, dtype=torch.int).argsort().tolist()
-            variance = variance.reshape([compact_permuation_shape[0]] + list(target)).permute(unpermuted_dims)
+            variance = variance.reshape([compact_permuation_shape[0], *target]).permute(unpermuted_dims)
 
             noise += variance.reshape(self.shape) * self.strength**i
 
