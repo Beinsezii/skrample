@@ -70,7 +70,7 @@ class Offset(Random):
     strength: float = 0.2  # low enough to not go boom ...usually
     static: bool = False
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.static:
             self.static_offset: torch.Tensor | None = self.offset()
         else:
@@ -97,7 +97,7 @@ class Pyramid(Random):
     strength: float = 0.3  # low by default so it doesnt grenade the average model
     static: bool = False
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.static:
             self._static_pyramid = self.pyramid()
         else:
@@ -165,7 +165,7 @@ class Pyramid(Random):
 class Brownian(TensorNoiseCommon):
     sigma_schedule: NDArray[np.float64]
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         import torchsde
 
         self._tree = torchsde.BrownianInterval(

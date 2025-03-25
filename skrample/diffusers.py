@@ -2,7 +2,7 @@ import dataclasses
 import math
 from collections import OrderedDict
 from collections.abc import Hashable
-from typing import Any
+from typing import Any, Self
 
 import numpy as np
 import torch
@@ -60,7 +60,7 @@ def parse_diffusers_config(
     sampler: type[SkrampleSampler],
     schedule: type[SkrampleSchedule] | None = None,
     schedule_modifier: type[ScheduleModifier] | None = None,
-    **config,
+    **config: Any,  # noqa: ANN401
 ) -> ParsedDiffusersConfig:
     remapped = (
         config
@@ -149,7 +149,7 @@ class SkrampleWrapperScheduler:
         }
     )
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         # State
         self._steps: int = 50
         self._device: torch.device = torch.device("cpu")
@@ -168,8 +168,8 @@ class SkrampleWrapperScheduler:
         sampler_props: dict[str, Any] = {},
         schedule_props: dict[str, Any] = {},
         schedule_modifier_props: dict[str, Any] = {},
-        **config,
-    ):
+        **config: Any,  # noqa: ANN401
+    ) -> Self:
         parsed = parse_diffusers_config(
             sampler=sampler,
             schedule=schedule,
@@ -223,7 +223,7 @@ class SkrampleWrapperScheduler:
         return 1  # for multistep this is always 1
 
     @property
-    def config(self):
+    def config(self) -> OrderedDict:
         fake_config_object = OrderedDict(self.fake_config | as_diffusers_config(self.sampler, self.schedule))
 
         for k, v in fake_config_object.items():
@@ -231,7 +231,7 @@ class SkrampleWrapperScheduler:
 
         return fake_config_object
 
-    def time_shift(self, mu: float, sigma: float, t: Tensor):
+    def time_shift(self, mu: float, sigma: float, t: Tensor) -> Tensor:
         return math.exp(mu) / (math.exp(mu) + (1 / t - 1) ** sigma)
 
     def set_timesteps(
@@ -241,7 +241,7 @@ class SkrampleWrapperScheduler:
         timesteps: Tensor | list[int] | None = None,
         sigmas: Tensor | list[float] | None = None,
         mu: float | None = None,
-    ):
+    ) -> None:
         if num_inference_steps is None:
             if timesteps is not None:
                 num_inference_steps = len(timesteps)

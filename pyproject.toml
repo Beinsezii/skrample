@@ -36,10 +36,9 @@ line-length = 120
 
 [tool.ruff.lint]
 select = [
-    # "ANN",  # annotations
-    # "PGH",  # blanked comment ignores
     # "TD",   # todos
     "A",    # std types
+    "ANN",  # annotations
     "BLE",  # blanket except
     "C4",   # comprehension
     "E",    # style errors

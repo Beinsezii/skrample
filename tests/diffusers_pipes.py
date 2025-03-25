@@ -1,4 +1,5 @@
 import gc
+from typing import Any
 
 import pytest
 import torch
@@ -23,8 +24,8 @@ def compare_schedulers(
     a: SkrampleWrapperScheduler,
     b: EulerDiscreteScheduler | FlowMatchEulerDiscreteScheduler,
     margin: float = 1e-4,
-    **kwargs,
-):
+    **kwargs: Any,  # noqa: ANN401
+) -> None:
     original = pipe.scheduler
 
     pipe.scheduler = a
@@ -67,7 +68,7 @@ def compare_schedulers(
     )
 
 
-def test_sdxl_i2i():
+def test_sdxl_i2i() -> None:
     gc.collect()
     dt, dv = torch.float16, torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     pipe = StableDiffusionXLImg2ImgPipeline.from_pretrained("stabilityai/stable-diffusion-xl-base-1.0", torch_dtype=dt)
@@ -91,7 +92,7 @@ def test_sdxl_i2i():
     )
 
 
-def test_flux_i2i():
+def test_flux_i2i() -> None:
     gc.collect()
     dt, dv = torch.float16, torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     pipe = FluxImg2ImgPipeline.from_pretrained("black-forest-labs/FLUX.1-dev", torch_dtype=dt)
