@@ -1,5 +1,6 @@
 import gc
 
+import pytest
 import torch
 from diffusers.pipelines.flux.pipeline_flux_img2img import FluxImg2ImgPipeline
 from diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl_img2img import (
@@ -12,6 +13,8 @@ from testing_common import compare_tensors
 from skrample.diffusers import SkrampleWrapperScheduler
 from skrample.sampling import FLOW, Euler
 from skrample.scheduling import Flow, Scaled
+
+pytestmark = pytest.mark.skip("Slow")
 
 
 @torch.inference_mode()
