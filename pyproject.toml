@@ -40,7 +40,6 @@ select = [
     # "COM",  # commas
     # "PGH",  # blanked comment ignores
     # "TD",   # todos
-    # "UP",   # syn upgrades
     "A",    # std types
     "BLE",  # blanket except
     "C4",   # comprehension
@@ -67,11 +66,13 @@ select = [
     "T20",  # print
     "TC",   # type checking
     "TRY",  # try/catch
+    "UP",   # syn upgrades
     "W",    # style warnings
 ]
 ignore = [
     "PIE808", # range start 0
     "PLR",    # silly
+    "UP015"   # open() mode='r'
 ]
 
 [tool.pytest.ini_options]

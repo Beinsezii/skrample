@@ -1,7 +1,8 @@
 import dataclasses
 import math
 from collections import OrderedDict
-from typing import Any, Hashable
+from collections.abc import Hashable
+from typing import Any
 
 import numpy as np
 import torch
@@ -289,7 +290,7 @@ class SkrampleWrapperScheduler:
         return_dict: bool = True,
     ) -> tuple[Tensor, Tensor]:
         schedule = self.schedule_np
-        step = schedule[:, 0].tolist().index(timestep if isinstance(timestep, (int, float)) else timestep.item())  # type: ignore  # np v2 Number
+        step = schedule[:, 0].tolist().index(timestep if isinstance(timestep, int | float) else timestep.item())  # type: ignore  # np v2 Number
 
         if isinstance(self.sampler, StochasticSampler) and self.sampler.add_noise:
             if self._noise_generator is None:
