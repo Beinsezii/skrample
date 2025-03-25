@@ -15,8 +15,6 @@ DiffusersScheduler = (
 )
 
 
-
-
 def dual_sample(
     a: SkrampleSampler,
     b: DiffusersScheduler,
