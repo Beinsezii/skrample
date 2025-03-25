@@ -18,7 +18,7 @@ jobs:
           enable-cache: true
 
       - name: Install
-        run: uv sync --group dev --extra-index-url https://download.pytorch.org/whl/cpu
+        run: uv sync --extra dev --extra-index-url https://download.pytorch.org/whl/cpu
 
       - name: Ruff
         if: '!cancelled()'
