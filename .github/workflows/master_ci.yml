@@ -23,12 +23,12 @@ jobs:
 
       - name: Ruff
         if: '!cancelled()'
-        run: uv run --no-sync ruff check skrample
+        run: uv run --no-sync ruff check
 
       - name: Pyright
         if: '!cancelled()'
-        run: uv run --no-sync pyright skrample
+        run: uv run --no-sync pyright
 
       - name: Pytest
         if: '!cancelled()'
-        run: uv run --no-sync pytest tests/diffusers_samplers.py tests/diffusers_schedules.py tests/miscellaneous.py
+        run: uv run --no-sync pytest
