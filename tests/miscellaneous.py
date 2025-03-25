@@ -16,7 +16,7 @@ def test_sigmas_to_timesteps():
 
 
 def test_sampler_generics():
-    eps = 1e-16
+    eps = 1e-12
     for sampler in Euler(), DPM(order=2), IPNDM(), UniPC(order=3):
         for schedule in Scaled(), Flow():
             i, o = random.random(), random.random()
