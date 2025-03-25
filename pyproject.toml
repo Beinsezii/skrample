@@ -36,10 +36,8 @@ line-length = 120
 
 [tool.ruff.lint]
 select = [
-    # "ANN",  # annotations
-    # "PGH",  # blanked comment ignores
-    # "TD",   # todos
     "A",    # std types
+    "ANN",  # annotations
     "BLE",  # blanket except
     "C4",   # comprehension
     "E",    # style errors
@@ -64,6 +62,7 @@ select = [
     "T10",  # pdb.trace
     "T20",  # print
     "TC",   # type checking
+    "TD",   # todos
     "TRY",  # try/catch
     "UP",   # syn upgrades
     "W",    # style warnings
@@ -71,6 +70,7 @@ select = [
 ignore = [
     "PIE808", # range start 0
     "PLR",    # silly
+    "TD003",  # todo require link
     "UP015",  # open() mode='r'
 ]
 

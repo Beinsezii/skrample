@@ -77,7 +77,7 @@ def compare_samplers(
     mu: float | None = None,
     margin: float = 1e-8,
     message: str = "",
-):
+) -> None:
     for step_range in [range(0, 2), range(0, 11), range(0, 201), range(3, 6), range(2, 23), range(31, 200)]:
         compare_tensors(
             *dual_sample(a, b, step_range, mu),
@@ -86,7 +86,7 @@ def compare_samplers(
         )
 
 
-def test_euler():
+def test_euler() -> None:
     for predictor in [(EPSILON, "epsilon"), (VELOCITY, "v_prediction")]:
         compare_samplers(
             Euler(predictor=predictor[0]),
@@ -98,7 +98,7 @@ def test_euler():
         )
 
 
-def test_euler_ancestral():
+def test_euler_ancestral() -> None:
     for predictor in [(EPSILON, "epsilon"), (VELOCITY, "v_prediction")]:
         compare_samplers(
             Euler(add_noise=True, predictor=predictor[0]),
@@ -110,7 +110,7 @@ def test_euler_ancestral():
         )
 
 
-def test_euler_flow():
+def test_euler_flow() -> None:
     compare_samplers(
         Euler(predictor=FLOW),
         FlowMatchEulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
@@ -120,7 +120,7 @@ def test_euler_flow():
     )
 
 
-def test_dpm():
+def test_dpm() -> None:
     for predictor in [(EPSILON, "epsilon"), (VELOCITY, "v_prediction"), (FLOW, "flow_prediction")]:
         for order in range(1, 3):  # Their third order is fucked up. Turns into barf @ super high steps
             for stochastic in [False, True]:
@@ -147,7 +147,7 @@ def test_dpm():
 #     )
 
 
-def test_unipc():
+def test_unipc() -> None:
     for predictor in [(EPSILON, "epsilon"), (VELOCITY, "v_prediction"), (FLOW, "flow_prediction")]:
         # technically it can do N order, but diffusers actually breaks down super hard with high order + steps
         # They use torch scalars for everything which accumulates error faster as steps and order increase

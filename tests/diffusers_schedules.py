@@ -12,7 +12,7 @@ def compare_schedules(
     mu: float | None = None,
     ts_margin: float = 1.0,
     sig_margin: float = 1e-3,
-):
+) -> None:
     for steps in range(1, 12):
         if isinstance(b, FlowMatchEulerDiscreteScheduler):
             # b.set_timesteps(num_inference_steps=steps, mu=mu)
@@ -35,7 +35,7 @@ def compare_schedules(
         )
 
 
-def test_scaled():
+def test_scaled() -> None:
     compare_schedules(
         Scaled(uniform=False),
         EulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
@@ -44,7 +44,7 @@ def test_scaled():
     )
 
 
-def test_scaled_uniform():
+def test_scaled_uniform() -> None:
     compare_schedules(
         Scaled(),
         EulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
@@ -54,7 +54,7 @@ def test_scaled_uniform():
     )
 
 
-def test_scaled_beta():
+def test_scaled_beta() -> None:
     compare_schedules(
         Beta(Scaled()),
         EulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
@@ -65,7 +65,7 @@ def test_scaled_beta():
     )
 
 
-def test_scaled_exponential():
+def test_scaled_exponential() -> None:
     compare_schedules(
         Exponential(Scaled()),
         EulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
@@ -76,7 +76,7 @@ def test_scaled_exponential():
     )
 
 
-def test_scaled_karras():
+def test_scaled_karras() -> None:
     compare_schedules(
         Karras(Scaled()),
         EulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
@@ -87,7 +87,7 @@ def test_scaled_karras():
     )
 
 
-def test_zsnr():
+def test_zsnr() -> None:
     compare_schedules(
         ZSNR(),
         EulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
@@ -96,7 +96,7 @@ def test_zsnr():
     )
 
 
-def test_flow_dynamic():
+def test_flow_dynamic() -> None:
     compare_schedules(
         Flow(mu=0.7),
         FlowMatchEulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
@@ -106,7 +106,7 @@ def test_flow_dynamic():
     )
 
 
-def test_flow():
+def test_flow() -> None:
     compare_schedules(
         Flow(),
         FlowMatchEulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
@@ -116,7 +116,7 @@ def test_flow():
     )
 
 
-def test_flow_beta():
+def test_flow_beta() -> None:
     compare_schedules(
         Beta(Flow()),
         FlowMatchEulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
@@ -126,7 +126,7 @@ def test_flow_beta():
     )
 
 
-def test_flow_exponential():
+def test_flow_exponential() -> None:
     compare_schedules(
         Exponential(Flow()),
         FlowMatchEulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
@@ -136,7 +136,7 @@ def test_flow_exponential():
     )
 
 
-def test_flow_karras():
+def test_flow_karras() -> None:
     compare_schedules(
         Karras(Flow()),
         FlowMatchEulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS

@@ -8,14 +8,14 @@ from skrample.sampling import DPM, IPNDM, Euler, SKSamples, UniPC
 from skrample.scheduling import Flow, Scaled
 
 
-def test_sigmas_to_timesteps():
+def test_sigmas_to_timesteps() -> None:
     for schedule in [Scaled(), Scaled(beta_scale=1), Flow()]:  # base schedules
         timesteps = schedule.timesteps(123)
         timesteps_inv = schedule.sigmas_to_timesteps(schedule.sigmas(123))
         compare_tensors(torch.tensor(timesteps), torch.tensor(timesteps_inv), margin=0)  # shocked this rounds good
 
 
-def test_sampler_generics():
+def test_sampler_generics() -> None:
     eps = 1e-12
     for sampler in Euler(), DPM(order=2), IPNDM(), UniPC(order=3):
         for schedule in Scaled(), Flow():

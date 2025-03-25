@@ -70,7 +70,7 @@ class Offset(Random):
     strength: float = 0.2  # low enough to not go boom ...usually
     static: bool = False
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.static:
             self.static_offset: torch.Tensor | None = self.offset()
         else:
@@ -97,7 +97,7 @@ class Pyramid(Random):
     strength: float = 0.3  # low by default so it doesnt grenade the average model
     static: bool = False
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.static:
             self._static_pyramid = self.pyramid()
         else:
@@ -136,7 +136,7 @@ class Pyramid(Random):
             # Perform the permutation and iteration, unsqueezeing because interpolate() expects B,C,H,W
             variance = variance.permute(permuted_dims).reshape(compact_permuation_shape)
             variance = torch.stack(
-                [  # TODO: is there a less jank interpolate that doesnt require hellish logic?
+                [  # TODO(beinsezii): is there a less jank interpolate that doesnt require hellish logic?
                     torch.nn.functional.interpolate(v.unsqueeze(0).unsqueeze(0), target, mode=mode).squeeze().squeeze()
                     for v in variance
                 ]
@@ -165,7 +165,7 @@ class Pyramid(Random):
 class Brownian(TensorNoiseCommon):
     sigma_schedule: NDArray[np.float64]
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         import torchsde
 
         self._tree = torchsde.BrownianInterval(
