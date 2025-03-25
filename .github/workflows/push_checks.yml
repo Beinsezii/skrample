@@ -18,16 +18,16 @@ jobs:
           enable-cache: true
 
       - name: Install
-        run: uv sync --extra dev --extra-index-url https://download.pytorch.org/whl/cpu
+        run: uv pip install .[dev] --extra-index-url https://download.pytorch.org/whl/cpu
 
       - name: Ruff
         if: '!cancelled()'
-        run: uv run ruff skrample
+        run: uv run --no-sync ruff skrample
 
       - name: Pyright
         if: '!cancelled()'
-        run: uv run pyright skrample
+        run: uv run --no-sync pyright skrample
 
       - name: Pytest
         if: '!cancelled()'
-        run: uv run pytest tests/diffusers_samplers.py tests/diffusers_schedules.py tests/miscellaneous.py
+        run: uv run --no-sync pytest tests/diffusers_samplers.py tests/diffusers_schedules.py tests/miscellaneous.py
