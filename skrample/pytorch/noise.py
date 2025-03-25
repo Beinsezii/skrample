@@ -5,6 +5,7 @@ from typing import Self
 
 import numpy as np
 import torch
+from numpy.typing import NDArray
 
 
 @dataclass
@@ -26,7 +27,7 @@ class TensorNoiseCommon(SkrampleTensorNoise):
     def from_inputs(
         cls,
         sample: torch.Tensor,
-        schedule: np.typing.NDArray[np.float64],
+        schedule: NDArray[np.float64],
         seed: torch.Generator,
         dtype: torch.dtype = torch.float32,
         device: torch.device = torch.device("cpu"),
@@ -48,7 +49,7 @@ class Random(TensorNoiseCommon):
     def from_inputs(
         cls,
         sample: torch.Tensor,
-        schedule: np.typing.NDArray[np.float64],
+        schedule: NDArray[np.float64],
         seed: torch.Generator,
         dtype: torch.dtype = torch.float32,
         device: torch.device = torch.device("cpu"),
@@ -162,7 +163,7 @@ class Pyramid(Random):
 
 @dataclass
 class Brownian(TensorNoiseCommon):
-    sigma_schedule: np.typing.NDArray[np.float64]
+    sigma_schedule: NDArray[np.float64]
 
     def __post_init__(self):
         import torchsde
@@ -187,7 +188,7 @@ class Brownian(TensorNoiseCommon):
     def from_inputs(
         cls,
         sample: torch.Tensor,
-        schedule: np.typing.NDArray[np.float64],
+        schedule: NDArray[np.float64],
         seed: torch.Generator,
         dtype: torch.dtype = torch.float32,
         device: torch.device = torch.device("cpu"),
@@ -216,7 +217,7 @@ class BatchTensorNoise(SkrampleTensorNoise):
         cls,
         subclass: type[TensorNoiseCommon],
         sample: torch.Tensor,
-        schedule: np.typing.NDArray[np.float64],
+        schedule: NDArray[np.float64],
         seeds: list[torch.Generator],
         dtype: torch.dtype = torch.float32,
         device: torch.device = torch.device("cpu"),
