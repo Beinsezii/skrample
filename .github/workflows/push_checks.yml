@@ -23,7 +23,7 @@ jobs:
 
       - name: Ruff
         if: '!cancelled()'
-        run: uv run --no-sync ruff skrample
+        run: uv run --no-sync ruff check skrample
 
       - name: Pyright
         if: '!cancelled()'
