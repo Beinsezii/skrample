@@ -152,7 +152,7 @@ def test_dpm():
 def test_unipc():
     for predictor in [(EPSILON, "epsilon"), (VELOCITY, "v_prediction"), (FLOW, "flow_prediction")]:
         # technically it can do N order, but diffusers actually breaks down super hard with high order + steps
-        # They use torch scalars for everything which rounds worse and accumulates error way faster as steps and order increase
+        # They use torch scalars for everything which accumulates error faster as steps and order increase
         # Considering Diffusers just NaNs out in like half the order as mine, I'm fine with fudging the margins
         for order, margin in zip(range(1, 4), (1e-8, 1e-7, 1e-3)):
             compare_samplers(
