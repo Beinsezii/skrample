@@ -224,7 +224,7 @@ class BatchTensorNoise(SkrampleTensorNoise):
     ) -> Self:
         return cls(
             [
-                subclass.from_inputs(slice, schedule, seed, dtype, device)
-                for slice, seed in zip(sample, seeds, strict=True)
+                subclass.from_inputs(batch_slice, schedule, seed, dtype, device)
+                for batch_slice, seed in zip(sample, seeds, strict=True)
             ]
         )

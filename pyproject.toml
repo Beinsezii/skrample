@@ -36,7 +36,6 @@ line-length = 120
 
 [tool.ruff.lint]
 select = [
-    # "A",    # std types
     # "ANN",  # annotations
     # "C4",   # comprehension
     # "COM",  # commas
@@ -46,6 +45,7 @@ select = [
     # "RUF",  # variety
     # "TD",   # todos
     # "UP",   # syn upgrades
+    "A",    # std types
     "BLE",  # blanket except
     "E",    # style errors
     "EM",   # error messages
