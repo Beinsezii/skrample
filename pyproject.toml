@@ -71,7 +71,7 @@ select = [
 ignore = [
     "PIE808", # range start 0
     "PLR",    # silly
-    "UP015"   # open() mode='r'
+    "UP015",  # open() mode='r'
 ]
 
 [tool.pytest.ini_options]
