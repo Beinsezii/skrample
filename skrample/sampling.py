@@ -409,12 +409,10 @@ class UniPC(HighOrderSampler):
 
         h_phi_k = h_phi_1_X / hh_X - 1
 
-        factorial_i = 1
         for i in range(1, order + 1):
             R.append([math.pow(v, i - 1) for v in rks])
-            b.append(h_phi_k * factorial_i / B_h)
-            factorial_i *= i + 1
-            h_phi_k = h_phi_k / hh_X - 1 / factorial_i
+            b.append(h_phi_k * math.factorial(i) / B_h)
+            h_phi_k = h_phi_k / hh_X - 1 / math.factorial(i + 1)
 
         if order <= 2 - prior:
             rhos: list[float] = [0.5]
