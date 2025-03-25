@@ -40,7 +40,6 @@ select = [
     # "C4",   # comprehension
     # "COM",  # commas
     # "PGH",  # blanked comment ignores
-    # "PTH",  # pathlib
     # "RUF",  # variety
     # "TD",   # todos
     # "UP",   # syn upgrades
