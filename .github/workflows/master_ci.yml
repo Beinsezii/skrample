@@ -1,0 +1,58 @@
+name: Master CI
+
+on: 
+  push:
+    branches:
+      - 'master'
+  pull_request:
+    branches:
+      - 'master'
+
+jobs:
+  low:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - run: uv venv --python 3.12  # torch index breaks sync
+      - name: Install
+        run: uv pip install .[dev] --extra-index-url https://download.pytorch.org/whl/cpu --resolution lowest-direct
+
+      - name: Ruff
+        if: '!cancelled()'
+        run: uv run --no-sync ruff check
+
+      - name: Pyright
+        if: '!cancelled()'
+        run: uv run --no-sync pyright
+
+      - name: Pytest
+        if: '!cancelled()'
+        run: uv run --no-sync pytest
+
+  high:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - run: uv venv --python 3.13
+      - name: Install
+        run: uv pip install .[dev] --extra-index-url https://download.pytorch.org/whl/cpu -U
+
+      - name: Ruff
+        if: '!cancelled()'
+        run: uv run --no-sync ruff check
+
+      - name: Pyright
+        if: '!cancelled()'
+        run: uv run --no-sync pyright
+
+      - name: Pytest
+        if: '!cancelled()'
+        run: uv run --no-sync pytest

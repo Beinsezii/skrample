@@ -6,13 +6,15 @@ from diffusers.schedulers.scheduling_euler_ancestral_discrete import EulerAncest
 from diffusers.schedulers.scheduling_euler_discrete import EulerDiscreteScheduler
 from diffusers.schedulers.scheduling_flow_match_euler_discrete import FlowMatchEulerDiscreteScheduler
 from diffusers.schedulers.scheduling_unipc_multistep import UniPCMultistepScheduler
-from testing_common import compare_tensors, hf_scheduler_config
+from testing_common import FLOW_CONFIG, SCALED_CONFIG, compare_tensors
 
 from skrample.sampling import DPM, EPSILON, FLOW, VELOCITY, Euler, SkrampleSampler, SKSamples, UniPC
 
 DiffusersScheduler = (
     EulerDiscreteScheduler | DPMSolverMultistepScheduler | FlowMatchEulerDiscreteScheduler | UniPCMultistepScheduler
 )
+
+
 
 
 def dual_sample(
@@ -91,7 +93,7 @@ def test_euler():
         compare_samplers(
             Euler(predictor=predictor[0]),
             EulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
-                hf_scheduler_config("stabilityai/stable-diffusion-xl-base-1.0"),
+                SCALED_CONFIG,
                 prediction_type=predictor[1],
             ),
             message=predictor[0].__name__,
@@ -103,7 +105,7 @@ def test_euler_ancestral():
         compare_samplers(
             Euler(add_noise=True, predictor=predictor[0]),
             EulerAncestralDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
-                hf_scheduler_config("stabilityai/stable-diffusion-xl-base-1.0"),
+                SCALED_CONFIG,
                 prediction_type=predictor[1],
             ),
             message=predictor[0].__name__,
@@ -114,7 +116,7 @@ def test_euler_flow():
     compare_samplers(
         Euler(predictor=FLOW),
         FlowMatchEulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
-            hf_scheduler_config("black-forest-labs/FLUX.1-dev")
+            FLOW_CONFIG
         ),
         mu=0.7,
     )
@@ -127,7 +129,7 @@ def test_dpm():
                 compare_samplers(
                     DPM(predictor=predictor[0], order=order, add_noise=stochastic),
                     DPMSolverMultistepScheduler.from_config(  # type: ignore  # Diffusers return BS
-                        hf_scheduler_config("stabilityai/stable-diffusion-xl-base-1.0"),
+                        SCALED_CONFIG,
                         algorithm_type="sde-dpmsolver++" if stochastic else "dpmsolver++",
                         final_sigmas_type="zero",
                         solver_order=order,
@@ -142,7 +144,7 @@ def test_dpm():
 #     compare_samplers(
 #         IPNDM(),
 #         IPNDMScheduler.from_config(  # type: ignore  # Diffusers return BS
-#             hf_scheduler_config("stabilityai/stable-diffusion-xl-base-1.0")
+#             SCALED_CONFIG
 #         ),
 #     )
 
@@ -150,13 +152,13 @@ def test_dpm():
 def test_unipc():
     for predictor in [(EPSILON, "epsilon"), (VELOCITY, "v_prediction"), (FLOW, "flow_prediction")]:
         # technically it can do N order, but diffusers actually breaks down super hard with high order + steps
-        # They use torch scalars for everything which rounds worse and accumulates error way faster as steps and order increase
+        # They use torch scalars for everything which accumulates error faster as steps and order increase
         # Considering Diffusers just NaNs out in like half the order as mine, I'm fine with fudging the margins
         for order, margin in zip(range(1, 4), (1e-8, 1e-7, 1e-3)):
             compare_samplers(
                 UniPC(predictor=predictor[0], order=order),
                 UniPCMultistepScheduler.from_config(  # type: ignore  # Diffusers return BS
-                    hf_scheduler_config("stabilityai/stable-diffusion-xl-base-1.0"),
+                    SCALED_CONFIG,
                     final_sigmas_type="zero",
                     solver_order=order,
                     prediction_type=predictor[1],
