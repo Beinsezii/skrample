@@ -120,6 +120,20 @@ def test_euler_flow() -> None:
     )
 
 
+def test_euler_ancestral_flow() -> None:
+    compare_samplers(
+        Euler(add_noise=True, predictor=FLOW),
+        # close enough; eulerancestral doesn't work with Flow
+        DPMSolverMultistepScheduler.from_config(  # type: ignore  # Diffusers return BS
+            FLOW_CONFIG,
+            prediction_type="flow_prediction",
+            algorithm_type="sde-dpmsolver++",
+            final_sigmas_type="zero",
+            solver_order=1,
+        ),
+    )
+
+
 def test_dpm() -> None:
     for predictor in [(EPSILON, "epsilon"), (VELOCITY, "v_prediction"), (FLOW, "flow_prediction")]:
         for order in range(1, 3):  # Their third order is fucked up. Turns into barf @ super high steps
