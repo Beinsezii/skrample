@@ -70,4 +70,4 @@ Vertical slice, overtaking most diffusers features in [quickdif](https://github.
 
 ## Implementations
 ### quickdif
-A basic test bed is available for https://github.com/Beinsezii/quickdif.git on the `skrample` branch
+My diffusers cli [quickdif](https://github.com/Beinsezii/quickdif) has full support for all major Skrample features, allowing extremely fine-grained customization.
