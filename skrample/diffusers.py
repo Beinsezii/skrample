@@ -313,7 +313,6 @@ class SkrampleWrapperScheduler:
                     schedule,
                     seeds,
                     dtype=torch.float32,
-                    device=torch.device("cpu"),
                 )
 
             noise = self._noise_generator.generate(step).to(dtype=self.compute_scale, device=model_output.device)

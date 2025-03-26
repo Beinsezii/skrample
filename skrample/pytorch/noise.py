@@ -20,7 +20,6 @@ class TensorNoiseCommon(SkrampleTensorNoise):
     shape: tuple[int, ...]
     seed: torch.Generator
     dtype: torch.dtype
-    device: torch.device
 
     @classmethod
     @abstractmethod
@@ -30,7 +29,6 @@ class TensorNoiseCommon(SkrampleTensorNoise):
         schedule: NDArray[np.float64],
         seed: torch.Generator,
         dtype: torch.dtype = torch.float32,
-        device: torch.device = torch.device("cpu"),
     ) -> Self:
         raise NotImplementedError
 
@@ -42,7 +40,7 @@ class Random(TensorNoiseCommon):
             self.shape,
             generator=self.seed,
             dtype=self.dtype,
-            device=self.device,
+            device=self.seed.device,
         )
 
     @classmethod
@@ -52,13 +50,11 @@ class Random(TensorNoiseCommon):
         schedule: NDArray[np.float64],
         seed: torch.Generator,
         dtype: torch.dtype = torch.float32,
-        device: torch.device = torch.device("cpu"),
     ) -> Self:
         return cls(
             tuple(sample.shape),
             seed,
             dtype,
-            device,
         )
 
 
@@ -78,7 +74,7 @@ class Offset(Random):
 
     def offset(self) -> torch.Tensor:
         shape = [d if n in self.dims else 1 for n, d in enumerate(self.shape)]
-        return torch.randn(shape, generator=self.seed, dtype=self.dtype, device=self.device) * self.strength**2
+        return torch.randn(shape, generator=self.seed, dtype=self.dtype, device=self.seed.device) * self.strength**2
 
     def generate(self, step: int) -> torch.Tensor:
         if self.static and self.static_offset is not None:
@@ -111,17 +107,17 @@ class Pyramid(Random):
         target = tuple([s for m, s in zip(mask, self.shape) if m])
         mode = ["linear", "bilinear", "bicubic"][len(target) - 1]
 
-        noise = torch.zeros(self.shape, dtype=self.dtype, device=self.device)
+        noise = torch.zeros(self.shape, dtype=self.dtype, device=self.seed.device)
 
         running_shape = list(self.shape)
 
         for i in range(99):
             # Rather than always going 2x,
-            r = torch.rand([1], dtype=self.dtype, device=self.device, generator=self.seed).item() * 2 + 2
+            r = torch.rand([1], dtype=self.dtype, device=self.seed.device, generator=self.seed).item() * 2 + 2
             running_shape = [max(1, int(s / (r**i))) if m else s for m, s in zip(mask, running_shape)]
 
             # Reduced size noise
-            variance = torch.randn(running_shape, dtype=self.dtype, device=self.device, generator=self.seed)
+            variance = torch.randn(running_shape, dtype=self.dtype, device=self.seed.device, generator=self.seed)
 
             # Permutation so resized dims are on end
             permutation = sorted(zip(mask, range(len(self.shape)), list(running_shape)), key=lambda t: t[0])
@@ -172,7 +168,7 @@ class Brownian(TensorNoiseCommon):
             size=self.shape,
             entropy=self.seed.initial_seed(),
             dtype=self.dtype,
-            device=self.device,
+            device=self.seed.device,
         )
 
         self.sigma_schedule = self.sigma_schedule / self.sigma_schedule.max()
@@ -191,14 +187,12 @@ class Brownian(TensorNoiseCommon):
         schedule: NDArray[np.float64],
         seed: torch.Generator,
         dtype: torch.dtype = torch.float32,
-        device: torch.device = torch.device("cpu"),
     ) -> Self:
         return cls(
             shape=tuple(sample.shape),
             seed=seed,
             sigma_schedule=schedule[:, 1],
             dtype=dtype,
-            device=device,
         )
 
 
@@ -220,11 +214,10 @@ class BatchTensorNoise(SkrampleTensorNoise):
         schedule: NDArray[np.float64],
         seeds: list[torch.Generator],
         dtype: torch.dtype = torch.float32,
-        device: torch.device = torch.device("cpu"),
     ) -> Self:
         return cls(
             [
-                subclass.from_inputs(batch_slice, schedule, seed, dtype, device)
+                subclass.from_inputs(batch_slice, schedule, seed, dtype)
                 for batch_slice, seed in zip(sample, seeds, strict=True)
             ]
         )
