@@ -1,8 +1,8 @@
-# `skrample`
+# Skrample 0.1.0
 Composable sampling functions for diffusion models
 
 ## Status
-Vertical slice, gradually overtaking many diffusers features in [quickdif](https://github.com/Beinsezii/quickdif.git)
+Vertical slice, overtaking most diffusers features in [quickdif](https://github.com/Beinsezii/quickdif.git)
 
 ### Feature Flags
  - `beta-schedule` -> `scipy` : For the `Beta()` schedule modifier
