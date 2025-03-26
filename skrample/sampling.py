@@ -194,8 +194,23 @@ class Euler(StochasticSampler):
 
         if self.add_noise and noise is not None:
             if subnormal:
-                sigma_up = 0  # TODO(beinsezii): correct values?
-                sigma_down = sigma_n1 - sigma_up
+                # TODO(beinsezii): correct values for Euler?
+                # DPM is mathematically close enough that this is fine enough,
+                # but ideally we wouldn't need this.
+                # Maybe Euler in general should just alias DPM...
+                return DPM(
+                    predictor=self.predictor,
+                    add_noise=self.add_noise,
+                    order=1,
+                ).sample(
+                    sample=sample,
+                    output=output,
+                    sigma_schedule=sigma_schedule,
+                    step=step,
+                    noise=noise,
+                    previous=previous,
+                    subnormal=subnormal,
+                )
             else:
                 sigma_up = sigma / 2 * math.sin(math.asin(sigma_n1 / sigma) * 2)
                 sigma_down = sigma_n1**2 / sigma
