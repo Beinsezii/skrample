@@ -19,6 +19,8 @@ DIFFUSERS_KEY_MAP: dict[str, str] = {
     "flow_shift": "shift",
     # sampling.HighOrderSampler
     "solver_order": "order",
+    # scheduling.ScheduleCommon.
+    "num_train_timesteps": "base_timesteps",
 }
 
 DIFFUSERS_KEY_MAP_REV: dict[str, str] = {v: k for k, v in DIFFUSERS_KEY_MAP.items()}
