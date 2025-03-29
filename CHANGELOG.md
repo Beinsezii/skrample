@@ -1,3 +1,11 @@
+## 0.2.0
+### Breaking
+Rename `ScheduleCommon.num_train_timesteps` -> `ScheduleCommon.base_timesteps`
+
+Change `diffusers.parse_diffusers_config` to take config as dict instead of **config
+
+...
+
 ## 0.1.1
 Remove `TensorNoiseCommon.device` field.
 

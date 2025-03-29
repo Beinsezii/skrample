@@ -35,7 +35,7 @@ class SkrampleSchedule(ABC):
 @dataclass
 class ScheduleCommon(SkrampleSchedule):
     # keep diffusers names for now
-    num_train_timesteps: int = 1000
+    base_timesteps: int = 1000
 
 
 @dataclass
@@ -80,17 +80,17 @@ class Scaled(ScheduleCommon):
     def timesteps(self, steps: int) -> NDArray[np.float64]:
         # # https://arxiv.org/abs/2305.08891 Table 2
         if self.uniform:
-            return np.linspace(self.num_train_timesteps - 1, 0, steps + 1, dtype=np.float64).round()[:-1]
+            return np.linspace(self.base_timesteps - 1, 0, steps + 1, dtype=np.float64).round()[:-1]
         else:
             # They use a truncated ratio for ...reasons?
-            return np.flip(np.arange(0, steps, dtype=np.float64) * (self.num_train_timesteps // steps)).round()
+            return np.flip(np.arange(0, steps, dtype=np.float64) * (self.base_timesteps // steps)).round()
 
     def betas(self) -> NDArray[np.float64]:
         return (
             np.linspace(
                 self.beta_start ** (1 / self.beta_scale),
                 self.beta_end ** (1 / self.beta_scale),
-                self.num_train_timesteps,
+                self.base_timesteps,
                 dtype=np.float64,
             )
             ** self.beta_scale
@@ -151,7 +151,7 @@ class Linear(ScheduleCommon):
         return True
 
     def sigmas_to_timesteps(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
-        return sigmas * self.num_train_timesteps
+        return sigmas * self.base_timesteps
 
     def sigmas(self, steps: int) -> NDArray[np.float64]:
         return np.linspace(1, 1 / steps, steps, dtype=np.float64)
