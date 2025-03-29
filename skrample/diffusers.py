@@ -2,7 +2,7 @@ import dataclasses
 import math
 from collections import OrderedDict
 from collections.abc import Hashable
-from typing import Any, Self
+from typing import Any
 
 import numpy as np
 import torch
@@ -10,7 +10,12 @@ from numpy.typing import NDArray
 from torch import Tensor
 
 from skrample import sampling, scheduling
-from skrample.pytorch.noise import BatchTensorNoise, Random, TensorNoiseCommon
+from skrample.pytorch.noise import (
+    BatchTensorNoise,
+    Random,
+    TensorNoiseCommon,
+    TensorNoiseProps,
+)
 from skrample.sampling import PREDICTOR, SkrampleSampler, SKSamples, StochasticSampler
 from skrample.scheduling import ScheduleModifier, SkrampleSchedule
 
@@ -145,10 +150,11 @@ def as_diffusers_config(sampler: SkrampleSampler, schedule: SkrampleSchedule) ->
 
 
 @dataclasses.dataclass
-class SkrampleWrapperScheduler:
+class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
     sampler: SkrampleSampler
     schedule: SkrampleSchedule
-    noise_type: type[TensorNoiseCommon] = Random
+    noise_type: type[TensorNoiseCommon[T]] = Random  # type: ignore  # Unsure why?
+    noise_props: T | None = None
     compute_scale: torch.dtype | None = torch.float32
     fake_config: dict[str, Any] = dataclasses.field(default_factory=lambda: DEFAULT_FAKE_CONFIG.copy())
 
@@ -160,19 +166,20 @@ class SkrampleWrapperScheduler:
         self._noise_generator: BatchTensorNoise | None = None
 
     @classmethod
-    def from_diffusers_config(
+    def from_diffusers_config[N: TensorNoiseProps | None](  # pyright fails if you use the outer generic
         cls,
         sampler: type[SkrampleSampler],
+        noise_type: type[TensorNoiseCommon[N]] = Random,
         schedule: type[SkrampleSchedule] | None = None,
         schedule_modifier: type[ScheduleModifier] | None = None,
         predictor: PREDICTOR | None = None,
-        noise_type: type[TensorNoiseCommon] = Random,
+        noise_props: N | None = None,
         compute_scale: torch.dtype | None = None,
         sampler_props: dict[str, Any] = {},
         schedule_props: dict[str, Any] = {},
         schedule_modifier_props: dict[str, Any] = {},
         config: dict[str, Any] = DEFAULT_FAKE_CONFIG,
-    ) -> Self:
+    ) -> "SkrampleWrapperScheduler[N]":
         parsed = parse_diffusers_config(
             sampler=sampler,
             schedule=schedule,
@@ -194,7 +201,8 @@ class SkrampleWrapperScheduler:
         return cls(
             built_sampler,
             built_schedule,
-            noise_type=noise_type,
+            noise_type=noise_type,  # type: ignore  # think these are weird because of the defaults?
+            noise_props=noise_props,  # type: ignore
             compute_scale=compute_scale,
             fake_config=config.copy(),
         )
@@ -316,6 +324,7 @@ class SkrampleWrapperScheduler:
                     schedule,
                     seeds,
                     dtype=torch.float32,
+                    props=self.noise_props,
                 )
 
             noise = self._noise_generator.generate(step).to(dtype=self.compute_scale, device=model_output.device)

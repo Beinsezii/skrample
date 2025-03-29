@@ -8,100 +8,134 @@ import torch
 from numpy.typing import NDArray
 
 
+@dataclass(frozen=True)
+class TensorNoiseProps:
+    pass
+
+
 @dataclass
 class SkrampleTensorNoise(ABC):
     @abstractmethod
     def generate(self, step: int) -> torch.Tensor:
-        pass
-
-
-@dataclass
-class TensorNoiseCommon(SkrampleTensorNoise):
-    shape: tuple[int, ...]
-    seed: torch.Generator
-    dtype: torch.dtype
-
-    @classmethod
-    @abstractmethod
-    def from_inputs(
-        cls,
-        sample: torch.Tensor,
-        schedule: NDArray[np.float64],
-        seed: torch.Generator,
-        dtype: torch.dtype = torch.float32,
-    ) -> Self:
         raise NotImplementedError
 
 
 @dataclass
-class Random(TensorNoiseCommon):
-    def generate(self, step: int) -> torch.Tensor:
+class TensorNoiseCommon[T: TensorNoiseProps | None](SkrampleTensorNoise):
+    shape: tuple[int, ...]
+    seed: torch.Generator
+    dtype: torch.dtype
+    props: T
+
+    def _randn(self, shape: tuple[int, ...] | None = None) -> torch.Tensor:
         return torch.randn(
-            self.shape,
+            shape if shape is not None else self.shape,
             generator=self.seed,
             dtype=self.dtype,
             device=self.seed.device,
         )
 
     @classmethod
+    @abstractmethod
     def from_inputs(
         cls,
         sample: torch.Tensor,
         schedule: NDArray[np.float64],
         seed: torch.Generator,
         dtype: torch.dtype = torch.float32,
+        props: T = None,
     ) -> Self:
-        return cls(
-            tuple(sample.shape),
-            seed,
-            dtype,
-        )
+        raise NotImplementedError
 
 
 @dataclass
-class Offset(Random):
-    "Simple random offset along dimension[s]"
+class Random(TensorNoiseCommon[None]):
+    @classmethod
+    def from_inputs(
+        cls,
+        sample: torch.Tensor,
+        schedule: NDArray[np.float64],
+        seed: torch.Generator,
+        dtype: torch.dtype = torch.float32,
+        props: None = None,
+    ) -> Self:
+        return cls(tuple(sample.shape), seed, dtype, props)
 
+    def generate(self, step: int) -> torch.Tensor:
+        return self._randn()
+
+
+@dataclass(frozen=True)
+class OffsetProps(TensorNoiseProps):
     dims: tuple[int, ...] = (0,)
     strength: float = 0.2  # low enough to not go boom ...usually
     static: bool = False
 
+
+@dataclass
+class Offset(TensorNoiseCommon[OffsetProps]):
+    "Simple random offset along dimension[s]"
+
+    @classmethod
+    def from_inputs(
+        cls,
+        sample: torch.Tensor,
+        schedule: NDArray[np.float64],
+        seed: torch.Generator,
+        dtype: torch.dtype = torch.float32,
+        props: OffsetProps = OffsetProps(),
+    ) -> Self:
+        return cls(tuple(sample.shape), seed, dtype, props)
+
     def __post_init__(self) -> None:
-        if self.static:
+        if self.props.static:
             self.static_offset: torch.Tensor | None = self.offset()
         else:
             self.static_offset = None
 
     def offset(self) -> torch.Tensor:
-        shape = [d if n in self.dims else 1 for n, d in enumerate(self.shape)]
-        return torch.randn(shape, generator=self.seed, dtype=self.dtype, device=self.seed.device) * self.strength**2
+        shape = tuple([d if n in self.props.dims else 1 for n, d in enumerate(self.shape)])
+        return self._randn(shape) * self.props.strength**2
 
     def generate(self, step: int) -> torch.Tensor:
-        if self.static and self.static_offset is not None:
+        if self.props.static and self.static_offset is not None:
             offset = self.static_offset
         else:
             offset = self.offset()
-        return super().generate(step) + offset
+        return self._randn() + offset
+
+
+@dataclass(frozen=True)
+class PyramidProps(OffsetProps):
+    dims: tuple[int] | tuple[int, int] | tuple[int, int, int] = (-1, -2)
+    strength: float = 0.3  # low by default so it doesnt grenade the average model
 
 
 @dataclass
-class Pyramid(Random):
+class Pyramid(TensorNoiseCommon[PyramidProps]):
     """Progressively scaling noise interpolated across dimension[s]
     https://wandb.ai/johnowhitaker/multires_noise/reports/Multi-Resolution-Noise-for-Diffusion-Model-Training--VmlldzozNjYyOTU2"""
 
-    dims: tuple[int] | tuple[int, int] | tuple[int, int, int] = (-1, -2)
-    strength: float = 0.3  # low by default so it doesnt grenade the average model
-    static: bool = False
-
     def __post_init__(self) -> None:
-        if self.static:
+        if self.props.static:
             self._static_pyramid = self.pyramid()
         else:
             self._static_pyramid = None
 
+    @classmethod
+    def from_inputs(
+        cls,
+        sample: torch.Tensor,
+        schedule: NDArray[np.float64],
+        seed: torch.Generator,
+        dtype: torch.dtype = torch.float32,
+        props: PyramidProps = PyramidProps(),
+    ) -> Self:
+        return cls(tuple(sample.shape), seed, dtype, props)
+
     def pyramid(self) -> torch.Tensor:
         "Just the added 'pyramid' component"
-        dims = [len(self.shape) + d if d < 0 else d for d in self.dims]
+        dims = [len(self.shape) + d if d < 0 else d for d in self.props.dims]
         mask = [n in dims for n in range(len(self.shape))]
 
         target = tuple([s for m, s in zip(mask, self.shape) if m])
@@ -142,7 +176,7 @@ class Pyramid(Random):
             unpermuted_dims = torch.tensor(permuted_dims, dtype=torch.int).argsort().tolist()
             variance = variance.reshape([compact_permuation_shape[0], *target]).permute(unpermuted_dims)
 
-            noise += variance.reshape(self.shape) * self.strength**i
+            noise += variance.reshape(self.shape) * self.props.strength**i
 
             if any(s <= 1 for m, s in zip(mask, running_shape) if m):
                 break  # Lowest resolution is 1x1
@@ -150,15 +184,15 @@ class Pyramid(Random):
         return noise
 
     def generate(self, step: int) -> torch.Tensor:
-        if self.static and self._static_pyramid is not None:
-            noise = super().generate(step) + self._static_pyramid
+        if self.props.static and self._static_pyramid is not None:
+            noise = self._randn() + self._static_pyramid
         else:
-            noise = super().generate(step) + self.pyramid()
+            noise = self._randn() + self.pyramid()
         return noise / noise.std()  # Scaled back to roughly unit variance
 
 
 @dataclass
-class Brownian(TensorNoiseCommon):
+class Brownian(TensorNoiseCommon[None]):
     sigma_schedule: NDArray[np.float64]
 
     def __post_init__(self) -> None:
@@ -187,18 +221,20 @@ class Brownian(TensorNoiseCommon):
         schedule: NDArray[np.float64],
         seed: torch.Generator,
         dtype: torch.dtype = torch.float32,
+        props: None = None,
     ) -> Self:
         return cls(
             shape=tuple(sample.shape),
             seed=seed,
             sigma_schedule=schedule[:, 1],
             dtype=dtype,
+            props=props,
         )
 
 
 @dataclass
-class BatchTensorNoise(SkrampleTensorNoise):
-    generators: list[SkrampleTensorNoise]
+class BatchTensorNoise[T: TensorNoiseProps | None](SkrampleTensorNoise):
+    generators: list[TensorNoiseCommon[T]]
 
     def generate(
         self,
@@ -207,17 +243,20 @@ class BatchTensorNoise(SkrampleTensorNoise):
         return torch.stack([g.generate(step) for g in self.generators])
 
     @classmethod
-    def from_batch_inputs(
+    def from_batch_inputs[U: TensorNoiseProps | None](  # pyright fails if you use the outer generic
         cls,
-        subclass: type[TensorNoiseCommon],
+        subclass: type[TensorNoiseCommon[U]],
         sample: torch.Tensor,
         schedule: NDArray[np.float64],
         seeds: list[torch.Generator],
         dtype: torch.dtype = torch.float32,
-    ) -> Self:
+        props: U | None = None,
+    ) -> "BatchTensorNoise[U]":
         return cls(
             [
-                subclass.from_inputs(batch_slice, schedule, seed, dtype)
+                subclass.from_inputs(batch_slice, schedule, seed, dtype, props)
+                if props is not None
+                else subclass.from_inputs(batch_slice, schedule, seed, dtype)  # type: ignore  # Safe from ABC
                 for batch_slice, seed in zip(sample, seeds, strict=True)
             ]
         )
