@@ -8,6 +8,10 @@ import torch
 from numpy.typing import NDArray
 
 
+def schedule_to_ramp(schedule: NDArray[np.float64]) -> NDArray[np.float64]:
+    return np.concatenate([[0], np.flip(schedule[:, 1])])
+
+
 @dataclass(frozen=True)
 class TensorNoiseProps:
     pass
@@ -16,7 +20,7 @@ class TensorNoiseProps:
 @dataclass
 class SkrampleTensorNoise(ABC):
     @abstractmethod
-    def generate(self, step: int) -> torch.Tensor:
+    def generate(self) -> torch.Tensor:
         raise NotImplementedError
 
 
@@ -39,11 +43,11 @@ class TensorNoiseCommon[T: TensorNoiseProps | None](SkrampleTensorNoise):
     @abstractmethod
     def from_inputs(
         cls,
-        sample: torch.Tensor,
-        schedule: NDArray[np.float64],
+        shape: tuple[int, ...],
         seed: torch.Generator,
-        dtype: torch.dtype = torch.float32,
         props: T = None,
+        dtype: torch.dtype = torch.float32,
+        ramp: NDArray[np.float64] = np.linspace(0, 1, 2, dtype=np.float64),
     ) -> Self:
         raise NotImplementedError
 
@@ -53,15 +57,15 @@ class Random(TensorNoiseCommon[None]):
     @classmethod
     def from_inputs(
         cls,
-        sample: torch.Tensor,
-        schedule: NDArray[np.float64],
+        shape: tuple[int, ...],
         seed: torch.Generator,
-        dtype: torch.dtype = torch.float32,
         props: None = None,
+        dtype: torch.dtype = torch.float32,
+        ramp: NDArray[np.float64] = np.linspace(0, 1, 2, dtype=np.float64),
     ) -> Self:
-        return cls(tuple(sample.shape), seed, dtype, props)
+        return cls(shape, seed, dtype, props)
 
-    def generate(self, step: int) -> torch.Tensor:
+    def generate(self) -> torch.Tensor:
         return self._randn()
 
 
@@ -79,13 +83,13 @@ class Offset(TensorNoiseCommon[OffsetProps]):
     @classmethod
     def from_inputs(
         cls,
-        sample: torch.Tensor,
-        schedule: NDArray[np.float64],
+        shape: tuple[int, ...],
         seed: torch.Generator,
-        dtype: torch.dtype = torch.float32,
         props: OffsetProps = OffsetProps(),
+        dtype: torch.dtype = torch.float32,
+        ramp: NDArray[np.float64] = np.linspace(0, 1, 2, dtype=np.float64),
     ) -> Self:
-        return cls(tuple(sample.shape), seed, dtype, props)
+        return cls(shape, seed, dtype, props)
 
     def __post_init__(self) -> None:
         if self.props.static:
@@ -97,7 +101,7 @@ class Offset(TensorNoiseCommon[OffsetProps]):
         shape = tuple([d if n in self.props.dims else 1 for n, d in enumerate(self.shape)])
         return self._randn(shape) * self.props.strength**2
 
-    def generate(self, step: int) -> torch.Tensor:
+    def generate(self) -> torch.Tensor:
         if self.props.static and self.static_offset is not None:
             offset = self.static_offset
         else:
@@ -125,13 +129,13 @@ class Pyramid(TensorNoiseCommon[PyramidProps]):
     @classmethod
     def from_inputs(
         cls,
-        sample: torch.Tensor,
-        schedule: NDArray[np.float64],
+        shape: tuple[int, ...],
         seed: torch.Generator,
-        dtype: torch.dtype = torch.float32,
         props: PyramidProps = PyramidProps(),
+        dtype: torch.dtype = torch.float32,
+        ramp: NDArray[np.float64] = np.linspace(0, 1, 2, dtype=np.float64),
     ) -> Self:
-        return cls(tuple(sample.shape), seed, dtype, props)
+        return cls(shape, seed, dtype, props)
 
     def pyramid(self) -> torch.Tensor:
         "Just the added 'pyramid' component"
@@ -183,7 +187,7 @@ class Pyramid(TensorNoiseCommon[PyramidProps]):
 
         return noise
 
-    def generate(self, step: int) -> torch.Tensor:
+    def generate(self) -> torch.Tensor:
         if self.props.static and self._static_pyramid is not None:
             noise = self._randn() + self._static_pyramid
         else:
@@ -193,7 +197,7 @@ class Pyramid(TensorNoiseCommon[PyramidProps]):
 
 @dataclass
 class Brownian(TensorNoiseCommon[None]):
-    sigma_schedule: NDArray[np.float64]
+    ramp: NDArray[np.float64]
 
     def __post_init__(self) -> None:
         import torchsde
@@ -205,58 +209,60 @@ class Brownian(TensorNoiseCommon[None]):
             device=self.seed.device,
         )
 
-        self.sigma_schedule = self.sigma_schedule / self.sigma_schedule.max()
+        self._step: int = 0
 
-    def generate(self, step: int) -> torch.Tensor:
-        schedule = self.sigma_schedule / self.sigma_schedule.max()
-        sigma = schedule[step]
-        sigma_next = 0 if step + 1 >= len(schedule) else schedule[step + 1]
+        # Basic sanitization to normalize 0->1
+        self.ramp -= self.ramp.min()
+        self.ramp /= self.ramp.max()
+        if self.ramp[0] > self.ramp[-1]:
+            self.ramp = np.flip(self.ramp)
 
-        return self._tree(sigma_next, sigma) / abs(sigma_next - sigma) ** 0.5
+    def generate(self) -> torch.Tensor:
+        sigma = self.ramp[self._step]
+        sigma_next = self.ramp[self._step + 1]
+        self._step += 1
+
+        return self._tree(sigma, sigma_next) / abs(sigma_next - sigma) ** 0.5
 
     @classmethod
     def from_inputs(
         cls,
-        sample: torch.Tensor,
-        schedule: NDArray[np.float64],
+        shape: tuple[int, ...],
         seed: torch.Generator,
-        dtype: torch.dtype = torch.float32,
         props: None = None,
+        dtype: torch.dtype = torch.float32,
+        ramp: NDArray[np.float64] = np.linspace(0, 1, 1000, dtype=np.float64),
     ) -> Self:
-        return cls(
-            shape=tuple(sample.shape),
-            seed=seed,
-            sigma_schedule=schedule[:, 1],
-            dtype=dtype,
-            props=props,
-        )
+        return cls(shape=shape, seed=seed, ramp=ramp, dtype=dtype, props=props)
 
 
 @dataclass
 class BatchTensorNoise[T: TensorNoiseProps | None](SkrampleTensorNoise):
     generators: list[TensorNoiseCommon[T]]
 
-    def generate(
-        self,
-        step: int,
-    ) -> torch.Tensor:
-        return torch.stack([g.generate(step) for g in self.generators])
+    def generate(self) -> torch.Tensor:
+        return torch.stack([g.generate() for g in self.generators])
 
     @classmethod
     def from_batch_inputs[U: TensorNoiseProps | None](  # pyright fails if you use the outer generic
         cls,
         subclass: type[TensorNoiseCommon[U]],
-        sample: torch.Tensor,
-        schedule: NDArray[np.float64],
+        unit_shape: tuple[int, ...],
         seeds: list[torch.Generator],
-        dtype: torch.dtype = torch.float32,
         props: U | None = None,
+        dtype: torch.dtype = torch.float32,
+        ramp: NDArray[np.float64] = np.linspace(0, 1, 2, dtype=np.float64),
     ) -> "BatchTensorNoise[U]":
         return cls(
             [
-                subclass.from_inputs(batch_slice, schedule, seed, dtype, props)
+                subclass.from_inputs(unit_shape, seed, props, dtype, ramp)
                 if props is not None
-                else subclass.from_inputs(batch_slice, schedule, seed, dtype)  # type: ignore  # Safe from ABC
-                for batch_slice, seed in zip(sample, seeds, strict=True)
+                else subclass.from_inputs(
+                    unit_shape,
+                    seed,
+                    dtype=dtype,
+                    ramp=ramp,
+                )  # type: ignore  # Safe from ABC
+                for seed in seeds
             ]
         )

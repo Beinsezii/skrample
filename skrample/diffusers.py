@@ -15,6 +15,7 @@ from skrample.pytorch.noise import (
     Random,
     TensorNoiseCommon,
     TensorNoiseProps,
+    schedule_to_ramp,
 )
 from skrample.sampling import PREDICTOR, SkrampleSampler, SKSamples, StochasticSampler
 from skrample.scheduling import ScheduleModifier, SkrampleSchedule
@@ -320,14 +321,14 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
 
                 self._noise_generator = BatchTensorNoise.from_batch_inputs(
                     self.noise_type,
-                    sample,
-                    schedule,
-                    seeds,
-                    dtype=torch.float32,
+                    unit_shape=sample.shape[1:],
+                    seeds=seeds,
                     props=self.noise_props,
+                    ramp=schedule_to_ramp(schedule),
+                    dtype=torch.float32,
                 )
 
-            noise = self._noise_generator.generate(step).to(dtype=self.compute_scale, device=model_output.device)
+            noise = self._noise_generator.generate().to(dtype=self.compute_scale, device=model_output.device)
         else:
             noise = None
 
