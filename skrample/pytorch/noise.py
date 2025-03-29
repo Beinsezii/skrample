@@ -195,12 +195,21 @@ class Pyramid(TensorNoiseCommon[PyramidProps]):
         return noise / noise.std()  # Scaled back to roughly unit variance
 
 
+@dataclass(frozen=True)
+class BrownianProps(TensorNoiseProps):
+    reverse: bool = False
+
+
 @dataclass
-class Brownian(TensorNoiseCommon[None]):
+class Brownian(TensorNoiseCommon[BrownianProps]):
     ramp: NDArray[np.float64]
 
     def __post_init__(self) -> None:
         import torchsde
+
+        if len(self.ramp) < 2:
+            err = "Brownian.ramp must have at least two positions"
+            raise ValueError(err)
 
         self._tree = torchsde.BrownianInterval(
             size=self.shape,
@@ -218,8 +227,17 @@ class Brownian(TensorNoiseCommon[None]):
             self.ramp = np.flip(self.ramp)
 
     def generate(self) -> torch.Tensor:
-        sigma = self.ramp[self._step]
-        sigma_next = self.ramp[self._step + 1]
+        if self._step + 1 >= len(self.ramp):
+            raise StopIteration
+
+        if self.props.reverse:
+            # - 2 because you still get the next sequentiall
+            step = len(self.ramp) - self._step - 2
+        else:
+            step = self._step
+
+        sigma = self.ramp[step]
+        sigma_next = self.ramp[step + 1]
         self._step += 1
 
         return self._tree(sigma, sigma_next) / abs(sigma_next - sigma) ** 0.5
@@ -229,7 +247,7 @@ class Brownian(TensorNoiseCommon[None]):
         cls,
         shape: tuple[int, ...],
         seed: torch.Generator,
-        props: None = None,
+        props: BrownianProps = BrownianProps(),
         dtype: torch.dtype = torch.float32,
         ramp: NDArray[np.float64] = np.linspace(0, 1, 1000, dtype=np.float64),
     ) -> Self:
