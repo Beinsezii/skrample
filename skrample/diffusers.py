@@ -43,6 +43,15 @@ DIFFUSERS_VALUE_MAP: dict[tuple[str, Any], tuple[str, Any]] = {
 DIFFUSERS_VALUE_MAP_REV: dict[tuple[str, Any], tuple[str, Any]] = {v: k for k, v in DIFFUSERS_VALUE_MAP.items()}
 
 
+DEFAULT_FAKE_CONFIG = {  # Required for FluxPipeline to not die
+    "base_image_seq_len": 256,
+    "base_shift": 0.5,
+    "max_image_seq_len": 4096,
+    "max_shift": 1.15,
+    "use_dynamic_shifting": True,
+}
+
+
 @dataclasses.dataclass(frozen=True)
 class ParsedDiffusersConfig:
     sampler: type[SkrampleSampler]
@@ -60,7 +69,7 @@ def parse_diffusers_config(
     sampler: type[SkrampleSampler],
     schedule: type[SkrampleSchedule] | None = None,
     schedule_modifier: type[ScheduleModifier] | None = None,
-    **config: Any,  # noqa: ANN401
+    config: dict[str, Any] = DEFAULT_FAKE_CONFIG,
 ) -> ParsedDiffusersConfig:
     remapped = (
         config
@@ -139,15 +148,7 @@ class SkrampleWrapperScheduler:
     schedule: SkrampleSchedule
     noise_type: type[TensorNoiseCommon] = Random
     compute_scale: torch.dtype | None = torch.float32
-    fake_config: dict[str, Any] = dataclasses.field(
-        default_factory=lambda: {  # Required for FluxPipeline to not die
-            "base_image_seq_len": 256,
-            "base_shift": 0.5,
-            "max_image_seq_len": 4096,
-            "max_shift": 1.15,
-            "use_dynamic_shifting": True,
-        }
-    )
+    fake_config: dict[str, Any] = dataclasses.field(default_factory=lambda: DEFAULT_FAKE_CONFIG.copy())
 
     def __post_init__(self) -> None:
         # State
@@ -168,13 +169,13 @@ class SkrampleWrapperScheduler:
         sampler_props: dict[str, Any] = {},
         schedule_props: dict[str, Any] = {},
         schedule_modifier_props: dict[str, Any] = {},
-        **config: Any,  # noqa: ANN401
+        config: dict[str, Any] = DEFAULT_FAKE_CONFIG,
     ) -> Self:
         parsed = parse_diffusers_config(
             sampler=sampler,
             schedule=schedule,
             schedule_modifier=schedule_modifier,
-            **config,
+            config=config,
         )
 
         sampler_props = parsed.sampler_props | sampler_props
