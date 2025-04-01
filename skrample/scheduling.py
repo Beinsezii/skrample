@@ -145,16 +145,28 @@ class ZSNR(Scaled):
 class Linear(ScheduleCommon):
     sigma_start: float = 1
     sigma_end: float = 0
+    present_subnormal: bool | None = None
+    """If set to a bool, will be used as the value for `self.subnormal`
+    Otherwise, subnormal will be False for sigmas_start > 1 and True for <= 1"""
 
     @property
     def subnormal(self) -> bool:
-        return True
+        if self.present_subnormal is None:
+            return self.sigma_start <= 1
+        else:
+            return self.present_subnormal
+
+    def normalize(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
+        return (sigmas - self.sigma_end) / (self.sigma_start - self.sigma_end)
+
+    def regularize(self, normalized_sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
+        return normalized_sigmas * (self.sigma_start - self.sigma_end) + self.sigma_end
 
     def sigmas_to_timesteps(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
-        return sigmas * self.base_timesteps
+        return self.normalize(sigmas) * self.base_timesteps
 
     def sigmas(self, steps: int) -> NDArray[np.float64]:
-        return np.linspace(1, 1 / steps, steps, dtype=np.float64)
+        return np.linspace(self.sigma_start, self.sigma_end, steps, endpoint=False, dtype=np.float64)
 
     def schedule(self, steps: int) -> NDArray[np.float64]:
         sigmas = self.sigmas(steps)
@@ -188,10 +200,16 @@ class Flow(Linear):
         # What the flux pipeline overrides it to. Seems more correct?
         sigmas = super().sigmas(steps)
 
+        # Compute flow match in 0-1 scale
+        # TODO(beinsezii): maybe the shift itself should be rewritten to accomodate start/end?
+        sigmas = self.normalize(sigmas)
+
         if self.mu is not None:  # dynamic
             sigmas = math.exp(self.mu) / (math.exp(self.mu) + (1 / sigmas - 1))
         else:  # non-dynamic
             sigmas = self.shift * sigmas / (1 + (self.shift - 1) * sigmas)
+
+        sigmas = self.regularize(sigmas)
 
         return sigmas  # type: ignore
 
