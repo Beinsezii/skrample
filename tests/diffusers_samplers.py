@@ -15,6 +15,11 @@ DiffusersScheduler = (
 )
 
 
+def fake_model(t: torch.Tensor) -> torch.Tensor:
+    t @= torch.randn(t.shape, generator=torch.Generator(t.device).manual_seed(-1), dtype=t.dtype)
+    return t / t.std()  # keep values in sane range
+
+
 def dual_sample(
     a: SkrampleSampler,
     b: DiffusersScheduler,
@@ -48,20 +53,19 @@ def dual_sample(
     prior_steps: list[SKSamples] = []
     for step in steps:
         # Just some pseud-random transform that shouldn't blow up the values
-        model = torch.randn([128, 128], generator=seed, dtype=a_sample.dtype)
         noise = torch.randn(a_sample.shape, generator=seed.clone_state(), dtype=a_sample.dtype)
 
         timestep, sigma = schedule[step]
 
-        a_output = a.scale_input(a_sample, sigma.item(), subnormal=subnormal) * model
+        a_output = fake_model(a.scale_input(a_sample, sigma.item(), subnormal=subnormal))
         sampled = a.sample(a_sample, a_output, schedule[:, 1].numpy(), step, noise, prior_steps, subnormal)
         a_sample = sampled.final
         prior_steps.append(sampled)
 
         if isinstance(b, FlowMatchEulerDiscreteScheduler):
-            b_output = b_sample * model
+            b_output = fake_model(b_sample)
         else:
-            b_output = b.scale_model_input(sample=b_sample, timestep=timestep) * model
+            b_output = fake_model(b.scale_model_input(sample=b_sample, timestep=timestep))
 
         if "generator" in signature(b.step).parameters:  # why, diffusers, why
             b_sample = b.step(model_output=b_output, sample=b_sample, timestep=timestep, generator=seed)[0]  # type: ignore  # FloatTensor
@@ -166,7 +170,7 @@ def test_unipc() -> None:
         # technically it can do N order, but diffusers actually breaks down super hard with high order + steps
         # They use torch scalars for everything which accumulates error faster as steps and order increase
         # Considering Diffusers just NaNs out in like half the order as mine, I'm fine with fudging the margins
-        for order, margin in zip(range(1, 4), (1e-8, 1e-7, 1e-3)):
+        for order in range(1, 5):
             compare_samplers(
                 UniPC(predictor=predictor[0], order=order),
                 UniPCMultistepScheduler.from_config(  # type: ignore  # Diffusers return BS
@@ -176,5 +180,4 @@ def test_unipc() -> None:
                     prediction_type=predictor[1],
                 ),
                 message=f"{predictor[0].__name__} o{order}",
-                margin=margin,
             )
