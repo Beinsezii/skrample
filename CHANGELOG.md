@@ -12,6 +12,8 @@ Linear() can now adjust presented `.subnormal` property
 
 Added diffusers class -> sampler map. Passing `sampler` to diffuser config parsing is now optional.
 
+More diffuserse config mappings
+
 ### Fixes
 Linear() and derivatives now respect sigma_start and sigma_end properly
 
