@@ -12,7 +12,7 @@ from testing_common import FLOW_CONFIG, SCALED_CONFIG
 
 from skrample.diffusers import SkrampleWrapperScheduler
 from skrample.sampling import DPM, EPSILON, FLOW, IPNDM, VELOCITY, Euler, UniPC
-from skrample.scheduling import Flow, Scaled
+from skrample.scheduling import Beta, Exponential, Flow, Karras, Scaled
 
 
 def check_wrapper(wrapper: SkrampleWrapperScheduler, scheduler: ConfigMixin, params: list[str] = []) -> None:
@@ -22,32 +22,39 @@ def check_wrapper(wrapper: SkrampleWrapperScheduler, scheduler: ConfigMixin, par
 
 
 def test_dpm() -> None:
-    for algo, noise in [
-        ("dpmsolver", False),
-        ("dpmsolver++", False),
-        ("sde-dpmsolver", True),
-        ("sde-dpmsolver++", True),
+    for flag, mod in [
+        ("lower_order_final", None),  # dummy flag always true
+        ("use_karras_sigmas", Karras),
+        ("use_exponential_sigmas", Exponential),
+        ("use_beta_sigmas", Beta),
     ]:
-        for uniform, spacing in [(False, "leading"), (True, "trailing")]:
-            for skpred, dfpred in [(EPSILON, "epsilon"), (VELOCITY, "v_prediction")]:
-                for order in range(1, 4):
-                    check_wrapper(
-                        SkrampleWrapperScheduler(
-                            DPM(predictor=skpred, add_noise=noise, order=order),
-                            Scaled(uniform=uniform),
-                        ),
-                        DPMSolverMultistepScheduler.from_config(  # type: ignore ConfigMixin
-                            SCALED_CONFIG
-                            | {
-                                "prediction_type": dfpred,
-                                "solver_order": order,
-                                "timestep_spacing": spacing,
-                                "algorithm_type": algo,
-                                "final_sigmas_type": "sigma_min",  # for non ++ to not err
-                            }
-                        ),
-                        [algo, spacing, dfpred, f"o{order}"],
-                    )
+        for algo, noise in [
+            ("dpmsolver", False),
+            ("dpmsolver++", False),
+            ("sde-dpmsolver", True),
+            ("sde-dpmsolver++", True),
+        ]:
+            for uniform, spacing in [(False, "leading"), (True, "trailing")]:
+                for skpred, dfpred in [(EPSILON, "epsilon"), (VELOCITY, "v_prediction")]:
+                    for order in range(1, 4):
+                        check_wrapper(
+                            SkrampleWrapperScheduler(
+                                DPM(predictor=skpred, add_noise=noise, order=order),
+                                mod(Scaled(uniform=uniform)) if mod else Scaled(uniform=uniform),
+                            ),
+                            DPMSolverMultistepScheduler.from_config(  # type: ignore ConfigMixin
+                                SCALED_CONFIG
+                                | {
+                                    "prediction_type": dfpred,
+                                    "solver_order": order,
+                                    "timestep_spacing": spacing,
+                                    "algorithm_type": algo,
+                                    "final_sigmas_type": "sigma_min",  # for non ++ to not err
+                                    flag: True,
+                                }
+                            ),
+                            [flag, algo, spacing, dfpred, f"o{order}"],
+                        )
 
     check_wrapper(
         SkrampleWrapperScheduler(DPM(predictor=FLOW, order=2), Flow()),
