@@ -47,7 +47,7 @@ jobs:
 
       - run: uv venv --python 3.13
       - name: Install
-        run: uv pip install .[dev] --extra-index-url https://download.pytorch.org/whl/cpu -U
+        run: uv pip install .[test] --extra-index-url https://download.pytorch.org/whl/cpu -U
 
       - name: Ruff Check
         if: '!cancelled()'
