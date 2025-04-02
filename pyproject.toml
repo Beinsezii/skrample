@@ -19,14 +19,18 @@ pytorch = ["torch>=2.5"]
 
 all = ["skrample[beta-schedule,brownian-noise,diffusers-wrapper,pytorch]"]
 
-dev = [
+test = [
     "skrample[all]",
-    "accelerate>=1.3",
     "diffusers>=0.32",
-    "protobuf>=5.29",
     "pyright>=1.1.397",
     "pytest>=8.3",
     "ruff>=0.11",
+]
+
+dev = [
+    "skrample[test]",
+    "accelerate>=1.3",
+    "protobuf>=5.29",
     "sentencepiece>=0.2",
     "transformers>=4.48",
 ]
