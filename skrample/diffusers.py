@@ -25,6 +25,8 @@ if TYPE_CHECKING:
 
 
 DIFFUSERS_CLASS_MAP: dict[str, tuple[type[SkrampleSampler], dict[str, Any]]] = {
+    "DDIMScheduler": (sampling.Euler, {}),
+    "DDPMScheduler": (sampling.Euler, {"add_noise": True}),
     "DPMSolverMultistepScheduler": (sampling.DPM, {}),
     "DPMSolverSDEScheduler": (sampling.DPM, {"add_noise": True}),
     "EulerAncestralDiscreteScheduler": (sampling.Euler, {"add_noise": True}),
@@ -52,6 +54,11 @@ DIFFUSERS_VALUE_MAP: dict[tuple[str, Any], tuple[str, Any]] = {
     ("timestep_spacing", "leading"): ("uniform", False),
     ("timestep_spacing", "linspace"): ("uniform", True),
     ("timestep_spacing", "trailing"): ("uniform", True),
+    # sampling.StochasticSampler
+    ("algorithm_type", "dpmsolver"): ("add_noise", False),
+    ("algorithm_type", "dpmsolver++"): ("add_noise", False),
+    ("algorithm_type", "sde-dpmsolver"): ("add_noise", True),
+    ("algorithm_type", "sde-dpmsolver++"): ("add_noise", True),
     # Complex types
     ("prediction_type", "epsilon"): ("skrample_predictor", sampling.EPSILON),
     ("prediction_type", "flow"): ("skrample_predictor", sampling.FLOW),
