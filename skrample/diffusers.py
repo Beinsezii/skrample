@@ -205,7 +205,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
         schedule_modifier: type[ScheduleModifier] | None = None,
         predictor: PREDICTOR | None = None,
         noise_props: N | None = None,
-        compute_scale: torch.dtype | None = None,
+        compute_scale: torch.dtype | None = torch.float32,
         sampler_props: dict[str, Any] = {},
         schedule_props: dict[str, Any] = {},
         schedule_modifier_props: dict[str, Any] = {},
