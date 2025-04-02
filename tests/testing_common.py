@@ -6,9 +6,11 @@ from huggingface_hub import hf_hub_download
 FLOW_CONFIG = {
     "base_image_seq_len": 256,
     "base_shift": 0.5,
+    "flow_shift": 3.0,
     "max_image_seq_len": 4096,
     "max_shift": 1.15,
     "num_train_timesteps": 1000,
+    "prediction_type": "flow_prediction",
     "shift": 3.0,
     "use_dynamic_shifting": True,
 }
