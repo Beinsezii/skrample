@@ -136,9 +136,9 @@ def parse_diffusers_config(
     # Adjust sigma_start to match scaled beta for sd1/xl
     if "sigma_start" not in remapped and predictor is not sampling.FLOW and issubclass(schedule, scheduling.Linear):
         scaled_keys = [f.name for f in dataclasses.fields(scheduling.Scaled)]
-        sigma_start: float = (
-            scheduling.Scaled(**{k: v for k, v in remapped.items() if k in scaled_keys}).sigmas(1).item()
-        )
+        scaled = scheduling.Scaled(**{k: v for k, v in remapped.items() if k in scaled_keys})
+        scaled.uniform = True  # non-uniform misses a whole timestep
+        sigma_start: float = scaled.sigmas(1).item()
         remapped["sigma_start"] = math.sqrt(sigma_start)
 
     if not schedule_modifier:
