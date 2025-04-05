@@ -20,6 +20,7 @@ from skrample.pytorch.noise import (
 )
 from skrample.sampling import PREDICTOR, SkrampleSampler, SKSamples, StochasticSampler
 from skrample.scheduling import ScheduleModifier, SkrampleSchedule
+from skrample.common import MergeStrategy
 
 if TYPE_CHECKING:
     from diffusers.configuration_utils import ConfigMixin
@@ -80,31 +81,6 @@ DEFAULT_FAKE_CONFIG = {  # Required for FluxPipeline to not die
     "max_shift": 1.15,
     "use_dynamic_shifting": True,
 }
-
-
-@enum.unique
-class MergeStrategy(enum.StrEnum):  # str for easy UI options
-    Ours = enum.auto()
-    Theirs = enum.auto()
-    After = enum.auto()
-    Before = enum.auto()
-    UniqueAfter = enum.auto()
-    UniqueBefore = enum.auto()
-
-    def merge[T](self, ours: list[T], theirs: list[T], cmp: Callable[[T, T], bool] = lambda a, b: a == b) -> list[T]:
-        match self:
-            case MergeStrategy.Ours:
-                return ours
-            case MergeStrategy.Theirs:
-                return theirs
-            case MergeStrategy.After:
-                return ours + theirs
-            case MergeStrategy.Before:
-                return theirs + ours
-            case MergeStrategy.UniqueAfter:
-                return ours + [i for i in theirs if not any(map(cmp, ours, [i] * len(theirs)))]
-            case MergeStrategy.UniqueBefore:
-                return theirs + [i for i in ours if not any(map(cmp, theirs, [i] * len(ours)))]
 
 
 @dataclasses.dataclass(frozen=True)

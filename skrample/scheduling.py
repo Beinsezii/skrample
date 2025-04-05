@@ -5,17 +5,7 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
-
-def normalize(regular_array: NDArray[np.float64], start: float = 1, end: float = 0) -> NDArray[np.float64]:
-    return (regular_array - end) / (start - end)
-
-
-def regularize(normal_array: NDArray[np.float64], start: float = 1, end: float = 0) -> NDArray[np.float64]:
-    return normal_array * (start - end) + end
-
-
-def sigmoid(array: NDArray[np.float64]) -> NDArray[np.float64]:
-    return 1 / (1 + np.exp(array))
+from skrample.common import normalize, regularize, sigmoid
 
 
 @dataclass
