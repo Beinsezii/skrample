@@ -205,7 +205,7 @@ class ScheduleModifier(SkrampleSchedule):
 
     @property
     def all(self) -> list[SkrampleSchedule]:
-        bases: list[SkrampleSchedule] = []
+        bases: list[SkrampleSchedule] = [self]
         last = self.base
         while isinstance(last, ScheduleModifier):
             bases.append(last)
