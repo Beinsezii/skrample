@@ -16,9 +16,9 @@ SCHEDULES: dict[str, scheduling.ScheduleCommon | scheduling.ScheduleModifier] = 
     "zsnr": scheduling.ZSNR(),
     "linear": scheduling.Linear(),
     "sigcdf": scheduling.SigmoidCDF(),
-    "flow": scheduling.Flow(),
+    "flow": scheduling.FlowShift(scheduling.Linear()),
     "flowsig": scheduling.FlowShift(scheduling.SigmoidCDF()),
-    "flow_mu": scheduling.Flow(mu=1),
+    "flow_mu": scheduling.FlowShift(scheduling.Linear(), mu=1),
 }
 
 MODIFIERS: dict[str, type[scheduling.ScheduleModifier] | None] = {
