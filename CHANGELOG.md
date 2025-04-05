@@ -7,12 +7,20 @@ Change `diffusers.parse_diffusers_config` to take config as dict instead of **co
 Moved customization properties from all pytorch.noise classes into their own property structs,
 guarded by static type analysis. Should allow easily configuring the rng while guaranteeing state drop.
 
+Replace Flow() schedule with FlowShift() schedule modifier.
+
+Updated `parse_diffusers_config` and `from_diffusers_config` to properly handle multiple modifiers
+
 ### Additions
 Linear() can now adjust presented `.subnormal` property
 
 Added diffusers class -> sampler map. Passing `sampler` to diffuser config parsing is now optional.
 
 More diffuserse config mappings
+
+SigmaCDF() schedule
+
+`scripts/plot_schedules.py` for visualising noise schedules
 
 ### Fixes
 Linear() and derivatives now respect sigma_start and sigma_end properly
