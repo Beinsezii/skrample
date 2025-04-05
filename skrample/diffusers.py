@@ -1,7 +1,8 @@
 import dataclasses
+import enum
 import math
 from collections import OrderedDict
-from collections.abc import Hashable
+from collections.abc import Callable, Hashable
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -79,6 +80,31 @@ DEFAULT_FAKE_CONFIG = {  # Required for FluxPipeline to not die
     "max_shift": 1.15,
     "use_dynamic_shifting": True,
 }
+
+
+@enum.unique
+class MergeStrategy(enum.StrEnum):  # str for easy UI options
+    Ours = enum.auto()
+    Theirs = enum.auto()
+    After = enum.auto()
+    Before = enum.auto()
+    UniqueAfter = enum.auto()
+    UniqueBefore = enum.auto()
+
+    def merge[T](self, ours: list[T], theirs: list[T], cmp: Callable[[T, T], bool] = lambda a, b: a == b) -> list[T]:
+        match self:
+            case MergeStrategy.Ours:
+                return ours
+            case MergeStrategy.Theirs:
+                return theirs
+            case MergeStrategy.After:
+                return ours + theirs
+            case MergeStrategy.Before:
+                return theirs + ours
+            case MergeStrategy.UniqueAfter:
+                return ours + [i for i in theirs if not any(map(cmp, ours, [i] * len(theirs)))]
+            case MergeStrategy.UniqueBefore:
+                return theirs + [i for i in ours if not any(map(cmp, theirs, [i] * len(ours)))]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -204,18 +230,23 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
         sampler: type[SkrampleSampler] | None = None,
         noise_type: type[TensorNoiseCommon[N]] = Random,
         schedule: type[SkrampleSchedule] | None = None,
-        schedule_modifiers: list[tuple[type[ScheduleModifier], dict[str, Any]]] | None = None,
+        schedule_modifiers: list[tuple[type[ScheduleModifier], dict[str, Any]]] = [],
         compute_scale: torch.dtype | None = torch.float32,
         sampler_props: dict[str, Any] = {},
-        schedule_props: dict[str, Any] = {},
         noise_props: N | None = None,
+        schedule_props: dict[str, Any] = {},
+        modifier_merge_strategy: MergeStrategy = MergeStrategy.UniqueBefore,
     ) -> "SkrampleWrapperScheduler[N]":
         parsed = parse_diffusers_config(config=config, sampler=sampler, schedule=schedule)
 
         built_sampler = (sampler or parsed.sampler)(**parsed.sampler_props | sampler_props)
         built_schedule = (schedule or parsed.schedule)(**parsed.schedule_props | schedule_props)
 
-        for modifier, modifier_props in parsed.schedule_modifiers + (schedule_modifiers or []):
+        for modifier, modifier_props in modifier_merge_strategy.merge(
+            ours=schedule_modifiers,
+            theirs=parsed.schedule_modifiers,
+            cmp=lambda a, b: type(a[0]) is type(b[0]),
+        ):
             built_schedule = modifier(base=built_schedule, **modifier_props)
 
         return cls(
