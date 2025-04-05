@@ -13,14 +13,20 @@ build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
 beta-schedule = ["scipy>=1.12"]
+cdf-schedule = ["scipy>=1.12"]
 brownian-noise = ["torchsde>=0.2.6"]
 diffusers-wrapper = ["torch>=2.5"]
 pytorch = ["torch>=2.5"]
 
 all = ["skrample[beta-schedule,brownian-noise,diffusers-wrapper,pytorch]"]
 
-test = [
+scripts = [
     "skrample[all]",
+    "matplotlib>=3.10.1",
+]
+
+test = [
+    "skrample[scripts]",
     "diffusers>=0.32",
     "pyright>=1.1.397",
     "pytest>=8.3",

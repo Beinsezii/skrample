@@ -12,7 +12,7 @@ from testing_common import FLOW_CONFIG, SCALED_CONFIG
 
 from skrample.diffusers import SkrampleWrapperScheduler
 from skrample.sampling import DPM, EPSILON, FLOW, IPNDM, VELOCITY, Euler, UniPC
-from skrample.scheduling import Beta, Exponential, Flow, Karras, Scaled
+from skrample.scheduling import Beta, Exponential, FlowShift, Karras, Linear, Scaled
 
 
 def check_wrapper(wrapper: SkrampleWrapperScheduler, scheduler: ConfigMixin, params: list[str] = []) -> None:
@@ -57,7 +57,7 @@ def test_dpm() -> None:
                         )
 
     check_wrapper(
-        SkrampleWrapperScheduler(DPM(predictor=FLOW, order=2), Flow()),
+        SkrampleWrapperScheduler(DPM(predictor=FLOW, order=2), FlowShift(Linear())),
         DPMSolverMultistepScheduler.from_config(FLOW_CONFIG),  # type: ignore ConfigMixin
     )
 
@@ -72,8 +72,12 @@ def test_euler() -> None:
         EulerAncestralDiscreteScheduler.from_config(SCALED_CONFIG),  # type: ignore ConfigMixin
     )
     check_wrapper(
-        SkrampleWrapperScheduler(Euler(predictor=FLOW), Flow()),
+        SkrampleWrapperScheduler(Euler(predictor=FLOW), FlowShift(Linear())),
         FlowMatchEulerDiscreteScheduler.from_config(FLOW_CONFIG),  # type: ignore ConfigMixin
+    )
+    check_wrapper(
+        SkrampleWrapperScheduler(Euler(predictor=FLOW), Beta(FlowShift(Linear()))),
+        FlowMatchEulerDiscreteScheduler.from_config(FLOW_CONFIG | {"use_beta_sigmas": True}),  # type: ignore ConfigMixin
     )
 
 
@@ -90,7 +94,7 @@ def test_unipc() -> None:
         UniPCMultistepScheduler.from_config(SCALED_CONFIG),  # type: ignore ConfigMixin
     )
     check_wrapper(
-        SkrampleWrapperScheduler(UniPC(predictor=FLOW, order=2), Flow()),
+        SkrampleWrapperScheduler(UniPC(predictor=FLOW, order=2), FlowShift(Linear())),
         UniPCMultistepScheduler.from_config(FLOW_CONFIG),  # type: ignore ConfigMixin
     )
 

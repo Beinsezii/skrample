@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 import numpy as np
 from numpy.typing import NDArray
 
+from skrample.common import safe_log
+
 if TYPE_CHECKING:
     from torch.types import Tensor
 
@@ -17,13 +19,6 @@ else:
 
 
 PREDICTOR = Callable[[Sample, Sample, float, bool], Sample]
-
-
-def safe_log(x: float) -> float:
-    try:
-        return math.log(x)
-    except ValueError:
-        return math.inf
 
 
 def sigma_normal(sigma: float, subnormal: bool = False) -> tuple[float, float]:

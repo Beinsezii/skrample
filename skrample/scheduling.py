@@ -5,6 +5,8 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
+from skrample.common import normalize, regularize, sigmoid
+
 
 @dataclass
 class SkrampleSchedule(ABC):
@@ -144,7 +146,9 @@ class ZSNR(Scaled):
 @dataclass
 class Linear(ScheduleCommon):
     sigma_start: float = 1
-    sigma_end: float = 0
+    # TODO(beinsezii): don't assume zero
+    # Whole library needs to be updates for this
+    # sigma_end: float = 0
     present_subnormal: bool | None = None
     """If set to a bool, will be used as the value for `self.subnormal`
     Otherwise, subnormal will be False for sigmas_start > 1 and True for <= 1"""
@@ -156,17 +160,11 @@ class Linear(ScheduleCommon):
         else:
             return self.present_subnormal
 
-    def normalize(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
-        return (sigmas - self.sigma_end) / (self.sigma_start - self.sigma_end)
-
-    def regularize(self, normalized_sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
-        return normalized_sigmas * (self.sigma_start - self.sigma_end) + self.sigma_end
-
     def sigmas_to_timesteps(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
-        return self.normalize(sigmas) * self.base_timesteps
+        return normalize(sigmas, start=self.sigma_start) * self.base_timesteps
 
     def sigmas(self, steps: int) -> NDArray[np.float64]:
-        return np.linspace(self.sigma_start, self.sigma_end, steps, endpoint=False, dtype=np.float64)
+        return np.linspace(self.sigma_start, 0, steps, endpoint=False, dtype=np.float64)
 
     def schedule(self, steps: int) -> NDArray[np.float64]:
         sigmas = self.sigmas(steps)
@@ -176,42 +174,16 @@ class Linear(ScheduleCommon):
 
 
 @dataclass
-class Flow(Linear):
-    mu: float | None = None
-    shift: float = 3.0
-    # base_image_seq_len: int = 256
-    # max_image_seq_len: float = 4096
-    # base_shift: float = 0.5
-    # max_shift: float = 1.15
-    # use_dynamic_shifting: bool = True
+class SigmoidCDF(Linear):
+    cdf_scale: float = 3
 
     def sigmas(self, steps: int) -> NDArray[np.float64]:
-        # # # The actual schedule code
-        #
-        # # Strange it's 1000 -> 1 instead of 999 -> 0?
-        # sigma_start, sigma_end = 1, 1 / self.num_train_timesteps
-        #
-        # if self.mu is None:
-        #     sigma_start = self.shift * sigma_start / (1 + (self.shift - 1) * sigma_start)
-        #     sigma_end = self.shift * sigma_end / (1 + (self.shift - 1) * sigma_end)
-        #
-        # sigmas = np.linspace(sigma_start, sigma_end, steps + 1, dtype=np.float64)[:-1]
+        from scipy.stats import norm
 
-        # What the flux pipeline overrides it to. Seems more correct?
-        sigmas = super().sigmas(steps)
-
-        # Compute flow match in 0-1 scale
-        # TODO(beinsezii): maybe the shift itself should be rewritten to accomodate start/end?
-        sigmas = self.normalize(sigmas)
-
-        if self.mu is not None:  # dynamic
-            sigmas = math.exp(self.mu) / (math.exp(self.mu) + (1 / sigmas - 1))
-        else:  # non-dynamic
-            sigmas = self.shift * sigmas / (1 + (self.shift - 1) * sigmas)
-
-        sigmas = self.regularize(sigmas)
-
-        return sigmas  # type: ignore
+        step_peak = 1 / (steps * math.pi / 2)
+        probabilities = np.linspace(step_peak, 1 - step_peak, steps, dtype=np.float64)
+        sigmas = sigmoid(norm.ppf(probabilities) * self.cdf_scale)
+        return regularize(sigmas, start=self.sigma_start)
 
 
 @dataclass
@@ -222,8 +194,28 @@ class ScheduleModifier(SkrampleSchedule):
     def subnormal(self) -> bool:
         return self.base.subnormal
 
+    @property
+    def all(self) -> list[SkrampleSchedule]:
+        bases: list[SkrampleSchedule] = [self]
+        last = self.base
+        while isinstance(last, ScheduleModifier):
+            bases.append(last)
+            last = last.base
+        bases.append(last)
+
+        return bases
+
+    @property
+    def lowest(self) -> SkrampleSchedule:
+        return self.all[-1]
+
     def sigmas_to_timesteps(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
         return self.base.sigmas_to_timesteps(sigmas)
+
+    def find[T: SkrampleSchedule](self, skrample_schedule: type[T]) -> T | None:
+        for schedule in self.all:
+            if type(schedule) is skrample_schedule:
+                return schedule
 
 
 @dataclass
@@ -232,6 +224,29 @@ class NoMod(ScheduleModifier):
 
     def schedule(self, steps: int) -> NDArray[np.float64]:
         return self.base.schedule(steps)
+
+
+@dataclass
+class FlowShift(ScheduleModifier):
+    mu: float | None = None
+    shift: float = 3.0
+
+    def schedule(self, steps: int) -> NDArray[np.float64]:
+        sigmas = self.base.sigmas(steps)
+
+        # Compute flow match in 0-1 scale
+        # TODO(beinsezii): maybe the shift itself should be rewritten to accomodate start/end?
+        start, end = sigmas.max(), 0
+        sigmas = normalize(sigmas, start=start, end=end)
+
+        if self.mu is not None:  # dynamic
+            sigmas = math.exp(self.mu) / (math.exp(self.mu) + (1 / sigmas - 1))
+        else:  # non-dynamic
+            sigmas = self.shift * sigmas / (1 + (self.shift - 1) * sigmas)
+
+        sigmas = regularize(sigmas, start=start, end=end)
+        timesteps = self.sigmas_to_timesteps(sigmas)
+        return np.stack([timesteps.flatten(), sigmas], axis=1)
 
 
 @dataclass
