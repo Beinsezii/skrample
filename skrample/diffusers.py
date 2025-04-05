@@ -147,13 +147,9 @@ def parse_diffusers_config(
     else:
         sampler_props = {}
 
-    schedule_modifiers: list[tuple[type[ScheduleModifier], dict[str, Any]]] = []
-
     if not schedule:
         if predictor is sampling.FLOW:
             schedule = scheduling.Linear
-            flow_keys = [f.name for f in dataclasses.fields(scheduling.FlowShift)]
-            schedule_modifiers.append((scheduling.FlowShift, {k: v for k, v in remapped.items() if k in flow_keys}))
         elif remapped.get("rescale_betas_zero_snr", False):
             schedule = scheduling.ZSNR
         else:
@@ -166,6 +162,12 @@ def parse_diffusers_config(
         scaled.uniform = True  # non-uniform misses a whole timestep
         sigma_start: float = scaled.sigmas(1).item()
         remapped["sigma_start"] = math.sqrt(sigma_start)
+
+    schedule_modifiers: list[tuple[type[ScheduleModifier], dict[str, Any]]] = []
+
+    if predictor is sampling.FLOW:
+        flow_keys = [f.name for f in dataclasses.fields(scheduling.FlowShift)]
+        schedule_modifiers.append((scheduling.FlowShift, {k: v for k, v in remapped.items() if k in flow_keys}))
 
     if "skrample_modifier" in remapped:
         schedule_modifier: type[ScheduleModifier] = remapped.pop("skrample_modifier")
