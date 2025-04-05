@@ -13,6 +13,7 @@ build-backend = "setuptools.build_meta"
 
 [project.optional-dependencies]
 beta-schedule = ["scipy>=1.12"]
+cdf-schedule = ["scipy>=1.12"]
 brownian-noise = ["torchsde>=0.2.6"]
 diffusers-wrapper = ["torch>=2.5"]
 pytorch = ["torch>=2.5"]

@@ -10,12 +10,14 @@ from numpy.typing import NDArray
 
 import skrample.scheduling as scheduling
 
-SCHEDULES: dict[str, scheduling.ScheduleCommon] = {
+SCHEDULES: dict[str, scheduling.ScheduleCommon | scheduling.ScheduleModifier] = {
     "scaled": scheduling.Scaled(uniform=False),
     "scaled_uniform": scheduling.Scaled(),
     "zsnr": scheduling.ZSNR(),
     "linear": scheduling.Linear(),
+    "sigcdf": scheduling.SigmoidCDF(),
     "flow": scheduling.Flow(),
+    "flowsig": scheduling.FlowShift(scheduling.SigmoidCDF()),
     "flow_mu": scheduling.Flow(mu=1),
 }
 
@@ -101,7 +103,6 @@ for mod_name in args.modifier:
     for sched_name in args.schedule:
         schedule = SCHEDULES[sched_name]
         modifier = MODIFIERS[mod_name]
-        base = schedule.base_timesteps
 
         if modifier is not None:
             composed = modifier(schedule)
@@ -114,7 +115,7 @@ for mod_name in args.modifier:
 
         data = np.concatenate([composed.schedule(args.steps), [[0, 0]]], dtype=np.float64)
 
-        timesteps = data[:, 0] / base
+        timesteps = data[:, 0] / 1000  # base timesteps
         sigmas = data[:, 1] / data[:, 1].max()
 
         plt.plot(timesteps, label=label + " Timesteps", marker="+", color=next(COLORS))
