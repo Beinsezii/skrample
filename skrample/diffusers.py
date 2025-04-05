@@ -1,8 +1,7 @@
 import dataclasses
-import enum
 import math
 from collections import OrderedDict
-from collections.abc import Callable, Hashable
+from collections.abc import Hashable
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -11,6 +10,7 @@ from numpy.typing import NDArray
 from torch import Tensor
 
 from skrample import sampling, scheduling
+from skrample.common import MergeStrategy
 from skrample.pytorch.noise import (
     BatchTensorNoise,
     Random,
@@ -20,7 +20,6 @@ from skrample.pytorch.noise import (
 )
 from skrample.sampling import PREDICTOR, SkrampleSampler, SKSamples, StochasticSampler
 from skrample.scheduling import ScheduleModifier, SkrampleSchedule
-from skrample.common import MergeStrategy
 
 if TYPE_CHECKING:
     from diffusers.configuration_utils import ConfigMixin
