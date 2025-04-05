@@ -12,8 +12,6 @@ from diffusers.schedulers.scheduling_flow_match_euler_discrete import FlowMatchE
 from testing_common import compare_tensors
 
 from skrample.diffusers import SkrampleWrapperScheduler
-from skrample.sampling import FLOW, Euler
-from skrample.scheduling import Flow, Scaled
 
 pytestmark = pytest.mark.skip("Slow")
 
@@ -75,13 +73,12 @@ def test_sdxl_i2i() -> None:
     pipe.enable_model_cpu_offload(device=dv)
     assert isinstance(pipe, StableDiffusionXLImg2ImgPipeline)
 
-    a = SkrampleWrapperScheduler(Euler(), Scaled(uniform=False))
     b = EulerDiscreteScheduler.from_config(pipe.scheduler.config)
     assert isinstance(b, EulerDiscreteScheduler)
 
     compare_schedulers(
         pipe,
-        a,
+        SkrampleWrapperScheduler.from_diffusers_config(b),
         b,
         image=torch.zeros([1, 4, 32, 32], dtype=dt, device=dv),
         num_inference_steps=8,
@@ -99,7 +96,6 @@ def test_flux_i2i() -> None:
     pipe.enable_model_cpu_offload(device=dv)
     assert isinstance(pipe, FluxImg2ImgPipeline)
 
-    a = SkrampleWrapperScheduler(Euler(predictor=FLOW), Flow(shift=3))
     b = FlowMatchEulerDiscreteScheduler.from_config(pipe.scheduler.config)
     assert isinstance(b, FlowMatchEulerDiscreteScheduler)
 
@@ -110,7 +106,7 @@ def test_flux_i2i() -> None:
 
     compare_schedulers(
         pipe,
-        a,
+        SkrampleWrapperScheduler.from_diffusers_config(b),
         b,
         5e-3,  # close enough for now
         height=256,

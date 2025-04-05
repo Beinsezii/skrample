@@ -3,7 +3,7 @@ from diffusers.schedulers.scheduling_euler_discrete import EulerDiscreteSchedule
 from diffusers.schedulers.scheduling_flow_match_euler_discrete import FlowMatchEulerDiscreteScheduler
 from testing_common import FLOW_CONFIG, SCALED_CONFIG, compare_tensors
 
-from skrample.scheduling import ZSNR, Beta, Exponential, Flow, Karras, Scaled, SkrampleSchedule
+from skrample.scheduling import ZSNR, Beta, Exponential, FlowShift, Karras, Linear, Scaled, SkrampleSchedule
 
 
 def compare_schedules(
@@ -98,7 +98,7 @@ def test_zsnr() -> None:
 
 def test_flow_dynamic() -> None:
     compare_schedules(
-        Flow(mu=0.7),
+        FlowShift(Linear(), mu=0.7),
         FlowMatchEulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
             FLOW_CONFIG,
         ),
@@ -108,7 +108,7 @@ def test_flow_dynamic() -> None:
 
 def test_flow() -> None:
     compare_schedules(
-        Flow(),
+        FlowShift(Linear()),
         FlowMatchEulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
             FLOW_CONFIG | {"use_dynamic_shifting": False}
         ),
@@ -118,7 +118,7 @@ def test_flow() -> None:
 
 def test_flow_beta() -> None:
     compare_schedules(
-        Beta(Flow()),
+        Beta(FlowShift(Linear())),
         FlowMatchEulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
             FLOW_CONFIG | {"use_dynamic_shifting": False},
             use_beta_sigmas=True,
@@ -128,7 +128,7 @@ def test_flow_beta() -> None:
 
 def test_flow_exponential() -> None:
     compare_schedules(
-        Exponential(Flow()),
+        Exponential(FlowShift(Linear())),
         FlowMatchEulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
             FLOW_CONFIG | {"use_dynamic_shifting": False},
             use_exponential_sigmas=True,
@@ -138,7 +138,7 @@ def test_flow_exponential() -> None:
 
 def test_flow_karras() -> None:
     compare_schedules(
-        Karras(Flow()),
+        Karras(FlowShift(Linear())),
         FlowMatchEulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
             FLOW_CONFIG | {"use_dynamic_shifting": False},
             use_karras_sigmas=True,
