@@ -196,46 +196,6 @@ class SigmoidCDF(Linear):
 
 
 @dataclass
-class Flow(Linear):
-    mu: float | None = None
-    shift: float = 3.0
-    # base_image_seq_len: int = 256
-    # max_image_seq_len: float = 4096
-    # base_shift: float = 0.5
-    # max_shift: float = 1.15
-    # use_dynamic_shifting: bool = True
-
-    def sigmas(self, steps: int) -> NDArray[np.float64]:
-        # # # The actual schedule code
-        #
-        # # Strange it's 1000 -> 1 instead of 999 -> 0?
-        # sigma_start, sigma_end = 1, 1 / self.num_train_timesteps
-        #
-        # if self.mu is None:
-        #     sigma_start = self.shift * sigma_start / (1 + (self.shift - 1) * sigma_start)
-        #     sigma_end = self.shift * sigma_end / (1 + (self.shift - 1) * sigma_end)
-        #
-        # sigmas = np.linspace(sigma_start, sigma_end, steps + 1, dtype=np.float64)[:-1]
-
-        # What the flux pipeline overrides it to. Seems more correct?
-        sigmas = super().sigmas(steps)
-
-        # Compute flow match in 0-1 scale
-        # TODO(beinsezii): maybe the shift itself should be rewritten to accomodate start/end?
-        start, end = sigmas.max(), 0
-        sigmas = normalize(sigmas, start=start, end=end)
-
-        if self.mu is not None:  # dynamic
-            sigmas = math.exp(self.mu) / (math.exp(self.mu) + (1 / sigmas - 1))
-        else:  # non-dynamic
-            sigmas = self.shift * sigmas / (1 + (self.shift - 1) * sigmas)
-
-        sigmas = regularize(sigmas, start=start, end=end)
-
-        return sigmas  # type: ignore
-
-
-@dataclass
 class ScheduleModifier(SkrampleSchedule):
     base: SkrampleSchedule
 

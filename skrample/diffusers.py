@@ -85,18 +85,15 @@ DEFAULT_FAKE_CONFIG = {  # Required for FluxPipeline to not die
 class ParsedDiffusersConfig:
     sampler: type[SkrampleSampler]
     sampler_props: dict[str, Any]
-    predictor: PREDICTOR
     schedule: type[SkrampleSchedule]
     schedule_props: dict[str, Any]
-    modifier: type[ScheduleModifier] | None
-    modifier_props: dict[str, Any]
+    schedule_modifiers: list[tuple[type[ScheduleModifier], dict[str, Any]]]
 
 
 def parse_diffusers_config(
     config: "dict[str, Any] | ConfigMixin",
     sampler: type[SkrampleSampler] | None = None,
     schedule: type[SkrampleSchedule] | None = None,
-    schedule_modifier: type[ScheduleModifier] | None = None,
 ) -> ParsedDiffusersConfig:
     diffusers_class = config.get("_class_name", "") if isinstance(config, dict) else type(config).__name__
     if not isinstance(config, dict):
@@ -113,8 +110,7 @@ def parse_diffusers_config(
     )
 
     if "skrample_predictor" in remapped:
-        pop: PREDICTOR = remapped.pop("skrample_predictor")
-        predictor = pop
+        predictor: PREDICTOR = remapped.pop("skrample_predictor")
     elif "shift" in remapped:  # should only be flow
         predictor = sampling.FLOW
     else:
@@ -125,9 +121,13 @@ def parse_diffusers_config(
     else:
         sampler_props = {}
 
+    schedule_modifiers: list[tuple[type[ScheduleModifier], dict[str, Any]]] = []
+
     if not schedule:
         if predictor is sampling.FLOW:
-            schedule = scheduling.Flow
+            schedule = scheduling.Linear
+            flow_keys = [f.name for f in dataclasses.fields(scheduling.FlowShift)]
+            schedule_modifiers.append((scheduling.FlowShift, {k: v for k, v in remapped.items() if k in flow_keys}))
         elif remapped.get("rescale_betas_zero_snr", False):
             schedule = scheduling.ZSNR
         else:
@@ -141,27 +141,22 @@ def parse_diffusers_config(
         sigma_start: float = scaled.sigmas(1).item()
         remapped["sigma_start"] = math.sqrt(sigma_start)
 
-    if not schedule_modifier:
-        schedule_modifier = remapped.pop("skrample_modifier", None)
+    if "skrample_modifier" in remapped:
+        schedule_modifier: type[ScheduleModifier] = remapped.pop("skrample_modifier")
+        modifier_keys = [f.name for f in dataclasses.fields(schedule_modifier)]
+        schedule_modifiers.append((schedule_modifier, {k: v for k, v in remapped.items() if k in modifier_keys}))
 
     # feels cleaner than inspect.signature().parameters
     sampler_keys = [f.name for f in dataclasses.fields(sampler)]
     schedule_keys = [f.name for f in dataclasses.fields(schedule)]
 
-    if schedule_modifier:
-        modifier_keys = [f.name for f in dataclasses.fields(schedule_modifier)]
-        modifier_props = {k: v for k, v in remapped.items() if k in modifier_keys}
-    else:
-        modifier_props = {}
-
     return ParsedDiffusersConfig(
         sampler=sampler,
-        sampler_props=sampler_props | {k: v for k, v in remapped.items() if k in sampler_keys},
-        predictor=predictor,
+        sampler_props=sampler_props
+        | {k: v for k, v in (remapped | {"predictor": predictor}).items() if k in sampler_keys},
         schedule=schedule,
         schedule_props={k: v for k, v in remapped.items() if k in schedule_keys},
-        modifier=schedule_modifier,
-        modifier_props=modifier_props,
+        schedule_modifiers=schedule_modifiers,
     )
 
 
@@ -209,31 +204,19 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
         sampler: type[SkrampleSampler] | None = None,
         noise_type: type[TensorNoiseCommon[N]] = Random,
         schedule: type[SkrampleSchedule] | None = None,
-        schedule_modifier: type[ScheduleModifier] | None = None,
-        predictor: PREDICTOR | None = None,
-        noise_props: N | None = None,
+        schedule_modifiers: list[tuple[type[ScheduleModifier], dict[str, Any]]] | None = None,
         compute_scale: torch.dtype | None = torch.float32,
         sampler_props: dict[str, Any] = {},
         schedule_props: dict[str, Any] = {},
-        schedule_modifier_props: dict[str, Any] = {},
+        noise_props: N | None = None,
     ) -> "SkrampleWrapperScheduler[N]":
-        parsed = parse_diffusers_config(
-            sampler=sampler,
-            schedule=schedule,
-            schedule_modifier=schedule_modifier,
-            config=config,
-        )
+        parsed = parse_diffusers_config(config=config, sampler=sampler, schedule=schedule)
 
-        sampler_props = parsed.sampler_props | sampler_props
-        schedule_props = parsed.schedule_props | schedule_props
-        modifier_props = parsed.modifier_props | schedule_modifier_props
+        built_sampler = (sampler or parsed.sampler)(**parsed.sampler_props | sampler_props)
+        built_schedule = (schedule or parsed.schedule)(**parsed.schedule_props | schedule_props)
 
-        built_sampler = parsed.sampler(**sampler_props)
-        built_schedule = parsed.schedule(**schedule_props)
-        if parsed.modifier:
-            built_schedule = parsed.modifier(base=built_schedule, **modifier_props)
-
-        built_sampler.predictor = predictor or parsed.predictor
+        for modifier, modifier_props in parsed.schedule_modifiers + (schedule_modifiers or []):
+            built_schedule = modifier(base=built_schedule, **modifier_props)
 
         return cls(
             built_sampler,
@@ -299,10 +282,12 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
                 return
 
         self._steps = num_inference_steps
-        if isinstance(self.schedule, scheduling.Flow):
-            self.schedule.mu = mu
-        elif isinstance(self.schedule, ScheduleModifier) and isinstance(self.schedule.base, scheduling.Flow):
-            self.schedule.base.mu = mu
+
+        if (
+            isinstance(self.schedule, scheduling.ScheduleModifier)
+            and (found := self.schedule.find(scheduling.FlowShift)) is not None
+        ):
+            found.mu = mu
 
         self._previous = []
         self._noise_generator = None
