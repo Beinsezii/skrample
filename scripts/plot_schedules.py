@@ -82,7 +82,7 @@ parser.add_argument(
     type=str,
     choices=list(SCHEDULES.keys()),
     nargs="+",
-    default=["scaled_uniform", "flow"],
+    default=["scaled_uniform", "sigcdf"],
 )
 parser.add_argument(
     "--modifier",
@@ -90,7 +90,7 @@ parser.add_argument(
     type=str,
     choices=list(MODIFIERS.keys()),
     nargs="+",
-    default=["none"],
+    default=["none", "flow"],
 )
 parser.add_argument(
     "--modifier_2",
