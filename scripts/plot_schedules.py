@@ -3,6 +3,7 @@
 from argparse import ArgumentParser
 from collections.abc import Generator
 from pathlib import Path
+from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -16,15 +17,14 @@ SCHEDULES: dict[str, scheduling.ScheduleCommon | scheduling.ScheduleModifier] = 
     "zsnr": scheduling.ZSNR(),
     "linear": scheduling.Linear(),
     "sigcdf": scheduling.SigmoidCDF(),
-    "flow": scheduling.FlowShift(scheduling.Linear()),
-    "flowsig": scheduling.FlowShift(scheduling.SigmoidCDF()),
-    "flow_mu": scheduling.FlowShift(scheduling.Linear(), mu=1),
 }
 
-MODIFIERS: dict[str, type[scheduling.ScheduleModifier] | None] = {
-    "beta": scheduling.Beta,
-    "exponential": scheduling.Exponential,
-    "karras": scheduling.Karras,
+MODIFIERS: dict[str, tuple[type[scheduling.ScheduleModifier], dict[str, Any]] | None] = {
+    "beta": (scheduling.Beta, {}),
+    "exponential": (scheduling.Exponential, {}),
+    "karras": (scheduling.Karras, {}),
+    "flow": (scheduling.FlowShift, {}),
+    "flow_mu": (scheduling.FlowShift, {"mu": 1}),
     "none": None,
 }
 
@@ -92,6 +92,14 @@ parser.add_argument(
     nargs="+",
     default=["none"],
 )
+parser.add_argument(
+    "--modifier_2",
+    "-m2",
+    type=str,
+    choices=list(MODIFIERS.keys()),
+    nargs="+",
+    default=["none"],
+)
 
 args = parser.parse_args()
 
@@ -99,28 +107,30 @@ width, height = 12, 6
 plt.figure(figsize=(width, height), facecolor="black", edgecolor="white")
 
 COLORS = colors(6)
-for mod_name in args.modifier:
-    for sched_name in args.schedule:
-        schedule = SCHEDULES[sched_name]
-        modifier = MODIFIERS[mod_name]
+for mod1 in args.modifier:
+    for mod2 in args.modifier_2:
+        for sched_name in args.schedule:
+            schedule = SCHEDULES[sched_name]
 
-        if modifier is not None:
-            composed = modifier(schedule)
-            label: str = sched_name + "_" + mod_name
-        else:
             composed = schedule
-            label = sched_name
+            label: str = sched_name
 
-        label = " ".join([s.capitalize() for s in label.split("_")])
+            for mod_label, (mod_type, mod_props) in [  # type: ignore # Destructure
+                m for m in [(mod1, MODIFIERS[mod1]), (mod2, MODIFIERS[mod2])] if m[1]
+            ]:
+                composed = mod_type(schedule, **mod_props)
+                label += "_" + mod_label
 
-        data = np.concatenate([composed.schedule(args.steps), [[0, 0]]], dtype=np.float64)
+            label = " ".join([s.capitalize() for s in label.split("_")])
 
-        timesteps = data[:, 0] / 1000  # base timesteps
-        sigmas = data[:, 1] / data[:, 1].max()
+            data = np.concatenate([composed.schedule(args.steps), [[0, 0]]], dtype=np.float64)
 
-        plt.plot(timesteps, label=label + " Timesteps", marker="+", color=next(COLORS))
-        if not np.allclose(timesteps, sigmas, atol=1e-2):
-            plt.plot(sigmas, label=label + " Sigmas", marker="+", color=next(COLORS))
+            timesteps = data[:, 0] / 1000  # base timesteps
+            sigmas = data[:, 1] / data[:, 1].max()
+
+            plt.plot(timesteps, label=label + " Timesteps", marker="+", color=next(COLORS))
+            if not np.allclose(timesteps, sigmas, atol=1e-2):
+                plt.plot(sigmas, label=label + " Sigmas", marker="+", color=next(COLORS))
 
 plt.xlabel("Step")
 plt.ylabel("Normalized Values")
