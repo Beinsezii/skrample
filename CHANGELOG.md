@@ -11,6 +11,8 @@ Replace Flow() schedule with FlowShift() schedule modifier.
 
 Updated `parse_diffusers_config` and `from_diffusers_config` to properly handle multiple modifiers
 
+Removed Linear.sigma_end
+
 ### Additions
 Linear() can now adjust presented `.subnormal` property
 
@@ -23,7 +25,7 @@ SigmaCDF() schedule
 `scripts/plot_schedules.py` for visualising noise schedules
 
 ### Fixes
-Linear() and derivatives now respect sigma_start and sigma_end properly
+Linear() and derivatives now respect sigma_start properly
 
 Brownian now takes steps in proper order. Old behavior available via `.reverse` prop
 
