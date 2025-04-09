@@ -330,6 +330,7 @@ class DPM(HighOrderSampler, StochasticSampler):
 class IPNDM(HighOrderSampler, Euler):
     """Higher order extension to Euler.
     Requires 4th order for optimal effect."""
+
     order: int = 4
 
     @property
