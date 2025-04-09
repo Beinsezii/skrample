@@ -111,7 +111,7 @@ def parse_diffusers_config(
         config = dict(config.config)
 
     remapped = (
-        config
+        dict(config)  # ensure not ordered/frozen
         | {DIFFUSERS_KEY_MAP[k]: v for k, v in config.items() if k in DIFFUSERS_KEY_MAP}
         | {
             DIFFUSERS_VALUE_MAP[(k, v)][0]: DIFFUSERS_VALUE_MAP[(k, v)][1]
