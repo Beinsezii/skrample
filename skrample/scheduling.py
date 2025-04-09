@@ -245,7 +245,8 @@ class ScheduleModifier(SkrampleSchedule):
         "Find the first schedule of type T recursively in the modifier tree"
         for schedule in self.all:
             if type(schedule) is skrample_schedule:
-                return schedule
+                return schedule  # type: ignore
+                # Same issue as sampling.Sample where the T: A|B seems to make the return T fuzzy for some reason
 
 
 @dataclass
