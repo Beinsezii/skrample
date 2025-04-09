@@ -14,18 +14,24 @@ def schedule_to_ramp(schedule: NDArray[np.float64]) -> NDArray[np.float64]:
 
 @dataclass(frozen=True)
 class TensorNoiseProps:
-    pass
+    """Configurable properties for the noise generator.
+    Re-use this data structure, not the generator itself."""
 
 
 @dataclass
 class SkrampleTensorNoise(ABC):
     @abstractmethod
     def generate(self) -> torch.Tensor:
+        """Next noise tensor in the sequence.
+        May raise an exception if at the end of sequence.
+        Should be assumed to be stateful, and not used for multiple jobs"""
         raise NotImplementedError
 
 
 @dataclass
 class TensorNoiseCommon[T: TensorNoiseProps | None](SkrampleTensorNoise):
+    "Common properties and helpers for most base generators."
+
     shape: tuple[int, ...]
     seed: torch.Generator
     dtype: torch.dtype
@@ -49,11 +55,16 @@ class TensorNoiseCommon[T: TensorNoiseProps | None](SkrampleTensorNoise):
         dtype: torch.dtype = torch.float32,
         ramp: NDArray[np.float64] = np.linspace(0, 1, 2, dtype=np.float64),
     ) -> Self:
+        """Create the noise agnostically from common inputs typically available during inference.
+        It is strongly recommended to set `ramp` to the sigma/noise schedule if available."""
         raise NotImplementedError
 
 
 @dataclass
 class Random(TensorNoiseCommon[None]):
+    """Pure random noise on a normal distribution.
+    Sugar for torch.randn"""
+
     @classmethod
     def from_inputs(
         cls,
@@ -202,6 +213,9 @@ class BrownianProps(TensorNoiseProps):
 
 @dataclass
 class Brownian(TensorNoiseCommon[BrownianProps]):
+    """Uses torchsde.BrownianInterval to generate noise along a fixed timestep.
+    generate() will raise StopIteration at the end of the ramp."""
+
     ramp: NDArray[np.float64]
 
     def __post_init__(self) -> None:
@@ -256,6 +270,9 @@ class Brownian(TensorNoiseCommon[BrownianProps]):
 
 @dataclass
 class BatchTensorNoise[T: TensorNoiseProps | None](SkrampleTensorNoise):
+    """Helper class for producing batches of noise while maintaining seeds across individual batch items.
+    Manages N noise classes at once, returning the results in a stack."""
+
     generators: list[TensorNoiseCommon[T]]
 
     def generate(self) -> torch.Tensor:
@@ -271,6 +288,8 @@ class BatchTensorNoise[T: TensorNoiseProps | None](SkrampleTensorNoise):
         dtype: torch.dtype = torch.float32,
         ramp: NDArray[np.float64] = np.linspace(0, 1, 2, dtype=np.float64),
     ) -> "BatchTensorNoise[U]":
+        """Batched equivalent of TensorNoiseCommon.from_inputs
+        `unit_shape` is the shape per batch, which means the final result will be size [len(seeds), *unit_shape]"""
         return cls(
             [
                 subclass.from_inputs(unit_shape, seed, props, dtype, ramp)
