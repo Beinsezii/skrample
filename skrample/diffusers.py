@@ -19,7 +19,7 @@ from skrample.pytorch.noise import (
     schedule_to_ramp,
 )
 from skrample.sampling import PREDICTOR, SkrampleSampler, SKSamples, StochasticSampler
-from skrample.scheduling import ScheduleModifier, SkrampleSchedule
+from skrample.scheduling import ScheduleCommon, ScheduleModifier, SkrampleSchedule
 
 if TYPE_CHECKING:
     from diffusers.configuration_utils import ConfigMixin
@@ -45,8 +45,10 @@ DIFFUSERS_KEY_MAP: dict[str, str] = {
     # scheduling.ScheduleCommon.
     "num_train_timesteps": "base_timesteps",
 }
+"Direct key to key mappings, leaving the values untouched."
 
 DIFFUSERS_KEY_MAP_REV: dict[str, str] = {v: k for k, v in DIFFUSERS_KEY_MAP.items()}
+"DIFFUSERS_KEY_MAP with keys and values inverted"
 
 DIFFUSERS_VALUE_MAP: dict[tuple[str, Any], tuple[str, Any]] = {
     # scheduling.Scaled
@@ -69,21 +71,26 @@ DIFFUSERS_VALUE_MAP: dict[tuple[str, Any], tuple[str, Any]] = {
     ("use_exponential_sigmas", True): ("skrample_modifier", scheduling.Exponential),
     ("use_karras_sigmas", True): ("skrample_modifier", scheduling.Karras),
 }
+"Key/value to key/value map. For mapping more complex types against diffusers"
 
 DIFFUSERS_VALUE_MAP_REV: dict[tuple[str, Any], tuple[str, Any]] = {v: k for k, v in DIFFUSERS_VALUE_MAP.items()}
+"DIFFUSERS_VALUE_MAP with keys and values inverted"
 
 
-DEFAULT_FAKE_CONFIG = {  # Required for FluxPipeline to not die
+DEFAULT_FAKE_CONFIG = {
     "base_image_seq_len": 256,
     "base_shift": 0.5,
     "max_image_seq_len": 4096,
     "max_shift": 1.15,
     "use_dynamic_shifting": True,
 }
+"Baseline fake config presented for pipelines to not raise exceptions"
 
 
 @dataclasses.dataclass(frozen=True)
 class ParsedDiffusersConfig:
+    "Values read from a combination of the diffusers config and provided types"
+
     sampler: type[SkrampleSampler]
     sampler_props: dict[str, Any]
     schedule: type[SkrampleSchedule]
@@ -96,6 +103,9 @@ def parse_diffusers_config(
     sampler: type[SkrampleSampler] | None = None,
     schedule: type[SkrampleSchedule] | None = None,
 ) -> ParsedDiffusersConfig:
+    """Reads a diffusers scheduler or config as a set of skrample classes and properties.
+    Input sampler/schedule types may or may not influence output"""
+
     diffusers_class = config.get("_class_name", "") if isinstance(config, dict) else type(config).__name__
     if not isinstance(config, dict):
         config = dict(config.config)
@@ -164,6 +174,7 @@ def parse_diffusers_config(
 
 
 def as_diffusers_config(sampler: SkrampleSampler, schedule: SkrampleSchedule) -> dict[str, Any]:
+    "Converts skrample classes back into a diffusers-readable config. Not comprehensive"
     skrample_config = dataclasses.asdict(sampler)
     skrample_config["skrample_predictor"] = sampler.predictor
 
@@ -186,12 +197,18 @@ def as_diffusers_config(sampler: SkrampleSampler, schedule: SkrampleSchedule) ->
 
 @dataclasses.dataclass
 class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
+    """Wrapper class to present skrample types in a way that diffusers' DiffusionPipelines can handle.
+    Best effort approach. Most of the items presented in .config are fake, and many function inputs are ignored.
+    A general rule of thumb is it will always prioritize the skrample properties over the incoming properties."""
+
     sampler: SkrampleSampler
     schedule: SkrampleSchedule
     noise_type: type[TensorNoiseCommon[T]] = Random  # type: ignore  # Unsure why?
     noise_props: T | None = None
     compute_scale: torch.dtype | None = torch.float32
     fake_config: dict[str, Any] = dataclasses.field(default_factory=lambda: DEFAULT_FAKE_CONFIG.copy())
+    """Extra items presented in scheduler.config to the pipeline.
+    It is recommended to use an actual diffusers scheduler config if one is available."""
 
     def __post_init__(self) -> None:
         # State
@@ -214,17 +231,19 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
         schedule_props: dict[str, Any] = {},
         modifier_merge_strategy: MergeStrategy = MergeStrategy.UniqueBefore,
     ) -> "SkrampleWrapperScheduler[N]":
+        "Thin sugar over `parse_diffusers_config` to make a complete wrapper with arbitrary customizations"
         parsed = parse_diffusers_config(config=config, sampler=sampler, schedule=schedule)
 
         built_sampler = (sampler or parsed.sampler)(**parsed.sampler_props | sampler_props)
         built_schedule = (schedule or parsed.schedule)(**parsed.schedule_props | schedule_props)
 
-        for modifier, modifier_props in modifier_merge_strategy.merge(
-            ours=schedule_modifiers,
-            theirs=parsed.schedule_modifiers,
-            cmp=lambda a, b: type(a[0]) is type(b[0]),
-        ):
-            built_schedule = modifier(base=built_schedule, **modifier_props)
+        if isinstance(built_schedule, ScheduleCommon | ScheduleModifier):
+            for modifier, modifier_props in modifier_merge_strategy.merge(
+                ours=schedule_modifiers,
+                theirs=parsed.schedule_modifiers,
+                cmp=lambda a, b: type(a[0]) is type(b[0]),
+            ):
+                built_schedule = modifier(base=built_schedule, **modifier_props)
 
         return cls(
             built_sampler,

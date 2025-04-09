@@ -19,6 +19,7 @@ else:
 
 
 PREDICTOR = Callable[[Sample, Sample, float, bool], Sample]
+"sample, output, sigma, subnormal"
 
 
 def sigma_normal(sigma: float, subnormal: bool = False) -> tuple[float, float]:
@@ -327,6 +328,9 @@ class DPM(HighOrderSampler, StochasticSampler):
 
 @dataclass
 class IPNDM(HighOrderSampler, Euler):
+    """Higher order extension to Euler.
+    Requires 4th order for optimal effect."""
+
     order: int = 4
 
     @property

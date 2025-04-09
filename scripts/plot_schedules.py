@@ -125,7 +125,7 @@ for mod1 in args.modifier:
 
             data = np.concatenate([composed.schedule(args.steps), [[0, 0]]], dtype=np.float64)
 
-            timesteps = data[:, 0] / 1000  # base timesteps
+            timesteps = data[:, 0] / composed.base_timesteps
             sigmas = data[:, 1] / data[:, 1].max()
 
             plt.plot(timesteps, label=label + " Timesteps", marker="+", color=next(COLORS))

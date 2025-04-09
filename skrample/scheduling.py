@@ -10,24 +10,25 @@ from skrample.common import normalize, regularize, sigmoid
 
 @dataclass
 class SkrampleSchedule(ABC):
+    "Abstract class defining the bare minimum for a noise schedule"
+
     @property
     def subnormal(self) -> bool:
         """Whether or not the sigma values all fall within 0..1.
-        Needs alternative sampling strategies."""
+        Needs alternative sampling strategies"""
         return False
 
     @abstractmethod
-    def sigmas_to_timesteps(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
-        pass
-
-    @abstractmethod
     def schedule(self, steps: int) -> NDArray[np.float64]:
-        "Return the full noise schedule, timesteps stacked on top of sigmas."
+        """Return the full noise schedule, timesteps stacked on top of sigmas.
+        Excludes the trailing zero"""
 
     def timesteps(self, steps: int) -> NDArray[np.float64]:
+        "Just the timesteps component as a 1-d array"
         return self.schedule(steps)[:, 0]
 
     def sigmas(self, steps: int) -> NDArray[np.float64]:
+        "Just the sigmas component as a 1-d array"
         return self.schedule(steps)[:, 1]
 
     def __call__(self, steps: int) -> NDArray[np.float64]:
@@ -36,12 +37,20 @@ class SkrampleSchedule(ABC):
 
 @dataclass
 class ScheduleCommon(SkrampleSchedule):
-    # keep diffusers names for now
+    "Common attributes for base schedules"
+
     base_timesteps: int = 1000
+    "Original timesteps the model was trained on"
+
+    @abstractmethod
+    def sigmas_to_timesteps(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
+        pass
 
 
 @dataclass
 class Scaled(ScheduleCommon):
+    "Standard noise schedule for Stable Diffusion and derivatives"
+
     beta_start: float = 0.00085
     beta_end: float = 0.012
     beta_scale: float = 2
@@ -49,7 +58,9 @@ class Scaled(ScheduleCommon):
     # Let's name this "uniform" instead of trailing since it basically just avoids the truncation.
     # Think that's what ComfyUI does
     uniform: bool = True
-    "Equivalent to spacing='trailing' in diffusers"
+    """When this is false, the first timestep is effectively skipped,
+    therefore it is recommended to only use this for backward compatibility.
+    https://arxiv.org/abs/2305.08891"""
 
     def sigmas_to_timesteps(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
         # it uses full distribution pre-interp
@@ -114,6 +125,8 @@ class Scaled(ScheduleCommon):
 
 @dataclass
 class ZSNR(Scaled):
+    "Zero Terminal SNR schedule from https://arxiv.org/abs/2305.08891"
+
     # Just some funny number I made up when working on the diffusers PR that worked well. F32 smallest subnormal
     epsilon: float = 2**-24
     "Amount to shift the zero value by to keep calculations finite."
@@ -145,10 +158,11 @@ class ZSNR(Scaled):
 
 @dataclass
 class Linear(ScheduleCommon):
+    "Simple linear schedule, from sigma_start...0"
+
     sigma_start: float = 1
-    # TODO(beinsezii): don't assume zero
-    # Whole library needs to be updates for this
-    # sigma_end: float = 0
+    "Maximum (first) sigma value"
+
     present_subnormal: bool | None = None
     """If set to a bool, will be used as the value for `self.subnormal`
     Otherwise, subnormal will be False for sigmas_start > 1 and True for <= 1"""
@@ -161,7 +175,7 @@ class Linear(ScheduleCommon):
             return self.present_subnormal
 
     def sigmas_to_timesteps(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
-        return normalize(sigmas, start=self.sigma_start) * self.base_timesteps
+        return normalize(sigmas, self.sigma_start) * self.base_timesteps
 
     def sigmas(self, steps: int) -> NDArray[np.float64]:
         return np.linspace(self.sigma_start, 0, steps, endpoint=False, dtype=np.float64)
@@ -175,7 +189,12 @@ class Linear(ScheduleCommon):
 
 @dataclass
 class SigmoidCDF(Linear):
+    """Normal cumulative distribution run through sigmoid.
+    Produces an S-curve similar to the Beta modifier.
+    This is the continuous equivalent of `np.sort(np.randn([steps]))` used in some training schedules"""
+
     cdf_scale: float = 3
+    "Multiply the inverse CDF output before the sigmoid function is applied"
 
     def sigmas(self, steps: int) -> NDArray[np.float64]:
         from scipy.stats import norm
@@ -183,20 +202,29 @@ class SigmoidCDF(Linear):
         step_peak = 1 / (steps * math.pi / 2)
         probabilities = np.linspace(step_peak, 1 - step_peak, steps, dtype=np.float64)
         sigmas = sigmoid(norm.ppf(probabilities) * self.cdf_scale)
-        return regularize(sigmas, start=self.sigma_start)
+        return regularize(sigmas, self.sigma_start)
 
 
 @dataclass
 class ScheduleModifier(SkrampleSchedule):
-    base: SkrampleSchedule
+    """Generic class for schedules that modify other schedules.
+    Unless otherwise specified, uses base schedule properties"""
+
+    base: "ScheduleCommon | ScheduleModifier"
+    "Schedule that this one will modify"
+
+    @property
+    def base_timesteps(self) -> int:
+        return self.base.base_timesteps
 
     @property
     def subnormal(self) -> bool:
         return self.base.subnormal
 
     @property
-    def all(self) -> list[SkrampleSchedule]:
-        bases: list[SkrampleSchedule] = [self]
+    def all(self) -> list["ScheduleCommon | ScheduleModifier"]:
+        "All SkrampleModifiers recursively, including self"
+        bases: list[ScheduleCommon | ScheduleModifier] = [self]
         last = self.base
         while isinstance(last, ScheduleModifier):
             bases.append(last)
@@ -206,16 +234,19 @@ class ScheduleModifier(SkrampleSchedule):
         return bases
 
     @property
-    def lowest(self) -> SkrampleSchedule:
+    def lowest(self) -> "ScheduleCommon | ScheduleModifier":
+        "Lowest `base` SkrampleSchedule of many modifiers"
         return self.all[-1]
 
     def sigmas_to_timesteps(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
         return self.base.sigmas_to_timesteps(sigmas)
 
-    def find[T: SkrampleSchedule](self, skrample_schedule: type[T]) -> T | None:
+    def find[T: "ScheduleCommon | ScheduleModifier"](self, skrample_schedule: type[T]) -> T | None:
+        "Find the first schedule of type T recursively in the modifier tree"
         for schedule in self.all:
             if type(schedule) is skrample_schedule:
-                return schedule
+                return schedule  # type: ignore
+                # Same issue as sampling.Sample where the T: A|B seems to make the return T fuzzy for some reason
 
 
 @dataclass
@@ -229,29 +260,36 @@ class NoMod(ScheduleModifier):
 @dataclass
 class FlowShift(ScheduleModifier):
     mu: float | None = None
+    """None for non-dynamic shifting.
+    Should be caluclated from input sequence length for dynamic shifting"""
+
     shift: float = 3.0
+    """Amount to offset noise schedule by. Exact effect depends on mu"""
 
     def schedule(self, steps: int) -> NDArray[np.float64]:
         sigmas = self.base.sigmas(steps)
 
         # Compute flow match in 0-1 scale
         # TODO(beinsezii): maybe the shift itself should be rewritten to accomodate start/end?
-        start, end = sigmas.max(), 0
-        sigmas = normalize(sigmas, start=start, end=end)
+        start = sigmas.max()
+        sigmas = normalize(sigmas, start)
 
         if self.mu is not None:  # dynamic
             sigmas = math.exp(self.mu) / (math.exp(self.mu) + (1 / sigmas - 1))
         else:  # non-dynamic
             sigmas = self.shift * sigmas / (1 + (self.shift - 1) * sigmas)
 
-        sigmas = regularize(sigmas, start=start, end=end)
+        sigmas = regularize(sigmas, start)
         timesteps = self.sigmas_to_timesteps(sigmas)
         return np.stack([timesteps.flatten(), sigmas], axis=1)
 
 
 @dataclass
 class Karras(ScheduleModifier):
+    "Similar to Exponential, intended for 1st generation Stable Diffusion models"
+
     rho: float = 7.0
+    "Ramp power"
 
     def schedule(self, steps: int) -> NDArray[np.float64]:
         sigmas = self.base.sigmas(steps)
@@ -291,6 +329,9 @@ class Exponential(ScheduleModifier):
 
 @dataclass
 class Beta(ScheduleModifier):
+    """Beta continuous distribtuion function. A sort of S-curve.
+    https://arxiv.org/abs/2407.12173"""
+
     alpha: float = 0.6
     beta: float = 0.6
 
