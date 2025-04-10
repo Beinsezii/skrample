@@ -125,6 +125,9 @@ class PyramidProps(OffsetProps):
     dims: tuple[int] | tuple[int, int] | tuple[int, int, int] = (-1, -2)
     strength: float = 0.3  # low by default so it doesnt grenade the average model
 
+    depth: int = 99
+    "Maximum depth of pyramid steps, from the top"
+
 
 @dataclass
 class Pyramid(TensorNoiseCommon[PyramidProps]):
@@ -157,6 +160,7 @@ class Pyramid(TensorNoiseCommon[PyramidProps]):
         mode = ["linear", "bilinear", "bicubic"][len(target) - 1]
 
         noise = torch.zeros(self.shape, dtype=self.dtype, device=self.seed.device)
+        pyramid_steps: list[torch.Tensor] = []
 
         running_shape = list(self.shape)
 
@@ -191,12 +195,14 @@ class Pyramid(TensorNoiseCommon[PyramidProps]):
             unpermuted_dims = torch.tensor(permuted_dims, dtype=torch.int).argsort().tolist()
             variance = variance.reshape([compact_permuation_shape[0], *target]).permute(unpermuted_dims)
 
-            noise += variance.reshape(self.shape) * self.props.strength**i
+            pyramid_steps.append(variance.reshape(self.shape) * self.props.strength**i)
 
             if any(s <= 1 for m, s in zip(mask, running_shape) if m):
                 break  # Lowest resolution is 1x1
 
-        return noise
+        steps = len(pyramid_steps) - 1
+        skip = min(steps, max(0, steps - self.props.depth))
+        return sum([noise, *pyramid_steps[skip:]])
 
     def generate(self) -> torch.Tensor:
         if self.props.static and self._static_pyramid is not None:
