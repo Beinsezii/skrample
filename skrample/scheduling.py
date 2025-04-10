@@ -234,9 +234,12 @@ class ScheduleModifier(SkrampleSchedule):
         return bases
 
     @property
-    def lowest(self) -> "ScheduleCommon | ScheduleModifier":
-        "Lowest `base` SkrampleSchedule of many modifiers"
-        return self.all[-1]
+    def lowest(self) -> ScheduleCommon:
+        "The basemost schedule of all modifiers"
+        last = self.base
+        while isinstance(last, ScheduleModifier):
+            last = last.base
+        return last  # surprised it can determins this but not find()
 
     def sigmas_to_timesteps(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
         return self.base.sigmas_to_timesteps(sigmas)
