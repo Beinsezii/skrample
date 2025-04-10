@@ -110,7 +110,7 @@ class Scaled(ScheduleCommon):
         )
 
     def alphas_cumprod(self, betas: NDArray[np.float64]) -> NDArray[np.float64]:
-        return np.cumprod(1 - betas, axis=0)
+        return np.cumprod(1 - betas, axis=0, dtype=np.float64)
 
     def scaled_sigmas(self, alphas_cumprod: NDArray[np.float64]) -> NDArray[np.float64]:
         return ((1 - alphas_cumprod) / alphas_cumprod) ** 0.5
@@ -281,7 +281,7 @@ class FlowShift(ScheduleModifier):
         sigmas = normalize(sigmas, start)
 
         if self.mu is not None:  # dynamic
-            sigmas = math.exp(self.mu) / (math.exp(self.mu) + (1 / sigmas - 1))
+            sigmas = np.divide(math.exp(self.mu), math.exp(self.mu) + (np.divide(1, sigmas) - 1))
         else:  # non-dynamic
             sigmas = self.shift * sigmas / (1 + (self.shift - 1) * sigmas)
 

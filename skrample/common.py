@@ -49,7 +49,7 @@ def safe_log(x: float) -> float:
 
 def normalize(regular_array: NDArray[np.float64], start: float, end: float = 0) -> NDArray[np.float64]:
     "Rescales an array to 1..0"
-    return (regular_array - end) / (start - end)
+    return np.divide(regular_array - end, start - end)
 
 
 def regularize(normal_array: NDArray[np.float64], start: float, end: float = 0) -> NDArray[np.float64]:

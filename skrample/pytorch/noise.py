@@ -202,7 +202,7 @@ class Pyramid(TensorNoiseCommon[PyramidProps]):
 
         steps = len(pyramid_steps) - 1
         skip = min(steps, max(0, steps - self.props.depth))
-        return sum([noise, *pyramid_steps[skip:]])
+        return noise + sum(pyramid_steps[skip:])
 
     def generate(self) -> torch.Tensor:
         if self.props.static and self._static_pyramid is not None:
