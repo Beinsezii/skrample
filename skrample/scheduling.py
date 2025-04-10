@@ -244,12 +244,15 @@ class ScheduleModifier(SkrampleSchedule):
     def sigmas_to_timesteps(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
         return self.base.sigmas_to_timesteps(sigmas)
 
-    def find[T: "ScheduleCommon | ScheduleModifier"](self, skrample_schedule: type[T]) -> T | None:
-        "Find the first schedule of type T recursively in the modifier tree"
+    def find[T: "ScheduleCommon | ScheduleModifier"](self, skrample_schedule: type[T], exact: bool = False) -> T | None:
+        """Find the first schedule of type T recursively in the modifier tree.
+        If `exact` is True, requires an exact type match instead of any subclass."""
         for schedule in self.all:
             if type(schedule) is skrample_schedule:
                 return schedule  # type: ignore
                 # Same issue as sampling.Sample where the T: A|B seems to make the return T fuzzy for some reason
+            elif not exact and isinstance(schedule, skrample_schedule):
+                return schedule
 
 
 @dataclass
