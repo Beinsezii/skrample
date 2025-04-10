@@ -17,7 +17,7 @@ def compare_schedules(
         if isinstance(b, FlowMatchEulerDiscreteScheduler):
             # b.set_timesteps(num_inference_steps=steps, mu=mu)
             # # flux pipe hardcodes sigmas to this...
-            b.set_timesteps(sigmas=torch.linspace(1.0, 1 / steps, steps), mu=mu)  # type: ignore
+            b.set_timesteps(sigmas=torch.linspace(1.0, 1 / steps, steps), mu=mu)
         else:
             b.set_timesteps(num_inference_steps=steps)
 
@@ -29,7 +29,7 @@ def compare_schedules(
         )
         compare_tensors(
             torch.from_numpy(a.sigmas(steps)),
-            b.sigmas[:-1],  # type: ignore  # FloatTensor
+            b.sigmas[:-1],
             f"SIGMAS @ {steps}",
             margin=sig_margin,
         )
@@ -38,7 +38,7 @@ def compare_schedules(
 def test_scaled() -> None:
     compare_schedules(
         Scaled(uniform=False),
-        EulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
+        EulerDiscreteScheduler.from_config(
             SCALED_CONFIG,
         ),
     )
@@ -47,7 +47,7 @@ def test_scaled() -> None:
 def test_scaled_uniform() -> None:
     compare_schedules(
         Scaled(),
-        EulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
+        EulerDiscreteScheduler.from_config(
             SCALED_CONFIG,
             timestep_spacing="trailing",
         ),
@@ -57,7 +57,7 @@ def test_scaled_uniform() -> None:
 def test_scaled_beta() -> None:
     compare_schedules(
         Beta(Scaled()),
-        EulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
+        EulerDiscreteScheduler.from_config(
             SCALED_CONFIG,
             timestep_spacing="trailing",
             use_beta_sigmas=True,
@@ -68,7 +68,7 @@ def test_scaled_beta() -> None:
 def test_scaled_exponential() -> None:
     compare_schedules(
         Exponential(Scaled()),
-        EulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
+        EulerDiscreteScheduler.from_config(
             SCALED_CONFIG,
             timestep_spacing="trailing",
             use_exponential_sigmas=True,
@@ -79,7 +79,7 @@ def test_scaled_exponential() -> None:
 def test_scaled_karras() -> None:
     compare_schedules(
         Karras(Scaled()),
-        EulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
+        EulerDiscreteScheduler.from_config(
             SCALED_CONFIG,
             timestep_spacing="trailing",
             use_karras_sigmas=True,
@@ -90,7 +90,7 @@ def test_scaled_karras() -> None:
 def test_zsnr() -> None:
     compare_schedules(
         ZSNR(),
-        EulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
+        EulerDiscreteScheduler.from_config(
             SCALED_CONFIG | {"timestep_spacing": "trailing", "rescale_betas_zero_snr": True}
         ),
     )
@@ -99,7 +99,7 @@ def test_zsnr() -> None:
 def test_flow_dynamic() -> None:
     compare_schedules(
         FlowShift(Linear(), mu=0.7),
-        FlowMatchEulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
+        FlowMatchEulerDiscreteScheduler.from_config(
             FLOW_CONFIG,
         ),
         mu=0.7,
@@ -109,9 +109,7 @@ def test_flow_dynamic() -> None:
 def test_flow() -> None:
     compare_schedules(
         FlowShift(Linear()),
-        FlowMatchEulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
-            FLOW_CONFIG | {"use_dynamic_shifting": False}
-        ),
+        FlowMatchEulerDiscreteScheduler.from_config(FLOW_CONFIG | {"use_dynamic_shifting": False}),
         mu=None,
     )
 
@@ -119,7 +117,7 @@ def test_flow() -> None:
 def test_flow_beta() -> None:
     compare_schedules(
         Beta(FlowShift(Linear())),
-        FlowMatchEulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
+        FlowMatchEulerDiscreteScheduler.from_config(
             FLOW_CONFIG | {"use_dynamic_shifting": False},
             use_beta_sigmas=True,
         ),
@@ -129,7 +127,7 @@ def test_flow_beta() -> None:
 def test_flow_exponential() -> None:
     compare_schedules(
         Exponential(FlowShift(Linear())),
-        FlowMatchEulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
+        FlowMatchEulerDiscreteScheduler.from_config(
             FLOW_CONFIG | {"use_dynamic_shifting": False},
             use_exponential_sigmas=True,
         ),
@@ -139,7 +137,7 @@ def test_flow_exponential() -> None:
 def test_flow_karras() -> None:
     compare_schedules(
         Karras(FlowShift(Linear())),
-        FlowMatchEulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
+        FlowMatchEulerDiscreteScheduler.from_config(
             FLOW_CONFIG | {"use_dynamic_shifting": False},
             use_karras_sigmas=True,
         ),

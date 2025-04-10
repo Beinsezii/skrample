@@ -22,7 +22,7 @@ all = ["skrample[beta-schedule,brownian-noise,diffusers-wrapper,pytorch]"]
 
 scripts = [
     "skrample[all]",
-    "matplotlib>=3.10.1",
+    "matplotlib>=3.10.1"
 ]
 
 test = [
@@ -86,3 +86,11 @@ ignore = [
 
 [tool.pytest.ini_options]
 python_files = "tests/*.py"
+
+[tool.pyright]
+exclude = [
+    "**/.*",
+    "**/__pycache__",
+    "build",
+    "tests/diffusers*.py"
+]

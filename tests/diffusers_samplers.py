@@ -38,14 +38,14 @@ def dual_sample(
         b.set_timesteps(steps.stop)
 
     # Use the same exact schedule for both to reduce variables
-    schedule = torch.stack([b.timesteps, b.sigmas[:-1]], dim=1)  # type: ignore  # FloatTensor
+    schedule = torch.stack([b.timesteps, b.sigmas[:-1]], dim=1)
     timestep, sigma = schedule[steps.start]
 
     if isinstance(b, FlowMatchEulerDiscreteScheduler):
-        b_sample = b.scale_noise(sample=b_sample, timestep=timestep.unsqueeze(0), noise=initial_noise)  # type: ignore  # FloatTensor
+        b_sample = b.scale_noise(sample=b_sample, timestep=timestep.unsqueeze(0), noise=initial_noise)
         subnormal = True
     else:
-        b_sample = b.add_noise(original_samples=b_sample, noise=initial_noise, timesteps=timestep.unsqueeze(0))  # type: ignore  # IntTensor
+        b_sample = b.add_noise(original_samples=b_sample, noise=initial_noise, timesteps=timestep.unsqueeze(0))
         subnormal = False
 
     a_sample = a.merge_noise(a_sample, initial_noise, sigma.item(), subnormal=subnormal)
@@ -68,9 +68,9 @@ def dual_sample(
             b_output = fake_model(b.scale_model_input(sample=b_sample, timestep=timestep))
 
         if "generator" in signature(b.step).parameters:  # why, diffusers, why
-            b_sample = b.step(model_output=b_output, sample=b_sample, timestep=timestep, generator=seed)[0]  # type: ignore  # FloatTensor
+            b_sample = b.step(model_output=b_output, sample=b_sample, timestep=timestep, generator=seed)[0]
         else:
-            b_sample = b.step(model_output=b_output, sample=b_sample, timestep=timestep)[0]  # type: ignore  # FloatTensor
+            b_sample = b.step(model_output=b_output, sample=b_sample, timestep=timestep)[0]
 
     return a_sample, b_sample
 
@@ -94,7 +94,7 @@ def test_euler() -> None:
     for predictor in [(EPSILON, "epsilon"), (VELOCITY, "v_prediction")]:
         compare_samplers(
             Euler(predictor=predictor[0]),
-            EulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
+            EulerDiscreteScheduler.from_config(
                 SCALED_CONFIG,
                 prediction_type=predictor[1],
             ),
@@ -106,7 +106,7 @@ def test_euler_ancestral() -> None:
     for predictor in [(EPSILON, "epsilon"), (VELOCITY, "v_prediction")]:
         compare_samplers(
             Euler(add_noise=True, predictor=predictor[0]),
-            EulerAncestralDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
+            EulerAncestralDiscreteScheduler.from_config(
                 SCALED_CONFIG,
                 prediction_type=predictor[1],
             ),
@@ -117,9 +117,7 @@ def test_euler_ancestral() -> None:
 def test_euler_flow() -> None:
     compare_samplers(
         Euler(predictor=FLOW),
-        FlowMatchEulerDiscreteScheduler.from_config(  # type: ignore  # Diffusers return BS
-            FLOW_CONFIG
-        ),
+        FlowMatchEulerDiscreteScheduler.from_config(FLOW_CONFIG),
         mu=0.7,
     )
 
@@ -128,7 +126,7 @@ def test_euler_ancestral_flow() -> None:
     compare_samplers(
         Euler(add_noise=True, predictor=FLOW),
         # close enough; eulerancestral doesn't work with Flow
-        DPMSolverMultistepScheduler.from_config(  # type: ignore  # Diffusers return BS
+        DPMSolverMultistepScheduler.from_config(
             FLOW_CONFIG,
             prediction_type="flow_prediction",
             algorithm_type="sde-dpmsolver++",
@@ -144,7 +142,7 @@ def test_dpm() -> None:
             for stochastic in [False, True]:
                 compare_samplers(
                     DPM(predictor=predictor[0], order=order, add_noise=stochastic),
-                    DPMSolverMultistepScheduler.from_config(  # type: ignore  # Diffusers return BS
+                    DPMSolverMultistepScheduler.from_config(
                         SCALED_CONFIG,
                         algorithm_type="sde-dpmsolver++" if stochastic else "dpmsolver++",
                         final_sigmas_type="zero",
@@ -159,7 +157,7 @@ def test_dpm() -> None:
 # def test_ipndm():
 #     compare_samplers(
 #         IPNDM(),
-#         IPNDMScheduler.from_config(  # type: ignore  # Diffusers return BS
+#         IPNDMScheduler.from_config(
 #             SCALED_CONFIG
 #         ),
 #     )
@@ -173,7 +171,7 @@ def test_unipc() -> None:
         for order in range(1, 5):
             compare_samplers(
                 UniPC(predictor=predictor[0], order=order),
-                UniPCMultistepScheduler.from_config(  # type: ignore  # Diffusers return BS
+                UniPCMultistepScheduler.from_config(
                     SCALED_CONFIG,
                     final_sigmas_type="zero",
                     solver_order=order,
