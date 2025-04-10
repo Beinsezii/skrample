@@ -57,9 +57,9 @@ def compare_schedulers(
                 f"BT0 {b.timesteps[0].item():.3f}",
                 f"BTM {b.timesteps[mid].item():.3f}",
                 f"BTP {b.timesteps[-1].item():.3f}",
-                f"BS0 {b.sigmas[0].item():.3f}",  # type: ignore  # Float
-                f"BSM {b.sigmas[mid].item():.3f}",  # type: ignore  # Float
-                f"BSP {b.sigmas[-2].item():.3f}",  # type: ignore  # Float
+                f"BS0 {b.sigmas[0].item():.3f}",
+                f"BSM {b.sigmas[mid].item():.3f}",
+                f"BSP {b.sigmas[-2].item():.3f}",
             ]
         ),
         margin=margin,

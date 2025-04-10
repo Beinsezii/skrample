@@ -110,7 +110,7 @@ class Scaled(ScheduleCommon):
         )
 
     def alphas_cumprod(self, betas: NDArray[np.float64]) -> NDArray[np.float64]:
-        return np.cumprod(1 - betas, axis=0)
+        return np.cumprod(1 - betas, axis=0, dtype=np.float64)
 
     def scaled_sigmas(self, alphas_cumprod: NDArray[np.float64]) -> NDArray[np.float64]:
         return ((1 - alphas_cumprod) / alphas_cumprod) ** 0.5
@@ -234,19 +234,25 @@ class ScheduleModifier(SkrampleSchedule):
         return bases
 
     @property
-    def lowest(self) -> "ScheduleCommon | ScheduleModifier":
-        "Lowest `base` SkrampleSchedule of many modifiers"
-        return self.all[-1]
+    def lowest(self) -> ScheduleCommon:
+        "The basemost schedule of all modifiers"
+        last = self.base
+        while isinstance(last, ScheduleModifier):
+            last = last.base
+        return last  # surprised it can determins this but not find()
 
     def sigmas_to_timesteps(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
         return self.base.sigmas_to_timesteps(sigmas)
 
-    def find[T: "ScheduleCommon | ScheduleModifier"](self, skrample_schedule: type[T]) -> T | None:
-        "Find the first schedule of type T recursively in the modifier tree"
+    def find[T: "ScheduleCommon | ScheduleModifier"](self, skrample_schedule: type[T], exact: bool = False) -> T | None:
+        """Find the first schedule of type T recursively in the modifier tree.
+        If `exact` is True, requires an exact type match instead of any subclass."""
         for schedule in self.all:
             if type(schedule) is skrample_schedule:
                 return schedule  # type: ignore
                 # Same issue as sampling.Sample where the T: A|B seems to make the return T fuzzy for some reason
+            elif not exact and isinstance(schedule, skrample_schedule):
+                return schedule
 
 
 @dataclass
@@ -275,7 +281,7 @@ class FlowShift(ScheduleModifier):
         sigmas = normalize(sigmas, start)
 
         if self.mu is not None:  # dynamic
-            sigmas = math.exp(self.mu) / (math.exp(self.mu) + (1 / sigmas - 1))
+            sigmas = np.divide(math.exp(self.mu), math.exp(self.mu) + (np.divide(1, sigmas) - 1))
         else:  # non-dynamic
             sigmas = self.shift * sigmas / (1 + (self.shift - 1) * sigmas)
 
