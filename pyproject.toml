@@ -1,6 +1,6 @@
 [project]
 name = "skrample"
-version = "0.1.0"
+version = "0.2.0"
 description = "get skrampled"
 readme = "README.md"
 authors = [{ name = "Beinsezii", email = "beinsezii@gmail.com" }]
