@@ -44,6 +44,7 @@ dev = [
 
 [tool.ruff]
 line-length = 120
+namespace-packages = ["tests"]
 
 [tool.ruff.lint]
 select = [
