@@ -19,7 +19,7 @@ brownian-noise = ["torchsde>=0.2.6"]
 diffusers-wrapper = ["torch>=2.5"]
 pytorch = ["torch>=2.5"]
 
-all = ["skrample[beta-schedule,brownian-noise,diffusers-wrapper,pytorch]"]
+all = ["skrample[beta-schedule,brownian-noise,cdf-schedule,diffusers-wrapper,pytorch]"]
 
 scripts = [
     "skrample[all]",
