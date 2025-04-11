@@ -1,4 +1,4 @@
-# Skrample 0.1.1
+# Skrample 0.2.0
 Composable sampling functions for diffusion models
 
 ## Status
@@ -7,6 +7,7 @@ Vertical slice, overtaking most diffusers features in [quickdif](https://github.
 ### Feature Flags
  - `beta-schedule` -> `scipy` : For the `Beta()` schedule modifier
  - `brownian-noise` -> `torchsde` : For the `Brownian()` noise generator
+ - `cdf-schedule` -> `scipy` : For the `SigmoidCDF()` schedule
  - `diffusers-wrapper` -> `torch` : For the `diffusers` integration module
  - `pytorch` -> `torch` : For the `pytorch` module
    - `pytorch.noise` : Custom generators
@@ -29,13 +30,13 @@ Vertical slice, overtaking most diffusers features in [quickdif](https://github.
 - Linear
 - Scaled
   - `uniform` flag, AKA `"trailing"` in diffusers
-- Flow
-  - Dynamic and non-dynamic shifting
+- SigmaCDF
 - ZSNR
 
 ### Schedule modifiers
 - Karras
 - Exponential
+- FlowShift
 - Beta
 
 ### Predictors
@@ -58,8 +59,7 @@ Vertical slice, overtaking most diffusers features in [quickdif](https://github.
   - [X] Flux
   - [ ] Others?
 - [X] Import from config
-  - [ ] Sampler
-    - Not sure this is even worthwhile. All Skrample samplers work everywhere
+  - [X] Sampler
   - [X] Schedule
   - [X] Predictor
 - [X] Manage state
