@@ -1,3 +1,13 @@
+## 0.3.0
+### Breaking
+Made SkrampleSchedule and SkrampleSampler frozen and therefore hashable
+
+### Additions
+ScheduleModifier has multiple new helper functions for working with frozen
+
+scheduling.schedule_lru() for cached schedule retrieval.
+Overhead of SkrampleWrapperSchedule.step() is reduced by 95% when using a highly complex schedule class
+
 ## 0.2.0
 ### Breaking
 Rename `ScheduleCommon.num_train_timesteps` -> `ScheduleCommon.base_timesteps`
