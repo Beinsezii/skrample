@@ -1,6 +1,7 @@
 import math
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from functools import lru_cache
 
 import numpy as np
 from numpy.typing import NDArray
@@ -8,7 +9,14 @@ from numpy.typing import NDArray
 from skrample.common import normalize, regularize, sigmoid
 
 
-@dataclass
+@lru_cache
+def schedule_lru(schedule: "SkrampleSchedule", steps: int) -> NDArray[np.float64]:
+    """Globally cached function for SkrampleSchedule.schedule(steps).
+    Prefer moving SkrampleScheudle.schedule() outside of any loops if possible."""
+    return schedule.schedule(steps)
+
+
+@dataclass(frozen=True)
 class SkrampleSchedule(ABC):
     "Abstract class defining the bare minimum for a noise schedule"
 
@@ -35,7 +43,7 @@ class SkrampleSchedule(ABC):
         return self.schedule(steps)
 
 
-@dataclass
+@dataclass(frozen=True)
 class ScheduleCommon(SkrampleSchedule):
     "Common attributes for base schedules"
 
@@ -47,7 +55,7 @@ class ScheduleCommon(SkrampleSchedule):
         pass
 
 
-@dataclass
+@dataclass(frozen=True)
 class Scaled(ScheduleCommon):
     "Standard noise schedule for Stable Diffusion and derivatives"
 
@@ -123,7 +131,7 @@ class Scaled(ScheduleCommon):
         return np.stack([timesteps, sigmas], axis=1)
 
 
-@dataclass
+@dataclass(frozen=True)
 class ZSNR(Scaled):
     "Zero Terminal SNR schedule from https://arxiv.org/abs/2305.08891"
 
@@ -156,7 +164,7 @@ class ZSNR(Scaled):
         return alphas_cumprod
 
 
-@dataclass
+@dataclass(frozen=True)
 class Linear(ScheduleCommon):
     "Simple linear schedule, from sigma_start...0"
 
@@ -187,7 +195,7 @@ class Linear(ScheduleCommon):
         return np.stack([timesteps, sigmas], axis=1)
 
 
-@dataclass
+@dataclass(frozen=True)
 class SigmoidCDF(Linear):
     """Normal cumulative distribution run through sigmoid.
     Produces an S-curve similar to the Beta modifier.
@@ -205,7 +213,7 @@ class SigmoidCDF(Linear):
         return regularize(sigmas, self.sigma_start)
 
 
-@dataclass
+@dataclass(frozen=True)
 class ScheduleModifier(SkrampleSchedule):
     """Generic class for schedules that modify other schedules.
     Unless otherwise specified, uses base schedule properties"""
@@ -222,40 +230,73 @@ class ScheduleModifier(SkrampleSchedule):
         return self.base.subnormal
 
     @property
-    def all(self) -> list["ScheduleCommon | ScheduleModifier"]:
-        "All SkrampleModifiers recursively, including self"
-        bases: list[ScheduleCommon | ScheduleModifier] = [self]
+    def all_split(self) -> tuple[list["ScheduleModifier"], ScheduleCommon]:
+        """All SkrampleModifiers recursively, including self.
+        Separated for type safety."""
+        bases: list[ScheduleModifier] = [self]
         last = self.base
         while isinstance(last, ScheduleModifier):
             bases.append(last)
             last = last.base
-        bases.append(last)
 
-        return bases
+        return (bases, last)
+
+    @property
+    def all(self) -> list["ScheduleCommon | ScheduleModifier"]:
+        "All SkrampleModifiers recursively, including self"
+        mods, base = self.all_split
+        return [*mods, base]
 
     @property
     def lowest(self) -> ScheduleCommon:
         "The basemost schedule of all modifiers"
-        last = self.base
-        while isinstance(last, ScheduleModifier):
-            last = last.base
-        return last  # surprised it can determins this but not find()
+        return self.all_split[1]
+
+    @staticmethod
+    def stack(modifiers: list["ScheduleModifier"], base: ScheduleCommon) -> "ScheduleModifier | ScheduleCommon":
+        """Re-stacks the given modifiers, setting each `base` to the next modifier in the list before the true base.
+        Inverse of ScheduleModifier.all_split"""
+        last = base
+        for mod in reversed(modifiers):
+            last = replace(mod, base=last)
+        return last
 
     def sigmas_to_timesteps(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
         return self.base.sigmas_to_timesteps(sigmas)
 
-    def find[T: "ScheduleCommon | ScheduleModifier"](self, skrample_schedule: type[T], exact: bool = False) -> T | None:
+    def find[T: "ScheduleModifier"](self, skrample_schedule: type[T], exact: bool = False) -> T | None:
         """Find the first schedule of type T recursively in the modifier tree.
         If `exact` is True, requires an exact type match instead of any subclass."""
-        for schedule in self.all:
-            if type(schedule) is skrample_schedule:
-                return schedule  # type: ignore
-                # Same issue as sampling.Sample where the T: A|B seems to make the return T fuzzy for some reason
-            elif not exact and isinstance(schedule, skrample_schedule):
+        for schedule in self.all_split[0]:
+            if type(schedule) is skrample_schedule or (not exact and isinstance(schedule, skrample_schedule)):
                 return schedule
 
+    def find_split[T: "ScheduleModifier"](
+        self,
+        skrample_schedule: type[T],
+        exact: bool = False,
+    ) -> tuple[list["ScheduleModifier"], T, list["ScheduleModifier"], ScheduleCommon] | None:
+        """Split version of ScheduleModifier.find().
+        Modifiers are separated into before, found, after"""
 
-@dataclass
+        mods, base = self.all_split
+        found: T | None = None
+        before = []
+        after = []
+
+        for schedule in mods:
+            if type(schedule) is skrample_schedule or (not exact and isinstance(schedule, skrample_schedule)):
+                found = schedule
+            elif found is None:
+                before.append(schedule)
+            else:
+                after.append(schedule)
+
+        if found:
+            return (before, found, after, base)
+
+
+@dataclass(frozen=True)
 class NoMod(ScheduleModifier):
     "Does nothing. For generic programming against ScheduleModifier"
 
@@ -263,7 +304,7 @@ class NoMod(ScheduleModifier):
         return self.base.schedule(steps)
 
 
-@dataclass
+@dataclass(frozen=True)
 class FlowShift(ScheduleModifier):
     mu: float | None = None
     """None for non-dynamic shifting.
@@ -290,7 +331,7 @@ class FlowShift(ScheduleModifier):
         return np.stack([timesteps.flatten(), sigmas], axis=1)
 
 
-@dataclass
+@dataclass(frozen=True)
 class Karras(ScheduleModifier):
     "Similar to Exponential, intended for 1st generation Stable Diffusion models"
 
@@ -313,7 +354,7 @@ class Karras(ScheduleModifier):
         return np.stack([timesteps.flatten(), sigmas], axis=1)
 
 
-@dataclass
+@dataclass(frozen=True)
 class Exponential(ScheduleModifier):
     "Also known as 'polyexponential' when rho != 1"
 
@@ -333,7 +374,7 @@ class Exponential(ScheduleModifier):
         return np.stack([timesteps, sigmas], axis=1)
 
 
-@dataclass
+@dataclass(frozen=True)
 class Beta(ScheduleModifier):
     """Beta continuous distribtuion function. A sort of S-curve.
     https://arxiv.org/abs/2407.12173"""

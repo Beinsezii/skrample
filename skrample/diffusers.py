@@ -143,8 +143,8 @@ def parse_diffusers_config(
     # Adjust sigma_start to match scaled beta for sd1/xl
     if "sigma_start" not in remapped and predictor is not sampling.FLOW and issubclass(schedule, scheduling.Linear):
         scaled_keys = [f.name for f in dataclasses.fields(scheduling.Scaled)]
-        scaled = scheduling.Scaled(**{k: v for k, v in remapped.items() if k in scaled_keys})
-        scaled.uniform = True  # non-uniform misses a whole timestep
+        # non-uniform misses a whole timestep
+        scaled = scheduling.Scaled(**{k: v for k, v in remapped.items() if k in scaled_keys} | {"uniform": True})
         sigma_start: float = scaled.sigmas(1).item()
         remapped["sigma_start"] = math.sqrt(sigma_start)
 
@@ -256,7 +256,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
 
     @property
     def schedule_np(self) -> NDArray[np.float64]:
-        return self.schedule(steps=self._steps)
+        return scheduling.schedule_lru(self.schedule, self._steps)
 
     @property
     def schedule_pt(self) -> Tensor:
@@ -264,11 +264,11 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
 
     @property
     def timesteps(self) -> Tensor:
-        return torch.from_numpy(self.schedule.timesteps(steps=self._steps)).to(self._device)
+        return torch.from_numpy(self.schedule_np[:, 0]).to(self._device)
 
     @property
     def sigmas(self) -> Tensor:
-        sigmas = torch.from_numpy(self.schedule.sigmas(steps=self._steps)).to(self._device)
+        sigmas = torch.from_numpy(self.schedule_np[:, 1]).to(self._device)
         # diffusers expects the extra zero
         return torch.cat([sigmas, torch.zeros([1], device=sigmas.device, dtype=sigmas.dtype)])
 
@@ -312,9 +312,10 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
 
         if (
             isinstance(self.schedule, scheduling.ScheduleModifier)
-            and (found := self.schedule.find(scheduling.FlowShift)) is not None
+            and (found := self.schedule.find_split(scheduling.FlowShift)) is not None
         ):
-            found.mu = mu
+            before, flow, after, base = found
+            self.schedule = self.schedule.stack([*before, dataclasses.replace(flow, mu=mu), *after], base)
 
         self._previous = []
         self._noise_generator = None

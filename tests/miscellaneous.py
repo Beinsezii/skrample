@@ -4,8 +4,9 @@ import numpy as np
 import torch
 from testing_common import compare_tensors
 
+from skrample.diffusers import SkrampleWrapperScheduler
 from skrample.sampling import DPM, IPNDM, Euler, SKSamples, UniPC
-from skrample.scheduling import FlowShift, Linear, Scaled
+from skrample.scheduling import Beta, FlowShift, Karras, Linear, Scaled
 
 
 def test_sigmas_to_timesteps() -> None:
@@ -44,3 +45,11 @@ def test_sampler_generics() -> None:
             assert abs(tensor - scalar) < eps
             assert abs(tensor - ndarr) < eps
             assert abs(scalar - ndarr) < eps
+
+
+def test_mu_set() -> None:
+    mu = 1.2345
+    a = SkrampleWrapperScheduler(DPM(), Beta(FlowShift(Karras(Linear()))))
+    b = SkrampleWrapperScheduler(DPM(), Beta(FlowShift(Karras(Linear()), mu=mu)))
+    a.set_timesteps(1, mu=mu)
+    assert a.schedule == b.schedule
