@@ -143,8 +143,8 @@ def parse_diffusers_config(
     # Adjust sigma_start to match scaled beta for sd1/xl
     if "sigma_start" not in remapped and predictor is not sampling.FLOW and issubclass(schedule, scheduling.Linear):
         scaled_keys = [f.name for f in dataclasses.fields(scheduling.Scaled)]
-        scaled = scheduling.Scaled(**{k: v for k, v in remapped.items() if k in scaled_keys})
-        scaled.uniform = True  # non-uniform misses a whole timestep
+        # non-uniform misses a whole timestep
+        scaled = scheduling.Scaled(**{k: v for k, v in remapped.items() if k in scaled_keys} | {"uniform": True})
         sigma_start: float = scaled.sigmas(1).item()
         remapped["sigma_start"] = math.sqrt(sigma_start)
 
@@ -314,7 +314,9 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
             isinstance(self.schedule, scheduling.ScheduleModifier)
             and (found := self.schedule.find(scheduling.FlowShift)) is not None
         ):
-            found.mu = mu
+            mods, base = self.schedule.all_split
+            mods[mods.index(found)] = dataclasses.replace(found, mu=mu)
+            self.schedule = self.schedule.stack(mods, base)
 
         self._previous = []
         self._noise_generator = None

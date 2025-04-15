@@ -67,7 +67,7 @@ class SKSamples[T: Sample]:
     "An intermediate sample stage or input samples. Mostly for internal use by advanced samplers"
 
 
-@dataclass
+@dataclass(frozen=True)
 class SkrampleSampler(ABC):
     """Generic sampler structure with basic configurables and a stateless design.
     Abstract class not to be used directly.
@@ -131,7 +131,7 @@ class SkrampleSampler(ABC):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class HighOrderSampler(SkrampleSampler):
     """Samplers inheriting this trait support order > 1, and will require
     `prevous` be managed and passed to function accordingly."""
@@ -161,13 +161,13 @@ class HighOrderSampler(SkrampleSampler):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class StochasticSampler(SkrampleSampler):
     add_noise: bool = False
     "Flag for whether or not to add the given noise"
 
 
-@dataclass
+@dataclass(frozen=True)
 class Euler(StochasticSampler):
     """Basic sampler, the "safe" choice.
     Add noise for ancestral sampling."""
@@ -236,7 +236,7 @@ class Euler(StochasticSampler):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class DPM(HighOrderSampler, StochasticSampler):
     """Good sampler, supports basically everything. Recommended default.
 
@@ -326,7 +326,7 @@ class DPM(HighOrderSampler, StochasticSampler):
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class IPNDM(HighOrderSampler, Euler):
     """Higher order extension to Euler.
     Requires 4th order for optimal effect."""
@@ -364,7 +364,7 @@ class IPNDM(HighOrderSampler, Euler):
         return SKSamples(final=result.final, prediction=result.prediction, sample=output)  # type: ignore
 
 
-@dataclass
+@dataclass(frozen=True)
 class UniPC(HighOrderSampler):
     """Unique sampler that can correct other samplers or its own prediction function.
     The additional correction essentially adds +1 order on top of what is set."""
