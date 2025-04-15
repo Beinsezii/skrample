@@ -256,15 +256,36 @@ class ScheduleModifier(SkrampleSchedule):
     def sigmas_to_timesteps(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
         return self.base.sigmas_to_timesteps(sigmas)
 
-    def find[T: "ScheduleCommon | ScheduleModifier"](self, skrample_schedule: type[T], exact: bool = False) -> T | None:
+    def find[T: "ScheduleModifier"](self, skrample_schedule: type[T], exact: bool = False) -> T | None:
         """Find the first schedule of type T recursively in the modifier tree.
         If `exact` is True, requires an exact type match instead of any subclass."""
-        for schedule in self.all:
-            if type(schedule) is skrample_schedule:
-                return schedule  # type: ignore
-                # Same issue as sampling.Sample where the T: A|B seems to make the return T fuzzy for some reason
-            elif not exact and isinstance(schedule, skrample_schedule):
+        for schedule in self.all_split[0]:
+            if type(schedule) is skrample_schedule or (not exact and isinstance(schedule, skrample_schedule)):
                 return schedule
+
+    def find_split[T: "ScheduleModifier"](
+        self,
+        skrample_schedule: type[T],
+        exact: bool = False,
+    ) -> tuple[list["ScheduleModifier"], T, list["ScheduleModifier"], ScheduleCommon] | None:
+        """Split version of ScheduleModifier.find().
+        Modifiers are separated into before, found, after"""
+
+        mods, base = self.all_split
+        found: T | None = None
+        before = []
+        after = []
+
+        for schedule in mods:
+            if type(schedule) is skrample_schedule or (not exact and isinstance(schedule, skrample_schedule)):
+                found = schedule
+            elif found is None:
+                before.append(schedule)
+            else:
+                after.append(schedule)
+
+        if found:
+            return (before, found, after, base)
 
 
 @dataclass(frozen=True)

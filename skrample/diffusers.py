@@ -312,11 +312,10 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
 
         if (
             isinstance(self.schedule, scheduling.ScheduleModifier)
-            and (found := self.schedule.find(scheduling.FlowShift)) is not None
+            and (found := self.schedule.find_split(scheduling.FlowShift)) is not None
         ):
-            mods, base = self.schedule.all_split
-            mods[mods.index(found)] = dataclasses.replace(found, mu=mu)
-            self.schedule = self.schedule.stack(mods, base)
+            before, flow, after, base = found
+            self.schedule = self.schedule.stack([*before, dataclasses.replace(flow, mu=mu), *after], base)
 
         self._previous = []
         self._noise_generator = None
