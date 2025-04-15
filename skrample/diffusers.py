@@ -256,7 +256,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
 
     @property
     def schedule_np(self) -> NDArray[np.float64]:
-        return self.schedule(steps=self._steps)
+        return scheduling.schedule_lru(self.schedule, self._steps)
 
     @property
     def schedule_pt(self) -> Tensor:
@@ -264,11 +264,11 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
 
     @property
     def timesteps(self) -> Tensor:
-        return torch.from_numpy(self.schedule.timesteps(steps=self._steps)).to(self._device)
+        return torch.from_numpy(self.schedule_np[:, 0]).to(self._device)
 
     @property
     def sigmas(self) -> Tensor:
-        sigmas = torch.from_numpy(self.schedule.sigmas(steps=self._steps)).to(self._device)
+        sigmas = torch.from_numpy(self.schedule_np[:, 1]).to(self._device)
         # diffusers expects the extra zero
         return torch.cat([sigmas, torch.zeros([1], device=sigmas.device, dtype=sigmas.dtype)])
 

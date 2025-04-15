@@ -1,11 +1,19 @@
 import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, replace
+from functools import lru_cache
 
 import numpy as np
 from numpy.typing import NDArray
 
 from skrample.common import normalize, regularize, sigmoid
+
+
+@lru_cache
+def schedule_lru(schedule: "SkrampleSchedule", steps: int) -> NDArray[np.float64]:
+    """Globally cached function for SkrampleSchedule.schedule(steps).
+    Prefer moving SkrampleScheudle.schedule() outside of any loops if possible."""
+    return schedule.schedule(steps)
 
 
 @dataclass(frozen=True)
