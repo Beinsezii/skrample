@@ -1,3 +1,7 @@
+## 0.2.1
+# Fixes
+SigmmoidCDF peak value < self.sigma_start
+
 ## 0.2.0
 ### Breaking
 Rename `ScheduleCommon.num_train_timesteps` -> `ScheduleCommon.base_timesteps`
