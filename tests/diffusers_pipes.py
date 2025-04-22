@@ -103,7 +103,7 @@ def fake_pipe_init[T](
                 case _:
                     components[k] = None
 
-    return cls.from_pretrained(uri, **components)
+    return cls.from_pretrained(uri, **components).to(dtype=torch.float32, device="cpu")
 
 
 def test_sdxl_i2i() -> None:
