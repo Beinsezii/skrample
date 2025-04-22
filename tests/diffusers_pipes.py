@@ -1,7 +1,7 @@
-import gc
+import json
+from pathlib import Path
 from typing import Any
 
-import pytest
 import torch
 from diffusers.pipelines.flux.pipeline_flux_img2img import FluxImg2ImgPipeline
 from diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl_img2img import (
@@ -9,11 +9,10 @@ from diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl_img2im
 )
 from diffusers.schedulers.scheduling_euler_discrete import EulerDiscreteScheduler
 from diffusers.schedulers.scheduling_flow_match_euler_discrete import FlowMatchEulerDiscreteScheduler
+from huggingface_hub import hf_hub_download
 from testing_common import compare_tensors
 
 from skrample.diffusers import SkrampleWrapperScheduler
-
-pytestmark = pytest.mark.skip("Slow")
 
 
 @torch.inference_mode()
@@ -66,12 +65,49 @@ def compare_schedulers(
     )
 
 
+def fake_pipe_init[T](
+    cls: type[T],
+    uri: str,
+) -> T:
+    torch.manual_seed(0)
+
+    config = json.load(Path(hf_hub_download(uri, "model_index.json")).open())
+    components: dict[str, Any] = {}
+    for k, v in config.items():
+        if isinstance(v, list) and len(v) == 2 and k != "scheduler":
+            mod_cls = getattr(__import__(v[0]), v[1])
+            match v[0]:
+                case "diffusers":
+                    conf = json.load(Path(hf_hub_download(uri, "config.json", subfolder=k)).open())
+                    if k == "transformer":
+                        conf["num_layers"] = 2
+                        conf["num_single_layers"] = 2
+                        conf["num_attention_heads"] = 4
+                    else:
+                        conf["block_out_channels"] = [32 * (n + 1) for n in range(len(conf["block_out_channels"]))]
+                        conf["transformer_layers_per_block"] = [
+                            1 * (n + 1) for n in range(len(conf["down_block_types"]))
+                        ]
+
+                    components[k] = mod_cls.from_config(conf)
+                case "transformers":
+                    if hasattr(mod_cls, "config_class"):
+                        components[k] = mod_cls(  # encoders
+                            mod_cls.config_class.from_dict(
+                                json.load(Path(hf_hub_download(uri, "config.json", subfolder=k)).open())
+                                | {"num_hidden_layers": 1}
+                            )
+                        )
+                    else:
+                        components[k] = mod_cls.from_pretrained(uri, subfolder=k)  # tokenizers
+                case _:
+                    components[k] = None
+
+    return cls.from_pretrained(uri, **components)
+
+
 def test_sdxl_i2i() -> None:
-    gc.collect()
-    dt, dv = torch.float16, torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-    pipe = StableDiffusionXLImg2ImgPipeline.from_pretrained("stabilityai/stable-diffusion-xl-base-1.0", torch_dtype=dt)
-    pipe.enable_model_cpu_offload(device=dv)
-    assert isinstance(pipe, StableDiffusionXLImg2ImgPipeline)
+    pipe = fake_pipe_init(StableDiffusionXLImg2ImgPipeline, "stabilityai/stable-diffusion-xl-base-1.0")
 
     b = EulerDiscreteScheduler.from_config(pipe.scheduler.config)
     assert isinstance(b, EulerDiscreteScheduler)
@@ -80,41 +116,40 @@ def test_sdxl_i2i() -> None:
         pipe,
         SkrampleWrapperScheduler.from_diffusers_config(b),
         b,
-        image=torch.zeros([1, 4, 32, 32], dtype=dt, device=dv),
-        num_inference_steps=8,
-        prompt_embeds=torch.zeros([1, 77, 2048], dtype=dt, device=dv),
-        negative_prompt_embeds=torch.zeros([1, 77, 2048], dtype=dt, device=dv),
-        pooled_prompt_embeds=torch.zeros([1, 1280], dtype=dt, device=dv),
-        negative_pooled_prompt_embeds=torch.zeros([1, 1280], dtype=dt, device=dv),
+        # 0,
+        image=torch.zeros([1, 4, 32, 32]),
+        num_inference_steps=50,
+        strength=1 / 2,
+        prompt_embeds=torch.zeros([1, 77, 2048]),
+        negative_prompt_embeds=torch.zeros([1, 77, 2048]),
+        pooled_prompt_embeds=torch.zeros([1, 1280]),
+        negative_pooled_prompt_embeds=torch.zeros([1, 1280]),
     )
 
 
 def test_flux_i2i() -> None:
-    gc.collect()
-    dt, dv = torch.float16, torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-    pipe = FluxImg2ImgPipeline.from_pretrained("black-forest-labs/FLUX.1-dev", torch_dtype=dt)
-    pipe.enable_model_cpu_offload(device=dv)
-    assert isinstance(pipe, FluxImg2ImgPipeline)
+    pipe = fake_pipe_init(FluxImg2ImgPipeline, "mikeyandfriends/PixelWave_FLUX.1-dev_03")  # no gate
 
     b = FlowMatchEulerDiscreteScheduler.from_config(pipe.scheduler.config)
     assert isinstance(b, FlowMatchEulerDiscreteScheduler)
 
     fn, pipe._encode_vae_image = (
         pipe._encode_vae_image,
-        lambda *_, **__: torch.zeros([1, 16, 32, 32], dtype=dt, device=dv),
+        lambda *_, **__: torch.zeros([1, 16, 32, 32]),
     )
 
     compare_schedulers(
         pipe,
         SkrampleWrapperScheduler.from_diffusers_config(b),
         b,
-        5e-3,  # close enough for now
+        # 0,
         height=256,
         width=256,
-        image=torch.zeros([1, 1, 1], dtype=dt, device=dv),
-        num_inference_steps=8,
-        prompt_embeds=torch.zeros([1, 512, 4096], dtype=dt, device=dv),
-        pooled_prompt_embeds=torch.zeros([1, 768], dtype=dt, device=dv),
+        image=torch.zeros([1, 1, 1]),
+        num_inference_steps=50,
+        strength=1 / 2,
+        prompt_embeds=torch.zeros([1, 512, 4096]),
+        pooled_prompt_embeds=torch.zeros([1, 768]),
     )
 
     pipe._encode_vae_image = fn
