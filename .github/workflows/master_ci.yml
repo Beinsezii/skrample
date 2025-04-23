@@ -39,7 +39,7 @@ jobs:
 
       - name: Pytest
         if: '!cancelled()'
-        run: uv run --no-sync pytest
+        run: uv run --no-sync pytest -n 2
 
   high:
     runs-on: ubuntu-latest
@@ -67,4 +67,4 @@ jobs:
 
       - name: Pytest
         if: '!cancelled()'
-        run: uv run --no-sync pytest
+        run: uv run --no-sync pytest -n 2
