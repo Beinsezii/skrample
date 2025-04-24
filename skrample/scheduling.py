@@ -202,7 +202,7 @@ class SigmoidCDF(Linear):
         step_peak = 1 / (steps * math.pi / 2)
         probabilities = np.linspace(step_peak, 1 - step_peak, steps, dtype=np.float64)
         sigmas = sigmoid(norm.ppf(probabilities) * self.cdf_scale)
-        return regularize(sigmas, self.sigma_start)
+        return regularize(sigmas / sigmas.max(), self.sigma_start)
 
 
 @dataclass
