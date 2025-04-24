@@ -32,6 +32,7 @@ test = [
     "diffusers>=0.32",
     "protobuf>=5.29",
     "pyright>=1.1.397",
+    "pytest-xdist>=3.6.1",
     "pytest>=8.3",
     "ruff>=0.11",
     "sentencepiece>=0.2",
