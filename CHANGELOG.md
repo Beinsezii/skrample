@@ -3,11 +3,11 @@
 Wrapper seed generation failing on non-contiguous inputs
 
 ## 0.2.2
-# Fixes
+### Fixes
 Incorrect comparison for modifier merge strategy
 
 ## 0.2.1
-# Fixes
+### Fixes
 SigmmoidCDF peak value < self.sigma_start
 
 ## 0.2.0
