@@ -241,7 +241,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
             for modifier, modifier_props in modifier_merge_strategy.merge(
                 ours=schedule_modifiers,
                 theirs=parsed.schedule_modifiers,
-                cmp=lambda a, b: type(a[0]) is type(b[0]),
+                cmp=lambda a, b: a[0] is b[0],
             ):
                 built_schedule = modifier(base=built_schedule, **modifier_props)
 
