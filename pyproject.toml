@@ -1,6 +1,6 @@
 [project]
 name = "skrample"
-version = "0.2.2"
+version = "0.2.3"
 description = "Composable sampling functions for diffusion models"
 readme = "README.md"
 authors = [{ name = "Beinsezii", email = "beinsezii@gmail.com" }]
