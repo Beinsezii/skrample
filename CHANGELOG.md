@@ -8,7 +8,8 @@ ScheduleModifier has multiple new helper functions for working with frozen
 scheduling.schedule_lru() for cached schedule retrieval.
 Overhead of SkrampleWrapperSchedule.step() is reduced by 95% when using a highly complex schedule class
 
-# Fixes
+## 0.2.1
+### Fixes
 SigmmoidCDF peak value < self.sigma_start
 
 ## 0.2.0
