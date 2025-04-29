@@ -1,3 +1,7 @@
+## 0.2.2
+# Fixes
+Incorrect comparison for modifier merge strategy
+
 ## 0.2.1
 # Fixes
 SigmmoidCDF peak value < self.sigma_start
