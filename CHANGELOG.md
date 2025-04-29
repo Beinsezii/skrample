@@ -1,3 +1,7 @@
+## 0.2.3
+### Fixes
+Wrapper seed generation failing on non-contiguous inputs
+
 ## 0.2.2
 # Fixes
 Incorrect comparison for modifier merge strategy
