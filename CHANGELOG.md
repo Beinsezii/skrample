@@ -5,6 +5,7 @@ Made SkrampleSchedule and SkrampleSampler frozen and therefore hashable
 Added `SKSamples.output` field
 
 Refactored IPNDM -> Adams
+  - Old defaults are equivalent to `Adams(order=4, use_prediction=False)`
 
 ### Additions
 ScheduleModifier has multiple new helper functions for working with frozen
