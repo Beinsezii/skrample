@@ -21,7 +21,7 @@ def test_sampler_generics() -> None:
     for sampler in Euler(), DPM(order=2), IPNDM(), UniPC(order=3):
         for schedule in Scaled(), FlowShift(Linear()):
             i, o = random.random(), random.random()
-            prev = [SKSamples(random.random(), random.random(), random.random()) for _ in range(9)]
+            prev = [SKSamples(random.random(), random.random(), random.random(), random.random()) for _ in range(9)]
 
             scalar = sampler.sample(i, o, schedule.sigmas(10), 4, previous=prev).final
 

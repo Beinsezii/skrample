@@ -20,8 +20,7 @@ Vertical slice, overtaking most diffusers features in [quickdif](https://github.
 - DPM
   - 1st order, 2nd order, 3rd order
   - SDE
-- IPNDM
-  - Ancestral (from Euler)
+- Adams/IPNDM
 - UniPC
   - N order, limited to 9 for stability
   - Custom solver via other SkrampleSampler types

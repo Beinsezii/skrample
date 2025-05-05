@@ -22,6 +22,16 @@ PREDICTOR = Callable[[Sample, Sample, float, bool], Sample]
 "sample, output, sigma, subnormal"
 
 
+# Just hardcode 5 because >=6 is 100% unusable
+ADAMS_BASHFORTH_COEFFICIENTS: tuple[tuple[float, ...], ...] = (
+    (1,),
+    (3 / 2, -1 / 2),
+    (23 / 12, -4 / 3, 5 / 12),
+    (55 / 24, -59 / 24, 37 / 24, -3 / 8),
+    (1901 / 720, -1387 / 360, 109 / 30, -637 / 360, 251 / 720),
+)
+
+
 def sigma_normal(sigma: float, subnormal: bool = False) -> tuple[float, float]:
     if subnormal:
         return sigma, 1 - sigma
@@ -64,7 +74,10 @@ class SKSamples[T: Sample]:
     "Just the prediction from SkrampleSampler.predictor if it's used"
 
     sample: T
-    "An intermediate sample stage or input samples. Mostly for internal use by advanced samplers"
+    "The unmodified model input"
+
+    output: T
+    "The unmodified model output"
 
 
 @dataclass(frozen=True)
@@ -233,6 +246,7 @@ class Euler(StochasticSampler):
             final=sampled,
             prediction=prediction,
             sample=sample,
+            output=output,
         )
 
 
@@ -323,19 +337,23 @@ class DPM(HighOrderSampler, StochasticSampler):
             final=sampled,
             prediction=prediction,
             sample=sample,
+            output=output,
         )
 
 
 @dataclass(frozen=True)
-class IPNDM(HighOrderSampler, Euler):
-    """Higher order extension to Euler.
-    Requires 4th order for optimal effect."""
+class Adams(HighOrderSampler):
+    "Higher order extension to Euler using the Adams-Bashforth coefficients on the model prediction"
 
-    order: int = 4
+    order: int = 2
+
+    use_prediction: bool = True
+    """Use the output from `self.predictor` for higher order weighting.
+    Otherwise uses the raw model output runs `self.predictor` after weighting."""
 
     @property
     def max_order(self) -> int:
-        return 4
+        return len(ADAMS_BASHFORTH_COEFFICIENTS)
 
     def sample[T: Sample](
         self,
@@ -349,19 +367,52 @@ class IPNDM(HighOrderSampler, Euler):
     ) -> SKSamples[T]:
         effective_order = self.effective_order(step, sigma_schedule, previous)
 
-        if effective_order >= 4:
-            eps = (55 / 24 * output - 59 / 24 * previous[-1].sample) + (
-                37 / 24 * previous[-2].sample - 9 / 24 * previous[-3].sample
-            )
-        elif effective_order >= 3:
-            eps = 23 / 12 * output - 16 / 12 * previous[-1].sample + 5 / 12 * previous[-2].sample
-        elif effective_order >= 2:
-            eps = 3 / 2 * output - 1 / 2 * previous[-1].sample
-        else:
-            eps = output
+        sigma = self.get_sigma(step, sigma_schedule)
+        sigma_n1 = self.get_sigma(step + 1, sigma_schedule)
 
-        result = super().sample(sample, eps, sigma_schedule, step, noise, previous, subnormal)  # type: ignore
-        return SKSamples(final=result.final, prediction=result.prediction, sample=output)  # type: ignore
+        signorm, alpha = sigma_normal(sigma, subnormal)
+        signorm_n1, alpha_n1 = sigma_normal(sigma_n1, subnormal)
+
+        if self.use_prediction:
+            prediction: T = self.predictor(sample, output, self.get_sigma(step, sigma_schedule), subnormal)  # type: ignore
+            predictions = [prediction, *reversed([p.prediction for p in previous[-effective_order + 1 :]])]
+            weighted_prediction: T = math.sumprod(
+                predictions[:effective_order],  # type: ignore
+                ADAMS_BASHFORTH_COEFFICIENTS[effective_order - 1],
+            )
+        else:
+            outputs = [output, *reversed([p.output for p in previous[-effective_order + 1 :]])]
+            weighted_output = math.sumprod(
+                outputs[:effective_order],  # type: ignore
+                ADAMS_BASHFORTH_COEFFICIENTS[effective_order - 1],
+            )
+            prediction = self.predictor(sample, weighted_output, sigma, subnormal)  # type: ignore
+            weighted_prediction = prediction
+
+        # Plain Euler from here out
+        try:
+            ratio = signorm_n1 / sigma_n1
+        except ZeroDivisionError:
+            ratio = 1
+
+        term1 = (sample * sigma) / signorm
+        term2 = (term1 - weighted_prediction) * (sigma_n1 / sigma - 1)
+        sampled = (term1 + term2) * ratio
+
+        return SKSamples(
+            final=sampled,
+            prediction=prediction,
+            sample=sample,
+            output=output,
+        )  # type: ignore
+
+
+@dataclass(frozen=True)
+class IPNDM(Adams):
+    "Alias for Adams(use_prediction=False, order=4)"
+
+    order: int = 4
+    use_prediction: bool = False
 
 
 @dataclass(frozen=True)
@@ -506,4 +557,5 @@ class UniPC(HighOrderSampler):
             final=sampled,
             prediction=prediction,
             sample=sample,
+            output=output,
         )
