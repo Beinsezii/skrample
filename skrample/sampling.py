@@ -408,14 +408,6 @@ class Adams(HighOrderSampler):
 
 
 @dataclass(frozen=True)
-class IPNDM(Adams):
-    "Alias for Adams(use_prediction=False, order=4)"
-
-    order: int = 4
-    use_prediction: bool = False
-
-
-@dataclass(frozen=True)
 class UniPC(HighOrderSampler):
     """Unique sampler that can correct other samplers or its own prediction function.
     The additional correction essentially adds +1 order on top of what is set."""
