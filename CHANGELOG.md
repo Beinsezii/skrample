@@ -2,6 +2,10 @@
 ### Breaking
 Made SkrampleSchedule and SkrampleSampler frozen and therefore hashable
 
+Added `SKSamples.output` field
+
+Refactored IPNDM -> Adams
+
 ### Additions
 ScheduleModifier has multiple new helper functions for working with frozen
 
