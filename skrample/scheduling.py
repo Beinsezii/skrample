@@ -6,7 +6,7 @@ from functools import lru_cache
 import numpy as np
 from numpy.typing import NDArray
 
-from skrample.common import normalize, regularize, sigmoid
+from skrample.common import SigmaTransform, normalize, regularize, sigma_complement, sigma_polar, sigmoid
 
 
 @lru_cache
@@ -21,10 +21,9 @@ class SkrampleSchedule(ABC):
     "Abstract class defining the bare minimum for a noise schedule"
 
     @property
-    def subnormal(self) -> bool:
-        """Whether or not the sigma values all fall within 0..1.
-        Needs alternative sampling strategies"""
-        return False
+    @abstractmethod
+    def sigma_transform(self) -> SigmaTransform:
+        "SigmaTransform required for a given noise schedule"
 
     @abstractmethod
     def schedule(self, steps: int) -> NDArray[np.float64]:
@@ -69,6 +68,10 @@ class Scaled(ScheduleCommon):
     """When this is false, the first timestep is effectively skipped,
     therefore it is recommended to only use this for backward compatibility.
     https://arxiv.org/abs/2305.08891"""
+
+    @property
+    def sigma_transform(self) -> SigmaTransform:
+        return sigma_polar
 
     def sigmas_to_timesteps(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
         # it uses full distribution pre-interp
@@ -171,16 +174,16 @@ class Linear(ScheduleCommon):
     sigma_start: float = 1
     "Maximum (first) sigma value"
 
-    present_subnormal: bool | None = None
-    """If set to a bool, will be used as the value for `self.subnormal`
-    Otherwise, subnormal will be False for sigmas_start > 1 and True for <= 1"""
+    custom_transform: SigmaTransform | None = None
+    """If set, will be used for `self.sigma_transform`
+    Otherwise, uses `sigma_polar` for sigma_start > 1 and sigma_complement for <= 1"""
 
     @property
-    def subnormal(self) -> bool:
-        if self.present_subnormal is None:
-            return self.sigma_start <= 1
+    def sigma_transform(self) -> SigmaTransform:
+        if self.custom_transform is None:
+            return sigma_complement if self.sigma_start <= 1 else sigma_polar
         else:
-            return self.present_subnormal
+            return self.custom_transform
 
     def sigmas_to_timesteps(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
         return normalize(sigmas, self.sigma_start) * self.base_timesteps
@@ -226,8 +229,8 @@ class ScheduleModifier(SkrampleSchedule):
         return self.base.base_timesteps
 
     @property
-    def subnormal(self) -> bool:
-        return self.base.subnormal
+    def sigma_transform(self) -> SigmaTransform:
+        return self.base.sigma_transform
 
     @property
     def all_split(self) -> tuple[list["ScheduleModifier"], ScheduleCommon]:

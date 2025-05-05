@@ -1,26 +1,11 @@
 import math
 from abc import ABC, abstractmethod
-from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
 import numpy as np
 from numpy.typing import NDArray
 
-from skrample.common import safe_log
-
-if TYPE_CHECKING:
-    from torch.types import Tensor
-
-    Sample = float | NDArray[np.floating] | Tensor
-else:
-    # Avoid pulling all of torch as the code doesn't explicitly depend on it.
-    Sample = float | NDArray[np.floating]
-
-
-PREDICTOR = Callable[[Sample, Sample, float, bool], Sample]
-"sample, output, sigma, subnormal"
-
+from skrample.common import Predictor, Sample, SigmaTransform, safe_log
 
 # Just hardcode 5 because >=6 is 100% unusable
 ADAMS_BASHFORTH_COEFFICIENTS: tuple[tuple[float, ...], ...] = (
@@ -32,33 +17,27 @@ ADAMS_BASHFORTH_COEFFICIENTS: tuple[tuple[float, ...], ...] = (
 )
 
 
-def sigma_normal(sigma: float, subnormal: bool = False) -> tuple[float, float]:
-    if subnormal:
-        return sigma, 1 - sigma
-    else:
-        theta = math.atan(sigma)
-        return math.sin(theta), math.cos(theta)
-
-
-def EPSILON[T: Sample](sample: T, output: T, sigma: float, subnormal: bool = False) -> T:
+def EPSILON[T: Sample](sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
     "If a model does not specify, this is usually what it needs."
-    sigma, alpha = sigma_normal(sigma, subnormal)
-    return (sample - sigma * output) / alpha  # type: ignore
+    u, v = sigma_transform(sigma)
+    return (sample - u * output) / v  # type: ignore
 
 
-def SAMPLE[T: Sample](sample: T, output: T, sigma: float, subnormal: bool = False) -> T:
+def SAMPLE[T: Sample](sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
     "No prediction. Only for single step afaik."
     return output
 
 
-def VELOCITY[T: Sample](sample: T, output: T, sigma: float, subnormal: bool = False) -> T:
+def VELOCITY[T: Sample](sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
     "Rare, models will usually explicitly say they require velocity/vpred/zero terminal SNR"
-    sigma, alpha = sigma_normal(sigma, subnormal)
-    return alpha * sample - sigma * output  # type: ignore
+    u, v = sigma_transform(sigma)
+    return v * sample - u * output  # type: ignore
 
 
-def FLOW[T: Sample](sample: T, output: T, sigma: float, subnormal: bool = False) -> T:
+def FLOW[T: Sample](sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
     "Flow matching models use this, notably FLUX.1 and SD3"
+    # TODO(beinsezii): this might need to be u * output. Don't trust diffusers
+    # Our tests will fail if we do so, leaving here for now.
     return sample - sigma * output  # type: ignore
 
 
@@ -85,7 +64,7 @@ class SkrampleSampler(ABC):
     Unless otherwise specified, the Sample type is a stand-in that is
     type checked against torch.Tensor but should be generic enough to use with ndarrays or even raw floats"""
 
-    predictor: PREDICTOR = EPSILON
+    predictor: Predictor = EPSILON
     "Predictor function. Most models are EPSILON, FLUX/SD3 are FLOW, VELOCITY and SAMPLE are rare."
 
     @staticmethod
@@ -98,11 +77,11 @@ class SkrampleSampler(ABC):
         self,
         sample: T,
         output: T,
-        sigma_schedule: NDArray,
         step: int,
+        sigma_schedule: NDArray,
+        sigma_transform: SigmaTransform,
         noise: T | None = None,
         previous: list[SKSamples[T]] = [],
-        subnormal: bool = False,
     ) -> SKSamples[T]:
         """sigma_schedule is just the sigmas, IE SkrampleSchedule()[:, 1].
 
@@ -113,31 +92,31 @@ class SkrampleSampler(ABC):
         All SkrampleSchedules contain a `.subnormal` property with this defined.
         """
 
-    def scale_input[T: Sample](self, sample: T, sigma: float, subnormal: bool = False) -> T:
+    def scale_input[T: Sample](self, sample: T, sigma: float, sigma_transform: SigmaTransform) -> T:
         return sample
 
-    def merge_noise[T: Sample](self, sample: T, noise: T, sigma: float, subnormal: bool = False) -> T:
-        sigma, alpha = sigma_normal(sigma, subnormal)
-        return sample * alpha + noise * sigma  # type: ignore
+    def merge_noise[T: Sample](self, sample: T, noise: T, sigma: float, sigma_transform: SigmaTransform) -> T:
+        u, v = sigma_transform(sigma)
+        return sample * v + noise * u  # type: ignore
 
     def __call__[T: Sample](
         self,
         sample: T,
         output: T,
-        sigma_schedule: NDArray,
         step: int,
+        sigma_schedule: NDArray,
+        sigma_transform: SigmaTransform,
         noise: T | None = None,
         previous: list[SKSamples[T]] = [],
-        subnormal: bool = False,
     ) -> SKSamples[T]:
         return self.sample(
             sample=sample,
             output=output,
-            sigma_schedule=sigma_schedule,
             step=step,
+            sigma_schedule=sigma_schedule,
+            sigma_transform=sigma_transform,
             noise=noise,
             previous=previous,
-            subnormal=subnormal,
         )
 
 
@@ -178,66 +157,36 @@ class StochasticSampler(SkrampleSampler):
 
 
 @dataclass(frozen=True)
-class Euler(StochasticSampler):
-    """Basic sampler, the "safe" choice.
-    Add noise for ancestral sampling."""
+class Euler(SkrampleSampler):
+    """Basic sampler, the "safe" choice."""
 
     def sample[T: Sample](
         self,
         sample: T,
         output: T,
-        sigma_schedule: NDArray,
         step: int,
+        sigma_schedule: NDArray,
+        sigma_transform: SigmaTransform,
         noise: T | None = None,
         previous: list[SKSamples[T]] = [],
-        subnormal: bool = False,
     ) -> SKSamples[T]:
         sigma = self.get_sigma(step, sigma_schedule)
-        sigma_n1 = self.get_sigma(step + 1, sigma_schedule)
+        sigma_next = self.get_sigma(step + 1, sigma_schedule)
 
-        signorm, alpha = sigma_normal(sigma, subnormal)
-        signorm_n1, alpha_n1 = sigma_normal(sigma_n1, subnormal)
+        u, v = sigma_transform(sigma)
+        u_next, v_next = sigma_transform(sigma_next)
 
-        if self.add_noise and noise is not None:
-            if subnormal:
-                # TODO(beinsezii): correct values for Euler?
-                # DPM is mathematically close enough that this is fine enough,
-                # but ideally we wouldn't need this.
-                # Maybe Euler in general should just alias DPM...
-                return DPM(
-                    predictor=self.predictor,
-                    add_noise=self.add_noise,
-                    order=1,
-                ).sample(
-                    sample=sample,
-                    output=output,
-                    sigma_schedule=sigma_schedule,
-                    step=step,
-                    noise=noise,
-                    previous=previous,
-                    subnormal=subnormal,
-                )
-            else:
-                sigma_up = sigma / 2 * math.sin(math.asin(sigma_n1 / sigma) * 2)
-                sigma_down = sigma_n1**2 / sigma
-
-            noise_factor = noise * sigma_up
-            sigma_factor = sigma_down
-        else:
-            noise_factor = 0
-            sigma_factor = sigma_n1
-
-        prediction: T = self.predictor(sample, output, sigma, subnormal)  # type: ignore
+        prediction: T = self.predictor(sample, output, sigma, sigma_transform)  # type: ignore
 
         try:
-            ratio = signorm_n1 / sigma_n1
+            ratio = u_next / sigma_next
         except ZeroDivisionError:
             ratio = 1
 
         # thx Qwen
-        term1 = (sample * sigma) / signorm
-        term2 = (term1 - prediction) * (sigma_factor / sigma - 1)
-        sampled = (term1 + term2 + noise_factor) * ratio
+        term1 = (sample * sigma) / u
+        term2 = (term1 - prediction) * (sigma_next / sigma - 1)
+        sampled = (term1 + term2) * ratio
 
         return SKSamples(  # type: ignore
             final=sampled,
@@ -262,26 +211,26 @@ class DPM(HighOrderSampler, StochasticSampler):
         self,
         sample: T,
         output: T,
-        sigma_schedule: NDArray,
         step: int,
+        sigma_schedule: NDArray,
+        sigma_transform: SigmaTransform,
         noise: T | None = None,
         previous: list[SKSamples[T]] = [],
-        subnormal: bool = False,
     ) -> SKSamples[T]:
         sigma = self.get_sigma(step, sigma_schedule)
-        sigma_n1 = self.get_sigma(step + 1, sigma_schedule)
+        sigma_next = self.get_sigma(step + 1, sigma_schedule)
 
-        signorm, alpha = sigma_normal(sigma, subnormal)
-        signorm_n1, alpha_n1 = sigma_normal(sigma_n1, subnormal)
+        u, v = sigma_transform(sigma)
+        u_next, v_next = sigma_transform(sigma_next)
 
-        lambda_ = safe_log(alpha) - safe_log(signorm)
-        lambda_n1 = safe_log(alpha_n1) - safe_log(signorm_n1)
-        h = abs(lambda_n1 - lambda_)
+        lambda_ = safe_log(v) - safe_log(u)
+        lambda_next = safe_log(v_next) - safe_log(u_next)
+        h = abs(lambda_next - lambda_)
 
         if noise is not None and self.add_noise:
             exp1 = math.exp(-h)
             hh = -2 * h
-            noise_factor = signorm_n1 * math.sqrt(1 - math.exp(hh)) * noise
+            noise_factor = u_next * math.sqrt(1 - math.exp(hh)) * noise
         else:
             exp1 = 1
             hh = -h
@@ -289,45 +238,45 @@ class DPM(HighOrderSampler, StochasticSampler):
 
         exp2 = math.expm1(hh)
 
-        prediction: T = self.predictor(sample, output, sigma, subnormal)  # type: ignore
+        prediction: T = self.predictor(sample, output, sigma, sigma_transform)  # type: ignore
 
-        sampled = noise_factor + (signorm_n1 / signorm * exp1) * sample
+        sampled = noise_factor + (u_next / u * exp1) * sample
 
         # 1st order
-        sampled -= (alpha_n1 * exp2) * prediction
+        sampled -= (v_next * exp2) * prediction
 
         effective_order = self.effective_order(step, sigma_schedule, previous)
 
         if effective_order >= 2:
-            sigma_p1 = self.get_sigma(step - 1, sigma_schedule)
-            signorm_p1, alpha_p1 = sigma_normal(sigma_p1, subnormal)
+            sigma_prev = self.get_sigma(step - 1, sigma_schedule)
+            u_prev, v_prev = sigma_transform(sigma_prev)
 
-            lambda_p1 = safe_log(alpha_p1) - safe_log(signorm_p1)
-            h_p1 = lambda_ - lambda_p1
-            r = h_p1 / h  # math people and their var names...
+            lambda_prev = safe_log(v_prev) - safe_log(u_prev)
+            h_prev = lambda_ - lambda_prev
+            r = h_prev / h  # math people and their var names...
 
             # Calculate previous predicton from sample, output
-            prediction_p1 = previous[-1].prediction
-            D1_0 = (1.0 / r) * (prediction - prediction_p1)
+            prediction_prev = previous[-1].prediction
+            D1_0 = (1.0 / r) * (prediction - prediction_prev)
 
             if effective_order >= 3:
-                sigma_p2 = self.get_sigma(step - 2, sigma_schedule)
-                signorm_p2, alpha_p2 = sigma_normal(sigma_p2, subnormal)
-                lambda_p2 = safe_log(alpha_p2) - safe_log(signorm_p2)
-                h_p2 = lambda_p1 - lambda_p2
-                r_p2 = h_p2 / h
+                sigma_prev2 = self.get_sigma(step - 2, sigma_schedule)
+                u_prev2, v_prev2 = sigma_transform(sigma_prev2)
+                lambda_prev2 = safe_log(v_prev2) - safe_log(u_prev2)
+                h_prev2 = lambda_prev - lambda_prev2
+                r_prev2 = h_prev2 / h
 
                 prediction_p2 = previous[-2].prediction
 
-                D1_1 = (1.0 / r_p2) * (prediction_p1 - prediction_p2)
-                D1 = D1_0 + (r / (r + r_p2)) * (D1_0 - D1_1)
-                D2 = (1.0 / (r + r_p2)) * (D1_0 - D1_1)
+                D1_1 = (1.0 / r_prev2) * (prediction_prev - prediction_p2)
+                D1 = D1_0 + (r / (r + r_prev2)) * (D1_0 - D1_1)
+                D2 = (1.0 / (r + r_prev2)) * (D1_0 - D1_1)
 
-                sampled -= (alpha_n1 * (exp2 / hh - 1.0)) * D1
-                sampled -= (alpha_n1 * ((exp2 - hh) / hh**2 - 0.5)) * D2
+                sampled -= (v_next * (exp2 / hh - 1.0)) * D1
+                sampled -= (v_next * ((exp2 - hh) / hh**2 - 0.5)) * D2
 
             else:  # 2nd order. using this in O3 produces valid images but not going to risk correctness
-                sampled -= (0.5 * alpha_n1 * exp2) * D1_0
+                sampled -= (0.5 * v_next * exp2) * D1_0
 
         return SKSamples(  # type: ignore
             final=sampled,
@@ -350,20 +299,20 @@ class Adams(HighOrderSampler):
         self,
         sample: T,
         output: T,
-        sigma_schedule: NDArray,
         step: int,
+        sigma_schedule: NDArray,
+        sigma_transform: SigmaTransform,
         noise: T | None = None,
         previous: list[SKSamples[T]] = [],
-        subnormal: bool = False,
     ) -> SKSamples[T]:
         sigma = self.get_sigma(step, sigma_schedule)
-        sigma_n1 = self.get_sigma(step + 1, sigma_schedule)
+        sigma_next = self.get_sigma(step + 1, sigma_schedule)
 
-        signorm, alpha = sigma_normal(sigma, subnormal)
-        signorm_n1, alpha_n1 = sigma_normal(sigma_n1, subnormal)
+        u, v = sigma_transform(sigma)
+        u_next, v_next = sigma_transform(sigma_next)
 
         effective_order = self.effective_order(step, sigma_schedule, previous)
-        prediction: T = self.predictor(sample, output, self.get_sigma(step, sigma_schedule), subnormal)  # type: ignore
+        prediction: T = self.predictor(sample, output, self.get_sigma(step, sigma_schedule), sigma_transform)  # type: ignore
 
         predictions = [prediction, *reversed([p.prediction for p in previous[-effective_order + 1 :]])]
         weighted_prediction: T = math.sumprod(
@@ -373,12 +322,12 @@ class Adams(HighOrderSampler):
 
         # Plain Euler from here out
         try:
-            ratio = signorm_n1 / sigma_n1
+            ratio = u_next / sigma_next
         except ZeroDivisionError:
             ratio = 1
 
-        term1 = (sample * sigma) / signorm
-        term2 = (term1 - weighted_prediction) * (sigma_n1 / sigma - 1)
+        term1 = (sample * sigma) / u
+        term2 = (term1 - weighted_prediction) * (sigma_next / sigma - 1)
         sampled = (term1 + term2) * ratio
 
         return SKSamples(
@@ -408,8 +357,8 @@ class UniPC(HighOrderSampler):
         prediction: T,
         step: int,
         sigma_schedule: NDArray,
+        sigma_transform: SigmaTransform,
         previous: list[SKSamples[T]],
-        subnormal: bool,
         lambda_X: float,
         h_X: float,
         order: int,
@@ -427,17 +376,17 @@ class UniPC(HighOrderSampler):
 
         rks: list[float] = []
         D1s: list[Sample] = []
-        for i in range(1 + prior, order + prior):
-            step_pO = step - i
-            prediction_pO = previous[-i].prediction
-            sigma_pO, alpha_pO = sigma_normal(self.get_sigma(step_pO, sigma_schedule), subnormal)
-            lambda_pO = safe_log(alpha_pO) - safe_log(sigma_pO)
+        for n in range(1 + prior, order + prior):
+            step_prev_N = step - n
+            prediction_prev_N = previous[-n].prediction
+            u_prev_N, v_prev_N = sigma_transform(self.get_sigma(step_prev_N, sigma_schedule))
+            lambda_pO = safe_log(v_prev_N) - safe_log(u_prev_N)
             rk = (lambda_pO - lambda_X) / h_X
             if math.isfinite(rk):  # for subnormal
                 rks.append(rk)
             else:
                 rks.append(0)  # TODO(beinsezii): proper value?
-            D1s.append((prediction_pO - prediction) / rk)
+            D1s.append((prediction_prev_N - prediction) / rk)
 
         if prior:
             rks.append(1.0)
@@ -447,17 +396,17 @@ class UniPC(HighOrderSampler):
 
         h_phi_k = h_phi_1_X / hh_X - 1
 
-        for i in range(1, order + 1):
-            R.append([math.pow(v, i - 1) for v in rks])
-            b.append(h_phi_k * math.factorial(i) / B_h)
-            h_phi_k = h_phi_k / hh_X - 1 / math.factorial(i + 1)
+        for n in range(1, order + 1):
+            R.append([math.pow(v, n - 1) for v in rks])
+            b.append(h_phi_k * math.factorial(n) / B_h)
+            h_phi_k = h_phi_k / hh_X - 1 / math.factorial(n + 1)
 
         if order <= 2 - prior:
             rhos: list[float] = [0.5]
         else:
             # small array order x order, fast to do it in just np
-            i = len(rks)
-            rhos = np.linalg.solve(R[:i], b[:i]).tolist()  # type: ignore
+            n = len(rks)
+            rhos = np.linalg.solve(R[:n], b[:n]).tolist()  # type: ignore
 
         uni_res = math.sumprod(rhos[: len(D1s)], D1s)  # type: ignore  # Float
 
@@ -467,61 +416,69 @@ class UniPC(HighOrderSampler):
         self,
         sample: T,
         output: T,
-        sigma_schedule: NDArray,
         step: int,
+        sigma_schedule: NDArray,
+        sigma_transform: SigmaTransform,
         noise: T | None = None,
         previous: list[SKSamples[T]] = [],
-        subnormal: bool = False,
     ) -> SKSamples[T]:
         sigma = self.get_sigma(step, sigma_schedule)
-        prediction: T = self.predictor(sample, output, sigma, subnormal)  # type: ignore
+        prediction: T = self.predictor(sample, output, sigma, sigma_transform)  # type: ignore
 
         sigma = self.get_sigma(step, sigma_schedule)
-        signorm, alpha = sigma_normal(sigma, subnormal)
-        lambda_ = safe_log(alpha) - safe_log(signorm)
+        u, v = sigma_transform(sigma)
+        lambda_ = safe_log(v) - safe_log(u)
 
         if previous:
             # -1 step since it effectively corrects the prior step before the next prediction
             effective_order = self.effective_order(step - 1, sigma_schedule, previous[:-1])
 
-            sigma_p1 = self.get_sigma(step - 1, sigma_schedule)
-            signorm_p1, alpha_p1 = sigma_normal(sigma_p1, subnormal)
-            lambda_p1 = safe_log(alpha_p1) - safe_log(signorm_p1)
-            h_p1 = abs(lambda_ - lambda_p1)
+            sigma_prev = self.get_sigma(step - 1, sigma_schedule)
+            u_prev, v_prev = sigma_transform(sigma_prev)
+            lambda_prev = safe_log(v_prev) - safe_log(u_prev)
+            h_prev = abs(lambda_ - lambda_prev)
 
-            prediction_p1 = previous[-1].prediction
-            sample_p1 = previous[-1].sample
+            prediction_prev = previous[-1].prediction
+            sample_prev = previous[-1].sample
 
-            B_h_p1, rhos_c, uni_c_res, h_phi_1_p1 = self._uni_p_c_prelude(
-                prediction_p1, step, sigma_schedule, previous, subnormal, lambda_p1, h_p1, effective_order, True
+            B_h_prev, rhos_c, uni_c_res, h_phi_1_prev = self._uni_p_c_prelude(
+                prediction_prev,
+                step,
+                sigma_schedule,
+                sigma_transform,
+                previous,
+                lambda_prev,
+                h_prev,
+                effective_order,
+                True,
             )
 
             # if self.predict_x0:
-            x_t_ = signorm / signorm_p1 * sample_p1 - alpha * h_phi_1_p1 * prediction_p1
-            D1_t = prediction - prediction_p1
-            sample = x_t_ - alpha * B_h_p1 * (uni_c_res + rhos_c[-1] * D1_t)  # type: ignore
+            x_t_ = u / u_prev * sample_prev - v * h_phi_1_prev * prediction_prev
+            D1_t = prediction - prediction_prev
+            sample = x_t_ - v * B_h_prev * (uni_c_res + rhos_c[-1] * D1_t)  # type: ignore
             # else:
             #     x_t_ = alpha_t / alpha_s0 * x - sigma_t * h_phi_1 * m0
             #     D1_t = model_t - m0
             #     x_t = x_t_ - sigma_t * B_h * (corr_res + rhos_c[-1] * D1_t)
 
         if self.solver:
-            sampled = self.solver.sample(sample, output, sigma_schedule, step, noise, previous, subnormal).final
+            sampled = self.solver.sample(sample, output, step, sigma_schedule, sigma_transform, noise, previous).final
         else:
             effective_order = self.effective_order(step, sigma_schedule, previous)
 
-            sigma_n1 = self.get_sigma(step + 1, sigma_schedule)
-            signorm_n1, alpha_n1 = sigma_normal(sigma_n1, subnormal)
-            lambda_n1 = safe_log(alpha_n1) - safe_log(signorm_n1)
-            h = abs(lambda_n1 - lambda_)
+            sigma_next = self.get_sigma(step + 1, sigma_schedule)
+            u_next, v_next = sigma_transform(sigma_next)
+            lambda_next = safe_log(v_next) - safe_log(u_next)
+            h = abs(lambda_next - lambda_)
 
             B_h, _, uni_p_res, h_phi_1 = self._uni_p_c_prelude(
-                prediction, step, sigma_schedule, previous, subnormal, lambda_, h, effective_order, False
+                prediction, step, sigma_schedule, sigma_transform, previous, lambda_, h, effective_order, False
             )
 
             # if self.predict_x0:
-            x_t_ = signorm_n1 / signorm * sample - alpha_n1 * h_phi_1 * prediction
-            sampled = x_t_ - alpha_n1 * B_h * uni_p_res
+            x_t_ = u_next / u * sample - v_next * h_phi_1 * prediction
+            sampled = x_t_ - v_next * B_h * uni_p_res
             # else:
             #     x_t_ = alpha_t / alpha_s0 * x - sigma_t * h_phi_1 * m0
             #     x_t = x_t_ - sigma_t * B_h * pred_res

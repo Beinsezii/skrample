@@ -18,7 +18,7 @@ from skrample.pytorch.noise import (
     TensorNoiseProps,
     schedule_to_ramp,
 )
-from skrample.sampling import PREDICTOR, SkrampleSampler, SKSamples, StochasticSampler
+from skrample.sampling import Predictor, SkrampleSampler, SKSamples, StochasticSampler
 from skrample.scheduling import ScheduleCommon, ScheduleModifier, SkrampleSchedule
 
 if TYPE_CHECKING:
@@ -27,10 +27,10 @@ if TYPE_CHECKING:
 
 DIFFUSERS_CLASS_MAP: dict[str, tuple[type[SkrampleSampler], dict[str, Any]]] = {
     "DDIMScheduler": (sampling.Euler, {}),
-    "DDPMScheduler": (sampling.Euler, {"add_noise": True}),
+    "DDPMScheduler": (sampling.DPM, {"add_noise": True, "order": 1}),
     "DPMSolverMultistepScheduler": (sampling.DPM, {}),
     "DPMSolverSDEScheduler": (sampling.DPM, {"add_noise": True}),
-    "EulerAncestralDiscreteScheduler": (sampling.Euler, {"add_noise": True}),
+    "EulerAncestralDiscreteScheduler": (sampling.DPM, {"add_noise": True, "order": 1}),
     "EulerDiscreteScheduler": (sampling.Euler, {}),
     "FlowMatchEulerDiscreteScheduler": (sampling.Euler, {}),
     "IPNDMScheduler": (sampling.Adams, {"order": 4}),
@@ -121,7 +121,7 @@ def parse_diffusers_config(
     )
 
     if "skrample_predictor" in remapped:
-        predictor: PREDICTOR = remapped.pop("skrample_predictor")
+        predictor: Predictor = remapped.pop("skrample_predictor")
     elif "shift" in remapped:  # should only be flow
         predictor = sampling.FLOW
     else:
@@ -274,7 +274,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
 
     @property
     def init_noise_sigma(self) -> float:
-        return self.sampler.scale_input(1, self.schedule_np[0, 1].item(), subnormal=self.schedule.subnormal)
+        return self.sampler.scale_input(1, self.schedule_np[0, 1].item(), sigma_transform=self.schedule.sigma_transform)
 
     @property
     def order(self) -> int:
@@ -327,7 +327,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
         schedule = self.schedule_np
         step = schedule[:, 0].tolist().index(timestep.item())  # type: ignore  # np v2 Number
         sigma = schedule[step, 1].item()
-        return self.sampler.merge_noise(sample, noise, sigma, subnormal=self.schedule.subnormal)
+        return self.sampler.merge_noise(sample, noise, sigma, sigma_transform=self.schedule.sigma_transform)
 
     def add_noise(self, original_samples: Tensor, noise: Tensor, timesteps: Tensor) -> Tensor:
         return self.scale_noise(original_samples, timesteps[0], noise)
@@ -336,7 +336,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
         schedule = self.schedule_np
         step = schedule[:, 0].tolist().index(timestep if isinstance(timestep, (int | float)) else timestep.item())  # type: ignore  # np v2 Number
         sigma = schedule[step, 1].item()
-        return self.sampler.scale_input(sample, sigma, subnormal=self.schedule.subnormal)
+        return self.sampler.scale_input(sample, sigma, sigma_transform=self.schedule.sigma_transform)
 
     def step(
         self,
@@ -393,7 +393,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
                 step=step,
                 noise=noise,
                 previous=self._previous,
-                subnormal=self.schedule.subnormal,
+                sigma_transform=self.schedule.sigma_transform,
             )
             self._previous.append(sampled)
             return (
