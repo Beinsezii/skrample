@@ -83,7 +83,7 @@ def test_euler() -> None:
 
 def test_ipndm() -> None:
     check_wrapper(
-        SkrampleWrapperScheduler(Adams(order=4, use_prediction=False), Scaled(uniform=False)),
+        SkrampleWrapperScheduler(Adams(order=4), Scaled(uniform=False)),
         IPNDMScheduler.from_config(SCALED_CONFIG),
     )
 

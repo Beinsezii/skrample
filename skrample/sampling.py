@@ -76,9 +76,6 @@ class SKSamples[T: Sample]:
     sample: T
     "The unmodified model input"
 
-    output: T
-    "The unmodified model output"
-
 
 @dataclass(frozen=True)
 class SkrampleSampler(ABC):
@@ -246,7 +243,6 @@ class Euler(StochasticSampler):
             final=sampled,
             prediction=prediction,
             sample=sample,
-            output=output,
         )
 
 
@@ -337,7 +333,6 @@ class DPM(HighOrderSampler, StochasticSampler):
             final=sampled,
             prediction=prediction,
             sample=sample,
-            output=output,
         )
 
 
@@ -346,10 +341,6 @@ class Adams(HighOrderSampler):
     "Higher order extension to Euler using the Adams-Bashforth coefficients on the model prediction"
 
     order: int = 2
-
-    use_prediction: bool = True
-    """Use the output from `self.predictor` for higher order weighting.
-    Otherwise uses the raw model output runs `self.predictor` after weighting."""
 
     @property
     def max_order(self) -> int:
@@ -365,29 +356,20 @@ class Adams(HighOrderSampler):
         previous: list[SKSamples[T]] = [],
         subnormal: bool = False,
     ) -> SKSamples[T]:
-        effective_order = self.effective_order(step, sigma_schedule, previous)
-
         sigma = self.get_sigma(step, sigma_schedule)
         sigma_n1 = self.get_sigma(step + 1, sigma_schedule)
 
         signorm, alpha = sigma_normal(sigma, subnormal)
         signorm_n1, alpha_n1 = sigma_normal(sigma_n1, subnormal)
 
-        if self.use_prediction:
-            prediction: T = self.predictor(sample, output, self.get_sigma(step, sigma_schedule), subnormal)  # type: ignore
-            predictions = [prediction, *reversed([p.prediction for p in previous[-effective_order + 1 :]])]
-            weighted_prediction: T = math.sumprod(
-                predictions[:effective_order],  # type: ignore
-                ADAMS_BASHFORTH_COEFFICIENTS[effective_order - 1],
-            )
-        else:
-            outputs = [output, *reversed([p.output for p in previous[-effective_order + 1 :]])]
-            weighted_output = math.sumprod(
-                outputs[:effective_order],  # type: ignore
-                ADAMS_BASHFORTH_COEFFICIENTS[effective_order - 1],
-            )
-            prediction = self.predictor(sample, weighted_output, sigma, subnormal)  # type: ignore
-            weighted_prediction = prediction
+        effective_order = self.effective_order(step, sigma_schedule, previous)
+        prediction: T = self.predictor(sample, output, self.get_sigma(step, sigma_schedule), subnormal)  # type: ignore
+
+        predictions = [prediction, *reversed([p.prediction for p in previous[-effective_order + 1 :]])]
+        weighted_prediction: T = math.sumprod(
+            predictions[:effective_order],  # type: ignore
+            ADAMS_BASHFORTH_COEFFICIENTS[effective_order - 1],
+        )
 
         # Plain Euler from here out
         try:
@@ -403,7 +385,6 @@ class Adams(HighOrderSampler):
             final=sampled,
             prediction=prediction,
             sample=sample,
-            output=output,
         )  # type: ignore
 
 
@@ -549,5 +530,4 @@ class UniPC(HighOrderSampler):
             final=sampled,
             prediction=prediction,
             sample=sample,
-            output=output,
         )
