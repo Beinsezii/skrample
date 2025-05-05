@@ -5,7 +5,7 @@ import torch
 from testing_common import compare_tensors
 
 from skrample.diffusers import SkrampleWrapperScheduler
-from skrample.sampling import DPM, IPNDM, Euler, SKSamples, UniPC
+from skrample.sampling import DPM, Adams, Euler, SKSamples, UniPC
 from skrample.scheduling import Beta, FlowShift, Karras, Linear, Scaled
 
 
@@ -18,7 +18,7 @@ def test_sigmas_to_timesteps() -> None:
 
 def test_sampler_generics() -> None:
     eps = 1e-12
-    for sampler in Euler(), DPM(order=2), IPNDM(), UniPC(order=3):
+    for sampler in Euler(), DPM(order=2), Adams(), UniPC(order=3):
         for schedule in Scaled(), FlowShift(Linear()):
             i, o = random.random(), random.random()
             prev = [SKSamples(random.random(), random.random(), random.random()) for _ in range(9)]

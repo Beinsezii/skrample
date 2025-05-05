@@ -11,7 +11,7 @@ from diffusers.schedulers.scheduling_unipc_multistep import UniPCMultistepSchedu
 from testing_common import FLOW_CONFIG, SCALED_CONFIG
 
 from skrample.diffusers import SkrampleWrapperScheduler
-from skrample.sampling import DPM, EPSILON, FLOW, IPNDM, VELOCITY, Euler, UniPC
+from skrample.sampling import DPM, EPSILON, FLOW, VELOCITY, Adams, Euler, UniPC
 from skrample.scheduling import Beta, Exponential, FlowShift, Karras, Linear, Scaled
 
 
@@ -83,7 +83,7 @@ def test_euler() -> None:
 
 def test_ipndm() -> None:
     check_wrapper(
-        SkrampleWrapperScheduler(IPNDM(), Scaled(uniform=False)),
+        SkrampleWrapperScheduler(Adams(order=4), Scaled(uniform=False)),
         IPNDMScheduler.from_config(SCALED_CONFIG),
     )
 

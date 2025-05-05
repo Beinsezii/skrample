@@ -2,11 +2,19 @@
 ### Breaking
 Made SkrampleSchedule and SkrampleSampler frozen and therefore hashable
 
+Refactored IPNDM -> Adams
+  - Old defaults are equivalent to `Adams(order=4)`
+  - Alrogithm updated for correctness, seeds may change
+
 ### Additions
 ScheduleModifier has multiple new helper functions for working with frozen
 
 scheduling.schedule_lru() for cached schedule retrieval.
 Overhead of SkrampleWrapperSchedule.step() is reduced by 95% when using a highly complex schedule class
+
+## 0.2.3
+### Fixes
+Wrapper seed generation failing on non-contiguous inputs
 
 ## 0.2.2
 ### Fixes

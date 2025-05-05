@@ -33,7 +33,7 @@ DIFFUSERS_CLASS_MAP: dict[str, tuple[type[SkrampleSampler], dict[str, Any]]] = {
     "EulerAncestralDiscreteScheduler": (sampling.Euler, {"add_noise": True}),
     "EulerDiscreteScheduler": (sampling.Euler, {}),
     "FlowMatchEulerDiscreteScheduler": (sampling.Euler, {}),
-    "IPNDMScheduler": (sampling.IPNDM, {}),
+    "IPNDMScheduler": (sampling.Adams, {"order": 4}),
     "UniPCMultistepScheduler": (sampling.UniPC, {}),
 }
 
