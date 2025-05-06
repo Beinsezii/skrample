@@ -10,7 +10,7 @@ from numpy.typing import NDArray
 from torch import Tensor
 
 from skrample import sampling, scheduling
-from skrample.common import MergeStrategy
+from skrample.common import MergeStrategy, Predictor, predict_epsilon, predict_flow, predict_sample, predict_velocity
 from skrample.pytorch.noise import (
     BatchTensorNoise,
     Random,
@@ -18,7 +18,7 @@ from skrample.pytorch.noise import (
     TensorNoiseProps,
     schedule_to_ramp,
 )
-from skrample.sampling import Predictor, SkrampleSampler, SKSamples, StochasticSampler
+from skrample.sampling import SkrampleSampler, SKSamples, StochasticSampler
 from skrample.scheduling import ScheduleCommon, ScheduleModifier, SkrampleSchedule
 
 if TYPE_CHECKING:
@@ -63,10 +63,10 @@ DIFFUSERS_VALUE_MAP: dict[tuple[str, Any], tuple[str, Any]] = {
     ("algorithm_type", "sde-dpmsolver"): ("add_noise", True),
     ("algorithm_type", "sde-dpmsolver++"): ("add_noise", True),
     # Complex types
-    ("prediction_type", "epsilon"): ("skrample_predictor", sampling.EPSILON),
-    ("prediction_type", "flow"): ("skrample_predictor", sampling.FLOW),
-    ("prediction_type", "sample"): ("skrample_predictor", sampling.SAMPLE),
-    ("prediction_type", "v_prediction"): ("skrample_predictor", sampling.VELOCITY),
+    ("prediction_type", "epsilon"): ("skrample_predictor", predict_epsilon),
+    ("prediction_type", "flow"): ("skrample_predictor", predict_flow),
+    ("prediction_type", "sample"): ("skrample_predictor", predict_sample),
+    ("prediction_type", "v_prediction"): ("skrample_predictor", predict_velocity),
     ("use_beta_sigmas", True): ("skrample_modifier", scheduling.Beta),
     ("use_exponential_sigmas", True): ("skrample_modifier", scheduling.Exponential),
     ("use_karras_sigmas", True): ("skrample_modifier", scheduling.Karras),
@@ -96,6 +96,7 @@ class ParsedDiffusersConfig:
     schedule: type[SkrampleSchedule]
     schedule_props: dict[str, Any]
     schedule_modifiers: list[tuple[type[ScheduleModifier], dict[str, Any]]]
+    predictor: Predictor
 
 
 def parse_diffusers_config(
@@ -123,9 +124,9 @@ def parse_diffusers_config(
     if "skrample_predictor" in remapped:
         predictor: Predictor = remapped.pop("skrample_predictor")
     elif "shift" in remapped:  # should only be flow
-        predictor = sampling.FLOW
+        predictor = predict_flow
     else:
-        predictor = sampling.EPSILON
+        predictor = predict_epsilon
 
     if not sampler:
         sampler, sampler_props = DIFFUSERS_CLASS_MAP.get(diffusers_class, (sampling.DPM, {}))
@@ -133,7 +134,7 @@ def parse_diffusers_config(
         sampler_props = {}
 
     if not schedule:
-        if predictor is sampling.FLOW:
+        if predictor is predict_flow:
             schedule = scheduling.Linear
         elif remapped.get("rescale_betas_zero_snr", False):
             schedule = scheduling.ZSNR
@@ -141,7 +142,7 @@ def parse_diffusers_config(
             schedule = scheduling.Scaled
 
     # Adjust sigma_start to match scaled beta for sd1/xl
-    if "sigma_start" not in remapped and predictor is not sampling.FLOW and issubclass(schedule, scheduling.Linear):
+    if "sigma_start" not in remapped and predictor is not predict_flow and issubclass(schedule, scheduling.Linear):
         scaled_keys = [f.name for f in dataclasses.fields(scheduling.Scaled)]
         # non-uniform misses a whole timestep
         scaled = scheduling.Scaled(**{k: v for k, v in remapped.items() if k in scaled_keys} | {"uniform": True})
@@ -150,7 +151,7 @@ def parse_diffusers_config(
 
     schedule_modifiers: list[tuple[type[ScheduleModifier], dict[str, Any]]] = []
 
-    if predictor is sampling.FLOW:
+    if predictor is predict_flow:
         flow_keys = [f.name for f in dataclasses.fields(scheduling.FlowShift)]
         schedule_modifiers.append((scheduling.FlowShift, {k: v for k, v in remapped.items() if k in flow_keys}))
 
@@ -165,18 +166,18 @@ def parse_diffusers_config(
 
     return ParsedDiffusersConfig(
         sampler=sampler,
-        sampler_props=sampler_props
-        | {k: v for k, v in (remapped | {"predictor": predictor}).items() if k in sampler_keys},
+        sampler_props=sampler_props | {k: v for k, v in (remapped).items() if k in sampler_keys},
         schedule=schedule,
         schedule_props={k: v for k, v in remapped.items() if k in schedule_keys},
         schedule_modifiers=schedule_modifiers,
+        predictor=predictor,
     )
 
 
-def as_diffusers_config(sampler: SkrampleSampler, schedule: SkrampleSchedule) -> dict[str, Any]:
+def as_diffusers_config(sampler: SkrampleSampler, schedule: SkrampleSchedule, predictor: Predictor) -> dict[str, Any]:
     "Converts skrample classes back into a diffusers-readable config. Not comprehensive"
     skrample_config = dataclasses.asdict(sampler)
-    skrample_config["skrample_predictor"] = sampler.predictor
+    skrample_config["skrample_predictor"] = predictor
 
     if isinstance(schedule, ScheduleModifier):
         skrample_config |= dataclasses.asdict(schedule.base) | dataclasses.asdict(schedule)
@@ -203,6 +204,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
 
     sampler: SkrampleSampler
     schedule: SkrampleSchedule
+    predictor: Predictor[Tensor] = predict_epsilon
     noise_type: type[TensorNoiseCommon[T]] = Random  # type: ignore  # Unsure why?
     noise_props: T | None = None
     compute_scale: torch.dtype | None = torch.float32
@@ -222,9 +224,10 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
         cls,
         config: "dict[str, Any] | ConfigMixin",
         sampler: type[SkrampleSampler] | None = None,
-        noise_type: type[TensorNoiseCommon[N]] = Random,
         schedule: type[SkrampleSchedule] | None = None,
         schedule_modifiers: list[tuple[type[ScheduleModifier], dict[str, Any]]] = [],
+        predictor: Predictor[Tensor] | None = None,
+        noise_type: type[TensorNoiseCommon[N]] = Random,
         compute_scale: torch.dtype | None = torch.float32,
         sampler_props: dict[str, Any] = {},
         noise_props: N | None = None,
@@ -248,6 +251,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
         return cls(
             built_sampler,
             built_schedule,
+            predictor or parsed.predictor,
             noise_type=noise_type,  # type: ignore  # think these are weird because of the defaults?
             noise_props=noise_props,  # type: ignore
             compute_scale=compute_scale,
@@ -282,7 +286,9 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
 
     @property
     def config(self) -> OrderedDict:
-        fake_config_object = OrderedDict(self.fake_config | as_diffusers_config(self.sampler, self.schedule))
+        fake_config_object = OrderedDict(
+            self.fake_config | as_diffusers_config(self.sampler, self.schedule, self.predictor)
+        )
 
         for k, v in fake_config_object.items():
             setattr(fake_config_object, k, v)
@@ -386,9 +392,16 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
         if return_dict:
             raise ValueError
         else:
+            sample_cast = sample.to(dtype=self.compute_scale)
+            prediction = self.predictor(
+                sample_cast,
+                model_output.to(dtype=self.compute_scale),
+                schedule[step, 1].item(),
+                self.schedule.sigma_transform,
+            )
             sampled = self.sampler.sample(
-                sample=sample.to(dtype=self.compute_scale),
-                output=model_output.to(dtype=self.compute_scale),
+                sample=sample_cast,
+                prediction=prediction,
                 sigma_schedule=schedule[:, 1],
                 step=step,
                 noise=noise,

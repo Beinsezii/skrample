@@ -8,8 +8,11 @@ from diffusers.schedulers.scheduling_flow_match_euler_discrete import FlowMatchE
 from diffusers.schedulers.scheduling_unipc_multistep import UniPCMultistepScheduler
 from testing_common import FLOW_CONFIG, SCALED_CONFIG, compare_tensors
 
-from skrample.common import sigma_complement, sigma_polar
-from skrample.sampling import DPM, EPSILON, FLOW, VELOCITY, Euler, SkrampleSampler, SKSamples, UniPC
+from skrample.common import Predictor, sigma_complement, sigma_polar
+from skrample.common import predict_epsilon as EPSILON
+from skrample.common import predict_flow as FLOW
+from skrample.common import predict_velocity as VELOCITY
+from skrample.sampling import DPM, Euler, SkrampleSampler, SKSamples, UniPC
 
 DiffusersScheduler = (
     EulerDiscreteScheduler | DPMSolverMultistepScheduler | FlowMatchEulerDiscreteScheduler | UniPCMultistepScheduler
@@ -24,6 +27,7 @@ def fake_model(t: torch.Tensor) -> torch.Tensor:
 def dual_sample(
     a: SkrampleSampler,
     b: DiffusersScheduler,
+    predictor: Predictor,
     steps: range,
     mu: float | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -58,7 +62,9 @@ def dual_sample(
 
         timestep, sigma = schedule[step]
 
-        a_output = fake_model(a.scale_input(a_sample, sigma.item(), sigma_transform))
+        a_output = predictor(
+            a_sample, fake_model(a.scale_input(a_sample, sigma.item(), sigma_transform)), sigma.item(), sigma_transform
+        )
         sampled = a.sample(a_sample, a_output, step, schedule[:, 1].numpy(), sigma_transform, noise, prior_steps)
         a_sample = sampled.final
         prior_steps.append(sampled)
@@ -79,13 +85,14 @@ def dual_sample(
 def compare_samplers(
     a: SkrampleSampler,
     b: DiffusersScheduler,
+    p: Predictor = EPSILON,
     mu: float | None = None,
     margin: float = 1e-8,
     message: str = "",
 ) -> None:
     for step_range in [range(0, 2), range(0, 11), range(0, 201), range(3, 6), range(2, 23), range(31, 200)]:
         compare_tensors(
-            *dual_sample(a, b, step_range, mu),
+            *dual_sample(a, b, p, step_range, mu),
             message=str(step_range) + (" | " + message if message else ""),
             margin=margin,
         )
@@ -94,11 +101,12 @@ def compare_samplers(
 def test_euler() -> None:
     for predictor in [(EPSILON, "epsilon"), (VELOCITY, "v_prediction")]:
         compare_samplers(
-            Euler(predictor=predictor[0]),
+            Euler(),
             EulerDiscreteScheduler.from_config(
                 SCALED_CONFIG,
                 prediction_type=predictor[1],
             ),
+            predictor[0],
             message=predictor[0].__name__,
         )
 
@@ -106,19 +114,21 @@ def test_euler() -> None:
 def test_euler_ancestral() -> None:
     for predictor in [(EPSILON, "epsilon"), (VELOCITY, "v_prediction")]:
         compare_samplers(
-            DPM(add_noise=True, predictor=predictor[0]),
+            DPM(add_noise=True),
             EulerAncestralDiscreteScheduler.from_config(
                 SCALED_CONFIG,
                 prediction_type=predictor[1],
             ),
+            predictor[0],
             message=predictor[0].__name__,
         )
 
 
 def test_euler_flow() -> None:
     compare_samplers(
-        Euler(predictor=FLOW),
+        Euler(),
         FlowMatchEulerDiscreteScheduler.from_config(FLOW_CONFIG),
+        FLOW,
         mu=0.7,
     )
 
@@ -128,7 +138,7 @@ def test_dpm() -> None:
         for order in range(1, 3):  # Their third order is fucked up. Turns into barf @ super high steps
             for stochastic in [False, True]:
                 compare_samplers(
-                    DPM(predictor=predictor[0], order=order, add_noise=stochastic),
+                    DPM(order=order, add_noise=stochastic),
                     DPMSolverMultistepScheduler.from_config(
                         SCALED_CONFIG,
                         algorithm_type="sde-dpmsolver++" if stochastic else "dpmsolver++",
@@ -136,6 +146,7 @@ def test_dpm() -> None:
                         solver_order=order,
                         prediction_type=predictor[1],
                     ),
+                    predictor[0],
                     message=f"{predictor[0].__name__} o{order} s{stochastic}",
                 )
 
@@ -147,12 +158,13 @@ def test_unipc() -> None:
         # Considering Diffusers just NaNs out in like half the order as mine, I'm fine with fudging the margins
         for order in range(1, 5):
             compare_samplers(
-                UniPC(predictor=predictor[0], order=order),
+                UniPC(order=order),
                 UniPCMultistepScheduler.from_config(
                     SCALED_CONFIG,
                     final_sigmas_type="zero",
                     solver_order=order,
                     prediction_type=predictor[1],
                 ),
+                predictor[0],
                 message=f"{predictor[0].__name__} o{order}",
             )
