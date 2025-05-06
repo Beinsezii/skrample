@@ -1,6 +1,6 @@
 import math
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 from numpy.typing import NDArray
@@ -255,7 +255,7 @@ class DPM(HighOrderSampler, StochasticSampler):
 
 
 @dataclass(frozen=True)
-class Adams(HighOrderSampler):
+class Adams(HighOrderSampler, Euler):
     "Higher order extension to Euler using the Adams-Bashforth coefficients on the model prediction"
 
     order: int = 2
@@ -274,12 +274,6 @@ class Adams(HighOrderSampler):
         noise: T | None = None,
         previous: list[SKSamples[T]] = [],
     ) -> SKSamples[T]:
-        sigma = self.get_sigma(step, sigma_schedule)
-        sigma_next = self.get_sigma(step + 1, sigma_schedule)
-
-        sigma_u, sigma_v = sigma_transform(sigma)
-        sigma_u_next, sigma_v_next = sigma_transform(sigma_next)
-
         effective_order = self.effective_order(step, sigma_schedule, previous)
 
         predictions = [prediction, *reversed([p.prediction for p in previous[-effective_order + 1 :]])]
@@ -288,21 +282,10 @@ class Adams(HighOrderSampler):
             ADAMS_BASHFORTH_COEFFICIENTS[effective_order - 1],
         )
 
-        # Plain Euler from here out
-        try:
-            ratio = sigma_u_next / sigma_next
-        except ZeroDivisionError:
-            ratio = 1
-
-        term1 = (sample * sigma) / sigma_u
-        term2 = (term1 - weighted_prediction) * (sigma_next / sigma - 1)
-        final = (term1 + term2) * ratio
-
-        return SKSamples(
-            final=final,
+        return replace(
+            super().sample(sample, weighted_prediction, step, sigma_schedule, sigma_transform, noise, previous),
             prediction=prediction,
-            sample=sample,
-        )  # type: ignore
+        )
 
 
 @dataclass(frozen=True)
