@@ -1,9 +1,25 @@
 import enum
 import math
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 import numpy as np
 from numpy.typing import NDArray
+
+if TYPE_CHECKING:
+    from torch.types import Tensor
+
+    Sample = float | NDArray[np.floating] | Tensor
+else:
+    # Avoid pulling all of torch as the code doesn't explicitly depend on it.
+    Sample = float | NDArray[np.floating]
+
+
+SigmaTransform = Callable[[float], tuple[float, float]]
+"Transforms a single noise sigma into a pair"
+
+Predictor = Callable[[Sample, Sample, float, SigmaTransform], Sample]
+"sample, output, sigma, sigma_transform"
 
 
 @enum.unique
@@ -37,6 +53,15 @@ class MergeStrategy(enum.StrEnum):  # str for easy UI options
                 return ours + [i for i in theirs if not any(map(cmp, ours, [i] * len(theirs)))]
             case MergeStrategy.UniqueBefore:
                 return theirs + [i for i in ours if not any(map(cmp, theirs, [i] * len(ours)))]
+
+
+def sigma_complement(sigma: float) -> tuple[float, float]:
+    return sigma, 1 - sigma
+
+
+def sigma_polar(sigma: float) -> tuple[float, float]:
+    theta = math.atan(sigma)
+    return math.sin(theta), math.cos(theta)
 
 
 def safe_log(x: float) -> float:

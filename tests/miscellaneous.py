@@ -23,22 +23,24 @@ def test_sampler_generics() -> None:
             i, o = random.random(), random.random()
             prev = [SKSamples(random.random(), random.random(), random.random()) for _ in range(9)]
 
-            scalar = sampler.sample(i, o, schedule.sigmas(10), 4, previous=prev).final
+            scalar = sampler.sample(i, o, 4, schedule.sigmas(10), schedule.sigma_transform, previous=prev).final
 
             # Enforce FP64 as that should be equivalent to python scalar
             ndarr = sampler.sample(
                 np.array([i], dtype=np.float64),
                 np.array([o], dtype=np.float64),
-                schedule.sigmas(10),
                 4,
+                schedule.sigmas(10),
+                schedule.sigma_transform,
                 previous=prev,  # type: ignore
             ).final.item()
 
             tensor = sampler.sample(
                 torch.tensor([i], dtype=torch.float64),
                 torch.tensor([o], dtype=torch.float64),
-                schedule.sigmas(10),
                 4,
+                schedule.sigmas(10),
+                schedule.sigma_transform,
                 previous=prev,  # type: ignore
             ).final.item()
 

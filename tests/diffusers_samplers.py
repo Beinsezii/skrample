@@ -8,6 +8,7 @@ from diffusers.schedulers.scheduling_flow_match_euler_discrete import FlowMatchE
 from diffusers.schedulers.scheduling_unipc_multistep import UniPCMultistepScheduler
 from testing_common import FLOW_CONFIG, SCALED_CONFIG, compare_tensors
 
+from skrample.common import sigma_complement, sigma_polar
 from skrample.sampling import DPM, EPSILON, FLOW, VELOCITY, Euler, SkrampleSampler, SKSamples, UniPC
 
 DiffusersScheduler = (
@@ -43,12 +44,12 @@ def dual_sample(
 
     if isinstance(b, FlowMatchEulerDiscreteScheduler):
         b_sample = b.scale_noise(sample=b_sample, timestep=timestep.unsqueeze(0), noise=initial_noise)
-        subnormal = True
+        sigma_transform = sigma_complement
     else:
         b_sample = b.add_noise(original_samples=b_sample, noise=initial_noise, timesteps=timestep.unsqueeze(0))
-        subnormal = False
+        sigma_transform = sigma_polar
 
-    a_sample = a.merge_noise(a_sample, initial_noise, sigma.item(), subnormal=subnormal)
+    a_sample = a.merge_noise(a_sample, initial_noise, sigma.item(), sigma_transform)
 
     prior_steps: list[SKSamples] = []
     for step in steps:
@@ -57,8 +58,8 @@ def dual_sample(
 
         timestep, sigma = schedule[step]
 
-        a_output = fake_model(a.scale_input(a_sample, sigma.item(), subnormal=subnormal))
-        sampled = a.sample(a_sample, a_output, schedule[:, 1].numpy(), step, noise, prior_steps, subnormal)
+        a_output = fake_model(a.scale_input(a_sample, sigma.item(), sigma_transform))
+        sampled = a.sample(a_sample, a_output, step, schedule[:, 1].numpy(), sigma_transform, noise, prior_steps)
         a_sample = sampled.final
         prior_steps.append(sampled)
 
@@ -105,7 +106,7 @@ def test_euler() -> None:
 def test_euler_ancestral() -> None:
     for predictor in [(EPSILON, "epsilon"), (VELOCITY, "v_prediction")]:
         compare_samplers(
-            Euler(add_noise=True, predictor=predictor[0]),
+            DPM(add_noise=True, predictor=predictor[0]),
             EulerAncestralDiscreteScheduler.from_config(
                 SCALED_CONFIG,
                 prediction_type=predictor[1],
@@ -119,20 +120,6 @@ def test_euler_flow() -> None:
         Euler(predictor=FLOW),
         FlowMatchEulerDiscreteScheduler.from_config(FLOW_CONFIG),
         mu=0.7,
-    )
-
-
-def test_euler_ancestral_flow() -> None:
-    compare_samplers(
-        Euler(add_noise=True, predictor=FLOW),
-        # close enough; eulerancestral doesn't work with Flow
-        DPMSolverMultistepScheduler.from_config(
-            FLOW_CONFIG,
-            prediction_type="flow_prediction",
-            algorithm_type="sde-dpmsolver++",
-            final_sigmas_type="zero",
-            solver_order=1,
-        ),
     )
 
 
@@ -151,16 +138,6 @@ def test_dpm() -> None:
                     ),
                     message=f"{predictor[0].__name__} o{order} s{stochastic}",
                 )
-
-
-# # Diffusers ipndm doesnt support anything really. It even explodes in their own pipeline.
-# def test_ipndm():
-#     compare_samplers(
-#         IPNDM(),
-#         IPNDMScheduler.from_config(
-#             SCALED_CONFIG
-#         ),
-#     )
 
 
 def test_unipc() -> None:
