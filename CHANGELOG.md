@@ -6,6 +6,15 @@ Refactored IPNDM -> Adams
   - Old defaults are equivalent to `Adams(order=4)`
   - Alrogithm updated for correctness, seeds may change
 
+Refactored `subnormal: bool` -> `sigma_transform: SigmaTransform`
+  - Exists in same places as `subnormal` was, including being provided by the schedules.
+  - Besides the signature, usage is the same
+
+Removed SkrampleSampler.predictor
+  - Prediction functions now in `skrample.common`
+  - SkrampleWrapperScheduler now has separate `predictor` field
+  - SkrampleSampler.sample signature changed `output: T` -> `prediction: T`
+
 ### Additions
 ScheduleModifier has multiple new helper functions for working with frozen
 
