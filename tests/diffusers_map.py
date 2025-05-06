@@ -10,8 +10,11 @@ from diffusers.schedulers.scheduling_ipndm import IPNDMScheduler
 from diffusers.schedulers.scheduling_unipc_multistep import UniPCMultistepScheduler
 from testing_common import FLOW_CONFIG, SCALED_CONFIG
 
+from skrample.common import predict_epsilon as EPSILON
+from skrample.common import predict_flow as FLOW
+from skrample.common import predict_velocity as VELOCITY
 from skrample.diffusers import SkrampleWrapperScheduler
-from skrample.sampling import DPM, EPSILON, FLOW, VELOCITY, Adams, Euler, UniPC
+from skrample.sampling import DPM, Adams, Euler, UniPC
 from skrample.scheduling import Beta, Exponential, FlowShift, Karras, Linear, Scaled
 
 
@@ -39,8 +42,9 @@ def test_dpm() -> None:
                     for order in range(1, 4):
                         check_wrapper(
                             SkrampleWrapperScheduler(
-                                DPM(predictor=skpred, add_noise=noise, order=order),
+                                DPM(add_noise=noise, order=order),
                                 mod(Scaled(uniform=uniform)) if mod else Scaled(uniform=uniform),
+                                skpred,
                             ),
                             DPMSolverMultistepScheduler.from_config(
                                 SCALED_CONFIG
@@ -57,7 +61,7 @@ def test_dpm() -> None:
                         )
 
     check_wrapper(
-        SkrampleWrapperScheduler(DPM(predictor=FLOW, order=2), FlowShift(Linear())),
+        SkrampleWrapperScheduler(DPM(order=2), FlowShift(Linear()), FLOW),
         DPMSolverMultistepScheduler.from_config(FLOW_CONFIG),
     )
 
@@ -72,11 +76,11 @@ def test_euler() -> None:
         EulerAncestralDiscreteScheduler.from_config(SCALED_CONFIG),
     )
     check_wrapper(
-        SkrampleWrapperScheduler(Euler(predictor=FLOW), FlowShift(Linear())),
+        SkrampleWrapperScheduler(Euler(), FlowShift(Linear()), FLOW),
         FlowMatchEulerDiscreteScheduler.from_config(FLOW_CONFIG),
     )
     check_wrapper(
-        SkrampleWrapperScheduler(Euler(predictor=FLOW), Beta(FlowShift(Linear()))),
+        SkrampleWrapperScheduler(Euler(), Beta(FlowShift(Linear())), FLOW),
         FlowMatchEulerDiscreteScheduler.from_config(FLOW_CONFIG | {"use_beta_sigmas": True}),
     )
 
@@ -94,7 +98,7 @@ def test_unipc() -> None:
         UniPCMultistepScheduler.from_config(SCALED_CONFIG),
     )
     check_wrapper(
-        SkrampleWrapperScheduler(UniPC(predictor=FLOW, order=2), FlowShift(Linear())),
+        SkrampleWrapperScheduler(UniPC(order=2), FlowShift(Linear()), FLOW),
         UniPCMultistepScheduler.from_config(FLOW_CONFIG),
     )
 

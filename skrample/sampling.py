@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
-from skrample.common import Predictor, Sample, SigmaTransform, safe_log
+from skrample.common import Sample, SigmaTransform, safe_log
 
 # Just hardcode 5 because >=6 is 100% unusable
 ADAMS_BASHFORTH_COEFFICIENTS: tuple[tuple[float, ...], ...] = (
@@ -15,30 +15,6 @@ ADAMS_BASHFORTH_COEFFICIENTS: tuple[tuple[float, ...], ...] = (
     (55 / 24, -59 / 24, 37 / 24, -3 / 8),
     (1901 / 720, -1387 / 360, 109 / 30, -637 / 360, 251 / 720),
 )
-
-
-def EPSILON[T: Sample](sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
-    "If a model does not specify, this is usually what it needs."
-    sigma_u, sigma_v = sigma_transform(sigma)
-    return (sample - sigma_u * output) / sigma_v  # type: ignore
-
-
-def SAMPLE[T: Sample](sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
-    "No prediction. Only for single step afaik."
-    return output
-
-
-def VELOCITY[T: Sample](sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
-    "Rare, models will usually explicitly say they require velocity/vpred/zero terminal SNR"
-    sigma_u, sigma_v = sigma_transform(sigma)
-    return sigma_v * sample - sigma_u * output  # type: ignore
-
-
-def FLOW[T: Sample](sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
-    "Flow matching models use this, notably FLUX.1 and SD3"
-    # TODO(beinsezii): this might need to be u * output. Don't trust diffusers
-    # Our tests will fail if we do so, leaving here for now.
-    return sample - sigma * output  # type: ignore
 
 
 @dataclass(frozen=True)
@@ -64,9 +40,6 @@ class SkrampleSampler(ABC):
     Unless otherwise specified, the Sample type is a stand-in that is
     type checked against torch.Tensor but should be generic enough to use with ndarrays or even raw floats"""
 
-    predictor: Predictor = EPSILON
-    "Predictor function. Most models are EPSILON, FLUX/SD3 are FLOW, VELOCITY and SAMPLE are rare."
-
     @staticmethod
     def get_sigma(step: int, sigma_schedule: NDArray) -> float:
         "Just returns zero if step > len"
@@ -76,7 +49,7 @@ class SkrampleSampler(ABC):
     def sample[T: Sample](
         self,
         sample: T,
-        output: T,
+        prediction: T,
         step: int,
         sigma_schedule: NDArray,
         sigma_transform: SigmaTransform,
@@ -102,7 +75,7 @@ class SkrampleSampler(ABC):
     def __call__[T: Sample](
         self,
         sample: T,
-        output: T,
+        prediction: T,
         step: int,
         sigma_schedule: NDArray,
         sigma_transform: SigmaTransform,
@@ -111,7 +84,7 @@ class SkrampleSampler(ABC):
     ) -> SKSamples[T]:
         return self.sample(
             sample=sample,
-            output=output,
+            prediction=prediction,
             step=step,
             sigma_schedule=sigma_schedule,
             sigma_transform=sigma_transform,
@@ -163,7 +136,7 @@ class Euler(SkrampleSampler):
     def sample[T: Sample](
         self,
         sample: T,
-        output: T,
+        prediction: T,
         step: int,
         sigma_schedule: NDArray,
         sigma_transform: SigmaTransform,
@@ -175,8 +148,6 @@ class Euler(SkrampleSampler):
 
         sigma_u, sigma_v = sigma_transform(sigma)
         sigma_u_next, sigma_v_next = sigma_transform(sigma_next)
-
-        prediction: T = self.predictor(sample, output, sigma, sigma_transform)  # type: ignore
 
         try:
             ratio = sigma_u_next / sigma_next
@@ -210,7 +181,7 @@ class DPM(HighOrderSampler, StochasticSampler):
     def sample[T: Sample](
         self,
         sample: T,
-        output: T,
+        prediction: T,
         step: int,
         sigma_schedule: NDArray,
         sigma_transform: SigmaTransform,
@@ -237,8 +208,6 @@ class DPM(HighOrderSampler, StochasticSampler):
             noise_factor = 0
 
         exp2 = math.expm1(hh)
-
-        prediction: T = self.predictor(sample, output, sigma, sigma_transform)  # type: ignore
 
         sampled = noise_factor + (sigma_u_next / sigma_u * exp1) * sample
 
@@ -298,7 +267,7 @@ class Adams(HighOrderSampler):
     def sample[T: Sample](
         self,
         sample: T,
-        output: T,
+        prediction: T,
         step: int,
         sigma_schedule: NDArray,
         sigma_transform: SigmaTransform,
@@ -312,7 +281,6 @@ class Adams(HighOrderSampler):
         sigma_u_next, sigma_v_next = sigma_transform(sigma_next)
 
         effective_order = self.effective_order(step, sigma_schedule, previous)
-        prediction: T = self.predictor(sample, output, self.get_sigma(step, sigma_schedule), sigma_transform)  # type: ignore
 
         predictions = [prediction, *reversed([p.prediction for p in previous[-effective_order + 1 :]])]
         weighted_prediction: T = math.sumprod(
@@ -415,7 +383,7 @@ class UniPC(HighOrderSampler):
     def sample[T: Sample](
         self,
         sample: T,
-        output: T,
+        prediction: T,
         step: int,
         sigma_schedule: NDArray,
         sigma_transform: SigmaTransform,
@@ -423,7 +391,6 @@ class UniPC(HighOrderSampler):
         previous: list[SKSamples[T]] = [],
     ) -> SKSamples[T]:
         sigma = self.get_sigma(step, sigma_schedule)
-        prediction: T = self.predictor(sample, output, sigma, sigma_transform)  # type: ignore
 
         sigma = self.get_sigma(step, sigma_schedule)
         sigma_u, sigma_v = sigma_transform(sigma)
@@ -463,7 +430,9 @@ class UniPC(HighOrderSampler):
             #     x_t = x_t_ - sigma_t * B_h * (corr_res + rhos_c[-1] * D1_t)
 
         if self.solver:
-            sampled = self.solver.sample(sample, output, step, sigma_schedule, sigma_transform, noise, previous).final
+            sampled = self.solver.sample(
+                sample, prediction, step, sigma_schedule, sigma_transform, noise, previous
+            ).final
         else:
             effective_order = self.effective_order(step, sigma_schedule, previous)
 
