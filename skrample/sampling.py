@@ -19,8 +19,8 @@ ADAMS_BASHFORTH_COEFFICIENTS: tuple[tuple[float, ...], ...] = (
 
 def EPSILON[T: Sample](sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
     "If a model does not specify, this is usually what it needs."
-    u, v = sigma_transform(sigma)
-    return (sample - u * output) / v  # type: ignore
+    sigma_u, sigma_v = sigma_transform(sigma)
+    return (sample - sigma_u * output) / sigma_v  # type: ignore
 
 
 def SAMPLE[T: Sample](sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
@@ -30,8 +30,8 @@ def SAMPLE[T: Sample](sample: T, output: T, sigma: float, sigma_transform: Sigma
 
 def VELOCITY[T: Sample](sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
     "Rare, models will usually explicitly say they require velocity/vpred/zero terminal SNR"
-    u, v = sigma_transform(sigma)
-    return v * sample - u * output  # type: ignore
+    sigma_u, sigma_v = sigma_transform(sigma)
+    return sigma_v * sample - sigma_u * output  # type: ignore
 
 
 def FLOW[T: Sample](sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
@@ -96,8 +96,8 @@ class SkrampleSampler(ABC):
         return sample
 
     def merge_noise[T: Sample](self, sample: T, noise: T, sigma: float, sigma_transform: SigmaTransform) -> T:
-        u, v = sigma_transform(sigma)
-        return sample * v + noise * u  # type: ignore
+        sigma_u, sigma_v = sigma_transform(sigma)
+        return sample * sigma_v + noise * sigma_u  # type: ignore
 
     def __call__[T: Sample](
         self,
@@ -173,18 +173,18 @@ class Euler(SkrampleSampler):
         sigma = self.get_sigma(step, sigma_schedule)
         sigma_next = self.get_sigma(step + 1, sigma_schedule)
 
-        u, v = sigma_transform(sigma)
-        u_next, v_next = sigma_transform(sigma_next)
+        sigma_u, sigma_v = sigma_transform(sigma)
+        sigma_u_next, sigma_v_next = sigma_transform(sigma_next)
 
         prediction: T = self.predictor(sample, output, sigma, sigma_transform)  # type: ignore
 
         try:
-            ratio = u_next / sigma_next
+            ratio = sigma_u_next / sigma_next
         except ZeroDivisionError:
             ratio = 1
 
         # thx Qwen
-        term1 = (sample * sigma) / u
+        term1 = (sample * sigma) / sigma_u
         term2 = (term1 - prediction) * (sigma_next / sigma - 1)
         sampled = (term1 + term2) * ratio
 
@@ -220,17 +220,17 @@ class DPM(HighOrderSampler, StochasticSampler):
         sigma = self.get_sigma(step, sigma_schedule)
         sigma_next = self.get_sigma(step + 1, sigma_schedule)
 
-        u, v = sigma_transform(sigma)
-        u_next, v_next = sigma_transform(sigma_next)
+        sigma_u, sigma_v = sigma_transform(sigma)
+        sigma_u_next, sigma_v_next = sigma_transform(sigma_next)
 
-        lambda_ = safe_log(v) - safe_log(u)
-        lambda_next = safe_log(v_next) - safe_log(u_next)
+        lambda_ = safe_log(sigma_v) - safe_log(sigma_u)
+        lambda_next = safe_log(sigma_v_next) - safe_log(sigma_u_next)
         h = abs(lambda_next - lambda_)
 
         if noise is not None and self.add_noise:
             exp1 = math.exp(-h)
             hh = -2 * h
-            noise_factor = u_next * math.sqrt(1 - math.exp(hh)) * noise
+            noise_factor = sigma_u_next * math.sqrt(1 - math.exp(hh)) * noise
         else:
             exp1 = 1
             hh = -h
@@ -240,18 +240,18 @@ class DPM(HighOrderSampler, StochasticSampler):
 
         prediction: T = self.predictor(sample, output, sigma, sigma_transform)  # type: ignore
 
-        sampled = noise_factor + (u_next / u * exp1) * sample
+        sampled = noise_factor + (sigma_u_next / sigma_u * exp1) * sample
 
         # 1st order
-        sampled -= (v_next * exp2) * prediction
+        sampled -= (sigma_v_next * exp2) * prediction
 
         effective_order = self.effective_order(step, sigma_schedule, previous)
 
         if effective_order >= 2:
             sigma_prev = self.get_sigma(step - 1, sigma_schedule)
-            u_prev, v_prev = sigma_transform(sigma_prev)
+            sigma_u_prev, sigma_v_prev = sigma_transform(sigma_prev)
 
-            lambda_prev = safe_log(v_prev) - safe_log(u_prev)
+            lambda_prev = safe_log(sigma_v_prev) - safe_log(sigma_u_prev)
             h_prev = lambda_ - lambda_prev
             r = h_prev / h  # math people and their var names...
 
@@ -261,8 +261,8 @@ class DPM(HighOrderSampler, StochasticSampler):
 
             if effective_order >= 3:
                 sigma_prev2 = self.get_sigma(step - 2, sigma_schedule)
-                u_prev2, v_prev2 = sigma_transform(sigma_prev2)
-                lambda_prev2 = safe_log(v_prev2) - safe_log(u_prev2)
+                sigma_u_prev2, sigma_v_prev2 = sigma_transform(sigma_prev2)
+                lambda_prev2 = safe_log(sigma_v_prev2) - safe_log(sigma_u_prev2)
                 h_prev2 = lambda_prev - lambda_prev2
                 r_prev2 = h_prev2 / h
 
@@ -272,11 +272,11 @@ class DPM(HighOrderSampler, StochasticSampler):
                 D1 = D1_0 + (r / (r + r_prev2)) * (D1_0 - D1_1)
                 D2 = (1.0 / (r + r_prev2)) * (D1_0 - D1_1)
 
-                sampled -= (v_next * (exp2 / hh - 1.0)) * D1
-                sampled -= (v_next * ((exp2 - hh) / hh**2 - 0.5)) * D2
+                sampled -= (sigma_v_next * (exp2 / hh - 1.0)) * D1
+                sampled -= (sigma_v_next * ((exp2 - hh) / hh**2 - 0.5)) * D2
 
             else:  # 2nd order. using this in O3 produces valid images but not going to risk correctness
-                sampled -= (0.5 * v_next * exp2) * D1_0
+                sampled -= (0.5 * sigma_v_next * exp2) * D1_0
 
         return SKSamples(  # type: ignore
             final=sampled,
@@ -308,8 +308,8 @@ class Adams(HighOrderSampler):
         sigma = self.get_sigma(step, sigma_schedule)
         sigma_next = self.get_sigma(step + 1, sigma_schedule)
 
-        u, v = sigma_transform(sigma)
-        u_next, v_next = sigma_transform(sigma_next)
+        sigma_u, sigma_v = sigma_transform(sigma)
+        sigma_u_next, sigma_v_next = sigma_transform(sigma_next)
 
         effective_order = self.effective_order(step, sigma_schedule, previous)
         prediction: T = self.predictor(sample, output, self.get_sigma(step, sigma_schedule), sigma_transform)  # type: ignore
@@ -322,11 +322,11 @@ class Adams(HighOrderSampler):
 
         # Plain Euler from here out
         try:
-            ratio = u_next / sigma_next
+            ratio = sigma_u_next / sigma_next
         except ZeroDivisionError:
             ratio = 1
 
-        term1 = (sample * sigma) / u
+        term1 = (sample * sigma) / sigma_u
         term2 = (term1 - weighted_prediction) * (sigma_next / sigma - 1)
         sampled = (term1 + term2) * ratio
 
@@ -379,8 +379,8 @@ class UniPC(HighOrderSampler):
         for n in range(1 + prior, order + prior):
             step_prev_N = step - n
             prediction_prev_N = previous[-n].prediction
-            u_prev_N, v_prev_N = sigma_transform(self.get_sigma(step_prev_N, sigma_schedule))
-            lambda_pO = safe_log(v_prev_N) - safe_log(u_prev_N)
+            sigma_u_prev_N, sigma_v_prev_N = sigma_transform(self.get_sigma(step_prev_N, sigma_schedule))
+            lambda_pO = safe_log(sigma_v_prev_N) - safe_log(sigma_u_prev_N)
             rk = (lambda_pO - lambda_X) / h_X
             if math.isfinite(rk):  # for subnormal
                 rks.append(rk)
@@ -426,16 +426,16 @@ class UniPC(HighOrderSampler):
         prediction: T = self.predictor(sample, output, sigma, sigma_transform)  # type: ignore
 
         sigma = self.get_sigma(step, sigma_schedule)
-        u, v = sigma_transform(sigma)
-        lambda_ = safe_log(v) - safe_log(u)
+        sigma_u, sigma_v = sigma_transform(sigma)
+        lambda_ = safe_log(sigma_v) - safe_log(sigma_u)
 
         if previous:
             # -1 step since it effectively corrects the prior step before the next prediction
             effective_order = self.effective_order(step - 1, sigma_schedule, previous[:-1])
 
             sigma_prev = self.get_sigma(step - 1, sigma_schedule)
-            u_prev, v_prev = sigma_transform(sigma_prev)
-            lambda_prev = safe_log(v_prev) - safe_log(u_prev)
+            sigma_u_prev, sigma_v_prev = sigma_transform(sigma_prev)
+            lambda_prev = safe_log(sigma_v_prev) - safe_log(sigma_u_prev)
             h_prev = abs(lambda_ - lambda_prev)
 
             prediction_prev = previous[-1].prediction
@@ -454,9 +454,9 @@ class UniPC(HighOrderSampler):
             )
 
             # if self.predict_x0:
-            x_t_ = u / u_prev * sample_prev - v * h_phi_1_prev * prediction_prev
+            x_t_ = sigma_u / sigma_u_prev * sample_prev - sigma_v * h_phi_1_prev * prediction_prev
             D1_t = prediction - prediction_prev
-            sample = x_t_ - v * B_h_prev * (uni_c_res + rhos_c[-1] * D1_t)  # type: ignore
+            sample = x_t_ - sigma_v * B_h_prev * (uni_c_res + rhos_c[-1] * D1_t)  # type: ignore
             # else:
             #     x_t_ = alpha_t / alpha_s0 * x - sigma_t * h_phi_1 * m0
             #     D1_t = model_t - m0
@@ -468,8 +468,8 @@ class UniPC(HighOrderSampler):
             effective_order = self.effective_order(step, sigma_schedule, previous)
 
             sigma_next = self.get_sigma(step + 1, sigma_schedule)
-            u_next, v_next = sigma_transform(sigma_next)
-            lambda_next = safe_log(v_next) - safe_log(u_next)
+            sigma_u_next, sigma_v_next = sigma_transform(sigma_next)
+            lambda_next = safe_log(sigma_v_next) - safe_log(sigma_u_next)
             h = abs(lambda_next - lambda_)
 
             B_h, _, uni_p_res, h_phi_1 = self._uni_p_c_prelude(
@@ -477,8 +477,8 @@ class UniPC(HighOrderSampler):
             )
 
             # if self.predict_x0:
-            x_t_ = u_next / u * sample - v_next * h_phi_1 * prediction
-            sampled = x_t_ - v_next * B_h * uni_p_res
+            x_t_ = sigma_u_next / sigma_u * sample - sigma_v_next * h_phi_1 * prediction
+            sampled = x_t_ - sigma_v_next * B_h * uni_p_res
             # else:
             #     x_t_ = alpha_t / alpha_s0 * x - sigma_t * h_phi_1 * m0
             #     x_t = x_t_ - sigma_t * B_h * pred_res
