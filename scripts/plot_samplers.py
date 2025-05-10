@@ -1,15 +1,19 @@
 #! /usr/bin/env python
 
+import math
 from argparse import ArgumentParser
 from collections.abc import Generator
+from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from random import random
 
 import matplotlib.pyplot as plt
 import numpy as np
 from numpy.typing import NDArray
 
-import skrample.scheduling as scheduling
+import skrample.sampling as sampling
+from skrample.common import sigma_complement
+from skrample.scheduling import Linear
 
 OKLAB_XYZ_M1 = np.array(
     [
@@ -62,81 +66,75 @@ plt.figure(figsize=(width, height), facecolor="black", edgecolor="white")
 
 ###
 
-plt.xlabel("Step")
-plt.ylabel("Normalized Values")
-plt.title("Skrample Schedules")
+plt.xlim(1, 0)
+plt.xlabel("Schedule")
+plt.ylabel("Sample")
 
-SCHEDULES: dict[str, scheduling.ScheduleCommon | scheduling.ScheduleModifier] = {
-    "scaled": scheduling.Scaled(uniform=False),
-    "scaled_uniform": scheduling.Scaled(),
-    "zsnr": scheduling.ZSNR(),
-    "linear": scheduling.Linear(),
-    "sigcdf": scheduling.SigmoidCDF(),
+SAMPLERS: dict[str, sampling.SkrampleSampler] = {
+    "euler": sampling.Euler(),
+    "adams": sampling.Adams(),
+    "dpm": sampling.DPM(),
+    "unipc": sampling.UniPC(),
 }
-
-MODIFIERS: dict[str, tuple[type[scheduling.ScheduleModifier], dict[str, Any]] | None] = {
-    "beta": (scheduling.Beta, {}),
-    "exponential": (scheduling.Exponential, {}),
-    "karras": (scheduling.Karras, {}),
-    "flow": (scheduling.FlowShift, {}),
-    "flow_mu": (scheduling.FlowShift, {"mu": 1}),
-    "none": None,
-}
+for k, v in list(SAMPLERS.items()):
+    if isinstance(v, sampling.HighOrderSampler):
+        for o in range(v.max_order):
+            if o != v.order:
+                SAMPLERS[k + str(o)] = replace(v, order=o)
 
 parser = ArgumentParser()
 parser.add_argument("file", type=Path)
-parser.add_argument("--steps", type=int, default=20)
+parser.add_argument("-s", "--steps", type=int, default=20)
+parser.add_argument("-k", "--scale", type=int, default=10)
 parser.add_argument(
-    "--schedule",
-    "-s",
+    "--sampler",
+    "-S",
     type=str,
-    choices=list(SCHEDULES.keys()),
+    choices=list(SAMPLERS.keys()),
     nargs="+",
-    default=["scaled_uniform", "sigcdf"],
-)
-parser.add_argument(
-    "--modifier",
-    "-m",
-    type=str,
-    choices=list(MODIFIERS.keys()),
-    nargs="+",
-    default=["none", "flow"],
-)
-parser.add_argument(
-    "--modifier_2",
-    "-m2",
-    type=str,
-    choices=list(MODIFIERS.keys()),
-    nargs="+",
-    default=["none"],
+    default=["euler", "adams", "dpm2", "unipc"],
 )
 
 args = parser.parse_args()
 
-for mod1 in args.modifier:
-    for mod2 in args.modifier_2:
-        for sched_name in args.schedule:
-            schedule = SCHEDULES[sched_name]
 
-            composed = schedule
-            label: str = sched_name
+def sample_model(sampler: sampling.SkrampleSampler, schedule: NDArray[np.float64]) -> list[float]:
+    previous: list[sampling.SKSamples] = []
+    sample = 1.0
+    sampled_values = [sample]
+    for step, sigma in enumerate(schedule):
+        # Run sampler
+        result = sampler.sample(
+            sample=sample,
+            prediction=math.sin(sigma * args.scale),
+            step=step,
+            sigma_schedule=schedule,
+            sigma_transform=sigma_complement,
+            previous=previous,
+            noise=random(),
+        )
+        previous.append(result)
+        sample = result.final
+        sampled_values.append(sample)
+    return sampled_values
 
-            for mod_label, (mod_type, mod_props) in [  # type: ignore # Destructure
-                m for m in [(mod1, MODIFIERS[mod1]), (mod2, MODIFIERS[mod2])] if m[1]
-            ]:
-                composed = mod_type(schedule, **mod_props)
-                label += "_" + mod_label
 
-            label = " ".join([s.capitalize() for s in label.split("_")])
+schedule = Linear(base_timesteps=10_000)
 
-            data = np.concatenate([composed.schedule(args.steps), [[0, 0]]], dtype=np.float64)
+plt.plot(
+    [*schedule.sigmas(schedule.base_timesteps), 0],
+    sample_model(sampling.Euler(), schedule.sigmas(schedule.base_timesteps)),
+    label="Reference",
+    color=next(COLORS),
+)
 
-            timesteps = data[:, 0] / composed.base_timesteps
-            sigmas = data[:, 1] / data[:, 1].max()
+for sampler in [SAMPLERS[s] for s in args.sampler]:
+    sigmas = schedule.sigmas(args.steps)
+    label = type(sampler).__name__
+    if isinstance(sampler, sampling.HighOrderSampler) and sampler.order != type(sampler).order:
+        label += " " + str(sampler.order)
+    plt.plot([*sigmas, 0], sample_model(sampler, sigmas), label=label, color=next(COLORS), linestyle="--")
 
-            plt.plot(timesteps, label=label + " Timesteps", marker="+", color=next(COLORS))
-            if not np.allclose(timesteps, sigmas, atol=1e-2):
-                plt.plot(sigmas, label=label + " Sigmas", marker="+", color=next(COLORS))
 
 ###
 
