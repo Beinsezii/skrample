@@ -93,9 +93,9 @@ MODIFIERS: dict[str, tuple[type[scheduling.ScheduleModifier], dict[str, Any]] | 
 
 # Common
 parser = ArgumentParser()
-subparsers = parser.add_subparsers(dest="command")
 parser.add_argument("file", type=Path)
 parser.add_argument("--steps", "-s", type=int, default=20)
+subparsers = parser.add_subparsers(dest="command")
 
 # Samplers
 parser_sampler = subparsers.add_parser("samplers")
