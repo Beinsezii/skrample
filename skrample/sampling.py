@@ -471,13 +471,19 @@ class SPC(HighOrderSampler):
     ) -> SKSamples[T]:
         if previous:
             predictions = [*(p.prediction for p in previous), prediction]
-            previous = [replace(p, prediction=pred) for p, pred in zip(previous, predictions[1:], strict=True)]
-            prior = previous.pop()
+            offset_previous = [replace(p, prediction=pred) for p, pred in zip(previous, predictions[1:], strict=True)]
+            prior = offset_previous.pop()
             sample = (
                 sample * (1 - self.midpoint)
                 + (
                     self.corrector.sample(
-                        prior.sample, prior.prediction, step - 1, sigma_schedule, sigma_transform, noise, previous
+                        prior.sample,
+                        prior.prediction,
+                        step - 1,
+                        sigma_schedule,
+                        sigma_transform,
+                        noise,
+                        offset_previous,
                     ).final
                 )
                 * self.midpoint
