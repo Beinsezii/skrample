@@ -18,7 +18,7 @@ from skrample.pytorch.noise import (
     TensorNoiseProps,
     schedule_to_ramp,
 )
-from skrample.sampling import SkrampleSampler, SKSamples, StochasticSampler
+from skrample.sampling import SkrampleSampler, SKSamples
 from skrample.scheduling import ScheduleCommon, ScheduleModifier, SkrampleSchedule
 
 if TYPE_CHECKING:
@@ -359,7 +359,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
         schedule = self.schedule_np
         step = schedule[:, 0].tolist().index(timestep if isinstance(timestep, int | float) else timestep.item())  # type: ignore  # np v2 Number
 
-        if isinstance(self.sampler, StochasticSampler) and self.sampler.add_noise:
+        if self.sampler.require_noise:
             if self._noise_generator is None:
                 if isinstance(generator, list) and len(generator) == sample.shape[0]:
                     seeds = generator
@@ -409,6 +409,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
                 sigma_transform=self.schedule.sigma_transform,
             )
             self._previous.append(sampled)
+            self._previous = self._previous[max(len(self._previous) - self.sampler.require_previous, 0) :]
             return (
                 sampled.final.to(device=model_output.device, dtype=model_output.dtype),
                 sampled.prediction.to(device=model_output.device, dtype=model_output.dtype),
