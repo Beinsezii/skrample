@@ -494,7 +494,7 @@ class SPC(HighOrderSampler):
 
     @property
     def require_previous(self) -> int:
-        return max(super().require_previous, self.predictor.require_previous, self.corrector.require_previous)
+        return max(self.predictor.require_previous, self.corrector.require_previous + 1)
 
     def sample[T: Sample](
         self,
