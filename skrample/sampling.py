@@ -469,11 +469,14 @@ class SPC(HighOrderSampler):
         previous: list[SKSamples[T]] = [],
     ) -> SKSamples[T]:
         if previous:
+            predictions = [*(p.prediction for p in previous), prediction]
+            previous = [replace(p, prediction=pred) for p, pred in zip(previous, predictions[1:], strict=True)]
+            prior = previous.pop()
             sample = (
                 sample
                 + (
                     self.corrector.sample(
-                        previous[-1].sample, prediction, step - 1, sigma_schedule, sigma_transform, noise, previous[:-1]
+                        prior.sample, prior.prediction, step - 1, sigma_schedule, sigma_transform, noise, previous
                     ).final
                 )
             ) / 2  # type: ignore
