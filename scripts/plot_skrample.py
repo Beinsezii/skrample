@@ -107,7 +107,7 @@ parser_sampler.add_argument(
     type=str,
     nargs="+",
     choices=list(SAMPLERS.keys()),
-    default=["euler", "adams", "dpm2", "unipc"],
+    default=["euler", "adams", "dpm2", "unipc", "spc"],
 )
 
 # Schedules
