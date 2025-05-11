@@ -438,3 +438,43 @@ class UniPC(HighOrderSampler):
             prediction=prediction,
             sample=sample,
         )
+
+
+@dataclass(frozen=True)
+class SPC(HighOrderSampler):
+    """Simple predictor-corrector.
+    Uses midpoint correction against the previous sample."""
+
+    predictor: SkrampleSampler = DPM(order=3)  # noqa: RUF009  # Is immutable
+    corrector: SkrampleSampler = DPM(order=1)  # noqa: RUF009  # Is immutable
+
+    order: int = 2
+
+    @property
+    def max_order(self) -> int:
+        return 2
+
+    @property
+    def min_order(self) -> int:
+        return 2
+
+    def sample[T: Sample](
+        self,
+        sample: T,
+        prediction: T,
+        step: int,
+        sigma_schedule: NDArray,
+        sigma_transform: SigmaTransform,
+        noise: T | None = None,
+        previous: list[SKSamples[T]] = [],
+    ) -> SKSamples[T]:
+        if previous:
+            sample = (
+                sample
+                + (
+                    self.corrector.sample(
+                        previous[-1].sample, prediction, step - 1, sigma_schedule, sigma_transform, noise, previous[:-1]
+                    ).final
+                )
+            ) / 2  # type: ignore
+        return self.predictor.sample(sample, prediction, step, sigma_schedule, sigma_transform, noise, previous)

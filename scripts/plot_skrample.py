@@ -66,6 +66,7 @@ SAMPLERS: dict[str, sampling.SkrampleSampler] = {
     "adams": sampling.Adams(),
     "dpm": sampling.DPM(),
     "unipc": sampling.UniPC(),
+    "spc": sampling.SPC(),
 }
 for k, v in list(SAMPLERS.items()):
     if isinstance(v, sampling.HighOrderSampler):
