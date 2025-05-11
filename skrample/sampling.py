@@ -447,6 +447,7 @@ class SPC(HighOrderSampler):
 
     predictor: SkrampleSampler = DPM(order=3)  # noqa: RUF009  # Is immutable
     corrector: SkrampleSampler = DPM(order=1)  # noqa: RUF009  # Is immutable
+    midpoint: float = 0.5
 
     order: int = 2
 
@@ -473,11 +474,12 @@ class SPC(HighOrderSampler):
             previous = [replace(p, prediction=pred) for p, pred in zip(previous, predictions[1:], strict=True)]
             prior = previous.pop()
             sample = (
-                sample
+                sample * (1 - self.midpoint)
                 + (
                     self.corrector.sample(
                         prior.sample, prior.prediction, step - 1, sigma_schedule, sigma_transform, noise, previous
                     ).final
                 )
-            ) / 2  # type: ignore
+                * self.midpoint
+            )  # type: ignore
         return self.predictor.sample(sample, prediction, step, sigma_schedule, sigma_transform, noise, previous)
