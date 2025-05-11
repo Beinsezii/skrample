@@ -330,7 +330,8 @@ class UniPC(HighOrderSampler):
 
     @property
     def require_previous(self) -> int:
-        return max(super().require_previous, self.solver.require_previous if self.solver else 0)
+        # +1 for correction
+        return max(super().require_previous + 1, self.solver.require_previous if self.solver else 0)
 
     def _uni_p_c_prelude[T: Sample](
         self,
