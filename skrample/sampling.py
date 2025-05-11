@@ -26,10 +26,13 @@ class SKSamples[T: Sample]:
     "Final result. What you probably want"
 
     prediction: T
-    "Just the prediction from SkrampleSampler.predictor if it's used"
+    "The model prediction"
 
     sample: T
-    "The unmodified model input"
+    "The model input"
+
+    noise: T | None = None
+    "The extra stochastic noise"
 
 
 @dataclass(frozen=True)
@@ -39,6 +42,16 @@ class SkrampleSampler(ABC):
 
     Unless otherwise specified, the Sample type is a stand-in that is
     type checked against torch.Tensor but should be generic enough to use with ndarrays or even raw floats"""
+
+    @property
+    def require_noise(self) -> bool:
+        "Whether or not the sampler requires `noise: T` be passed"
+        return False
+
+    @property
+    def require_previous(self) -> int:
+        "How many prior samples the sampler needs in `previous: list[T]`"
+        return 0
 
     @staticmethod
     def get_sigma(step: int, sigma_schedule: NDArray) -> float:
@@ -109,6 +122,10 @@ class HighOrderSampler(SkrampleSampler):
     def max_order(self) -> int:
         pass
 
+    @property
+    def require_previous(self) -> int:
+        return max(min(self.order, self.max_order), self.min_order) - 1
+
     def effective_order(self, step: int, schedule: NDArray, previous: list[SKSamples]) -> int:
         "The order used in calculation given a step, schedule length, and previous sample count"
         return max(
@@ -127,6 +144,10 @@ class HighOrderSampler(SkrampleSampler):
 class StochasticSampler(SkrampleSampler):
     add_noise: bool = False
     "Flag for whether or not to add the given noise"
+
+    @property
+    def require_noise(self) -> bool:
+        return self.add_noise
 
 
 @dataclass(frozen=True)
@@ -303,6 +324,15 @@ class UniPC(HighOrderSampler):
         # 4-6 is mostly stable now, 7-9 depends on the model. What ranges are actually useful..?
         return 9
 
+    @property
+    def require_noise(self) -> bool:
+        return self.solver.require_noise if self.solver else False
+
+    @property
+    def require_previous(self) -> int:
+        # +1 for correction
+        return max(super().require_previous + 1, self.solver.require_previous if self.solver else 0)
+
     def _uni_p_c_prelude[T: Sample](
         self,
         prediction: T,
@@ -437,4 +467,66 @@ class UniPC(HighOrderSampler):
             final=final,
             prediction=prediction,
             sample=sample,
+        )
+
+
+@dataclass(frozen=True)
+class SPC(HighOrderSampler):
+    """Simple predictor-corrector.
+    Uses midpoint correction against the previous sample."""
+
+    predictor: SkrampleSampler = DPM(order=3)  # noqa: RUF009  # Is immutable
+    corrector: SkrampleSampler = DPM(order=1)  # noqa: RUF009  # Is immutable
+    midpoint: float = 0.5
+
+    order: int = 2
+
+    @property
+    def max_order(self) -> int:
+        return 2
+
+    @property
+    def min_order(self) -> int:
+        return 2
+
+    @property
+    def require_noise(self) -> bool:
+        return self.predictor.require_noise or self.corrector.require_noise
+
+    @property
+    def require_previous(self) -> int:
+        return max(self.predictor.require_previous, self.corrector.require_previous + 1)
+
+    def sample[T: Sample](
+        self,
+        sample: T,
+        prediction: T,
+        step: int,
+        sigma_schedule: NDArray,
+        sigma_transform: SigmaTransform,
+        noise: T | None = None,
+        previous: list[SKSamples[T]] = [],
+    ) -> SKSamples[T]:
+        if previous:
+            predictions = [*(p.prediction for p in previous), prediction]
+            offset_previous = [replace(p, prediction=pred) for p, pred in zip(previous, predictions[1:], strict=True)]
+            prior = offset_previous.pop()
+            sample = (
+                sample * (1 - self.midpoint)
+                + (
+                    self.corrector.sample(
+                        prior.sample,
+                        prior.prediction,
+                        step - 1,
+                        sigma_schedule,
+                        sigma_transform,
+                        prior.noise,
+                        offset_previous,
+                    ).final
+                )
+                * self.midpoint
+            )  # type: ignore
+        return replace(
+            self.predictor.sample(sample, prediction, step, sigma_schedule, sigma_transform, noise, previous),
+            noise=noise,  # the corrector may or may not need noise so we always store
         )
