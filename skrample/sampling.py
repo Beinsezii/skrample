@@ -113,25 +113,25 @@ class HighOrderSampler(SkrampleSampler):
 
     order: int = 1
 
-    @property
-    def min_order(self) -> int:
+    @staticmethod
+    def min_order() -> int:
         return 1
 
-    @property
+    @staticmethod
     @abstractmethod
-    def max_order(self) -> int:
+    def max_order() -> int:
         pass
 
     @property
     def require_previous(self) -> int:
-        return max(min(self.order, self.max_order), self.min_order) - 1
+        return max(min(self.order, self.max_order()), self.min_order()) - 1
 
     def effective_order(self, step: int, schedule: NDArray, previous: list[SKSamples]) -> int:
         "The order used in calculation given a step, schedule length, and previous sample count"
         return max(
-            self.min_order,
+            1,  # not min_order because previous may be < min. samplers should check effective >= min
             min(
-                self.max_order,
+                self.max_order(),
                 step + 1,
                 self.order,
                 len(previous) + 1,
@@ -195,8 +195,8 @@ class DPM(HighOrderSampler, StochasticSampler):
     Page 4 Algo 2 for order=2
     Section 5 for SDE"""
 
-    @property
-    def max_order(self) -> int:
+    @staticmethod
+    def max_order() -> int:
         return 3  # TODO(beinsezii): 3, 4+?
 
     def sample[T: Sample](
@@ -281,8 +281,8 @@ class Adams(HighOrderSampler, Euler):
 
     order: int = 2
 
-    @property
-    def max_order(self) -> int:
+    @staticmethod
+    def max_order() -> int:
         return len(ADAMS_BASHFORTH_COEFFICIENTS)
 
     def sample[T: Sample](
@@ -318,8 +318,8 @@ class UniPC(HighOrderSampler):
     """If set, will use another sampler then perform its own correction.
     May break, particularly if the solver uses different scaling for noise or input."""
 
-    @property
-    def max_order(self) -> int:
+    @staticmethod
+    def max_order() -> int:
         # TODO(beinsezii): seems more stable after converting to python scalars
         # 4-6 is mostly stable now, 7-9 depends on the model. What ranges are actually useful..?
         return 9
@@ -471,23 +471,13 @@ class UniPC(HighOrderSampler):
 
 
 @dataclass(frozen=True)
-class SPC(HighOrderSampler):
+class SPC(SkrampleSampler):
     """Simple predictor-corrector.
     Uses midpoint correction against the previous sample."""
 
     predictor: SkrampleSampler = DPM(order=3)  # noqa: RUF009  # Is immutable
     corrector: SkrampleSampler = DPM(order=1)  # noqa: RUF009  # Is immutable
     midpoint: float = 0.5
-
-    order: int = 2
-
-    @property
-    def max_order(self) -> int:
-        return 2
-
-    @property
-    def min_order(self) -> int:
-        return 2
 
     @property
     def require_noise(self) -> bool:
