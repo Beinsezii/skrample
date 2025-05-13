@@ -52,7 +52,7 @@ def test_sampler_generics() -> None:
     eps = 1e-12
     for sampler in [
         *(cls() for cls in ALL_SAMPLERS),
-        *(cls(order=cls().max_order) for cls in ALL_SAMPLERS if issubclass(cls, HighOrderSampler)),
+        *(cls(order=cls.max_order()) for cls in ALL_SAMPLERS if issubclass(cls, HighOrderSampler)),
     ]:
         for schedule in Scaled(), FlowShift(Linear()):
             i, o = random.random(), random.random()
@@ -96,7 +96,7 @@ def test_require_previous() -> None:
     samplers: list[SkrampleSampler] = []
     for cls in ALL_SAMPLERS:
         if issubclass(cls, HighOrderSampler):
-            samplers.extend([cls(order=o + 1) for o in range(cls().min_order, cls().max_order)])
+            samplers.extend([cls(order=o + 1) for o in range(cls.min_order(), cls.max_order())])
         else:
             samplers.append(cls())
 

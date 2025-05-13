@@ -74,7 +74,7 @@ SAMPLERS: dict[str, sampling.SkrampleSampler] = {
 }
 for k, v in list(SAMPLERS.items()):
     if isinstance(v, sampling.HighOrderSampler):
-        for o in range(1, v.max_order + 1):
+        for o in range(1, v.max_order() + 1):
             if o != v.order:
                 SAMPLERS[k + str(o)] = replace(v, order=o)
 
