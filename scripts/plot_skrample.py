@@ -14,7 +14,7 @@ from numpy.typing import NDArray
 
 import skrample.sampling as sampling
 import skrample.scheduling as scheduling
-from skrample.common import sigma_complement
+from skrample.common import SigmaTransform, sigma_complement, sigma_polar
 
 OKLAB_XYZ_M1 = np.array(
     [
@@ -61,6 +61,10 @@ def colors(hue_steps: int) -> Generator[list[float]]:
                 yield oklch_to_srgb(np.array([lighness_actual, chroma_actual, hue], dtype=np.float64))
 
 
+TRANSFORMS: dict[str, SigmaTransform] = {
+    "polar": sigma_polar,
+    "complement": sigma_complement,
+}
 SAMPLERS: dict[str, sampling.SkrampleSampler] = {
     "euler": sampling.Euler(),
     "adams": sampling.Adams(),
@@ -101,6 +105,7 @@ subparsers = parser.add_subparsers(dest="command")
 # Samplers
 parser_sampler = subparsers.add_parser("samplers")
 parser_sampler.add_argument("--curve", "-k", type=int, default=10)
+parser_sampler.add_argument("--transform", "-t", type=str, choices=list(TRANSFORMS.keys()), default="polar")
 parser_sampler.add_argument(
     "--sampler",
     "-S",
@@ -160,7 +165,7 @@ if args.command == "samplers":
                 prediction=math.sin(sigma * args.curve),
                 step=step,
                 sigma_schedule=schedule,
-                sigma_transform=sigma_complement,
+                sigma_transform=TRANSFORMS[args.transform],
                 previous=previous,
                 noise=random(),
             )
