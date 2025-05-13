@@ -15,6 +15,10 @@ Removed SkrampleSampler.predictor
   - SkrampleWrapperScheduler now has separate `predictor` field
   - SkrampleSampler.sample signature changed `output: T` -> `prediction: T`
 
+Changed `HighOrderSampler.min_order/.max_order` into static methods rather than properties.
+
+`HighOrderSampler.effective_order` now always uses `1` as minimum.
+
 ### Additions
 ScheduleModifier has multiple new helper functions for working with frozen
 
@@ -22,6 +26,8 @@ scheduling.schedule_lru() for cached schedule retrieval.
 Overhead of SkrampleWrapperSchedule.step() is reduced by 95% when using a highly complex schedule class
 
 SPC sampler - simple predictor/corrector using midpoints
+
+Updated `scripts/plot_schedules.py` -> `scripts/plot_skrample.py` for plotting samplers as well
 
 ## 0.2.3
 ### Fixes
