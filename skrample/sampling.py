@@ -471,23 +471,13 @@ class UniPC(HighOrderSampler):
 
 
 @dataclass(frozen=True)
-class SPC(HighOrderSampler):
+class SPC(SkrampleSampler):
     """Simple predictor-corrector.
     Uses midpoint correction against the previous sample."""
 
     predictor: SkrampleSampler = DPM(order=3)  # noqa: RUF009  # Is immutable
     corrector: SkrampleSampler = DPM(order=1)  # noqa: RUF009  # Is immutable
     midpoint: float = 0.5
-
-    order: int = 2
-
-    @property
-    def max_order(self) -> int:
-        return 2
-
-    @property
-    def min_order(self) -> int:
-        return 2
 
     @property
     def require_noise(self) -> bool:
