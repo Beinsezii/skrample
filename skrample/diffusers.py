@@ -174,6 +174,13 @@ def parse_diffusers_config(
     )
 
 
+def attr_dict[T: Any](**kwargs: T) -> OrderedDict[str, T]:
+    od = OrderedDict(**kwargs)
+    for k, v in od.items():
+        setattr(od, k, v)
+    return od
+
+
 def as_diffusers_config(sampler: SkrampleSampler, schedule: SkrampleSchedule, predictor: Predictor) -> dict[str, Any]:
     "Converts skrample classes back into a diffusers-readable config. Not comprehensive"
     skrample_config = dataclasses.asdict(sampler)
@@ -285,15 +292,8 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
         return 1  # for multistep this is always 1
 
     @property
-    def config(self) -> OrderedDict:
-        fake_config_object = OrderedDict(
-            self.fake_config | as_diffusers_config(self.sampler, self.schedule, self.predictor)
-        )
-
-        for k, v in fake_config_object.items():
-            setattr(fake_config_object, k, v)
-
-        return fake_config_object
+    def config(self) -> OrderedDict[str, Any]:
+        return attr_dict(**(self.fake_config | as_diffusers_config(self.sampler, self.schedule, self.predictor)))
 
     def time_shift(self, mu: float, sigma: float, t: Tensor) -> Tensor:
         return math.exp(mu) / (math.exp(mu) + (1 / t - 1) ** sigma)
@@ -355,7 +355,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
         s_noise: float = 1.0,
         generator: torch.Generator | list[torch.Generator] | None = None,
         return_dict: bool = True,
-    ) -> tuple[Tensor, Tensor]:
+    ) -> tuple[Tensor, Tensor] | OrderedDict[str, Tensor]:
         schedule = self.schedule_np
         step = schedule[:, 0].tolist().index(timestep if isinstance(timestep, int | float) else timestep.item())  # type: ignore  # np v2 Number
 
@@ -389,27 +389,31 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
         else:
             noise = None
 
+        sample_cast = sample.to(dtype=self.compute_scale)
+        prediction = self.predictor(
+            sample_cast,
+            model_output.to(dtype=self.compute_scale),
+            schedule[step, 1].item(),
+            self.schedule.sigma_transform,
+        )
+        sampled = self.sampler.sample(
+            sample=sample_cast,
+            prediction=prediction,
+            sigma_schedule=schedule[:, 1],
+            step=step,
+            noise=noise,
+            previous=self._previous,
+            sigma_transform=self.schedule.sigma_transform,
+        )
+        self._previous.append(sampled)
+        self._previous = self._previous[max(len(self._previous) - self.sampler.require_previous, 0) :]
+
         if return_dict:
-            raise ValueError
+            return attr_dict(
+                prev_sample=sampled.final.to(device=model_output.device, dtype=model_output.dtype),
+                pred_original_sample=sampled.prediction.to(device=model_output.device, dtype=model_output.dtype),
+            )
         else:
-            sample_cast = sample.to(dtype=self.compute_scale)
-            prediction = self.predictor(
-                sample_cast,
-                model_output.to(dtype=self.compute_scale),
-                schedule[step, 1].item(),
-                self.schedule.sigma_transform,
-            )
-            sampled = self.sampler.sample(
-                sample=sample_cast,
-                prediction=prediction,
-                sigma_schedule=schedule[:, 1],
-                step=step,
-                noise=noise,
-                previous=self._previous,
-                sigma_transform=self.schedule.sigma_transform,
-            )
-            self._previous.append(sampled)
-            self._previous = self._previous[max(len(self._previous) - self.sampler.require_previous, 0) :]
             return (
                 sampled.final.to(device=model_output.device, dtype=model_output.dtype),
                 sampled.prediction.to(device=model_output.device, dtype=model_output.dtype),
