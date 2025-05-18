@@ -29,6 +29,8 @@ SPC sampler - simple predictor/corrector using midpoints
 
 Updated `scripts/plot_schedules.py` -> `scripts/plot_skrample.py` for plotting samplers as well
 
+Support for `return_dict=True`
+
 ## 0.2.3
 ### Fixes
 Wrapper seed generation failing on non-contiguous inputs
