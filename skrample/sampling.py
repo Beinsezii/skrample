@@ -475,8 +475,8 @@ class SPC(SkrampleSampler):
     """Simple predictor-corrector.
     Uses midpoint correction against the previous sample."""
 
-    predictor: SkrampleSampler = DPM(order=3)  # noqa: RUF009  # Is immutable
-    corrector: SkrampleSampler = DPM(order=1)  # noqa: RUF009  # Is immutable
+    predictor: SkrampleSampler = Euler()  # noqa: RUF009  # Is immutable
+    corrector: SkrampleSampler = Adams(order=4)  # noqa: RUF009  # Is immutable
     midpoint: float = 0.5
 
     @property
