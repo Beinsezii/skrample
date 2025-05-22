@@ -1,3 +1,4 @@
+import math
 import random
 from dataclasses import replace
 
@@ -87,7 +88,7 @@ def test_sampler_generics() -> None:
 def test_mu_set() -> None:
     mu = 1.2345
     a = SkrampleWrapperScheduler(DPM(), Beta(FlowShift(Karras(Linear()))))
-    b = SkrampleWrapperScheduler(DPM(), Beta(FlowShift(Karras(Linear()), mu=mu)))
+    b = SkrampleWrapperScheduler(DPM(), Beta(FlowShift(Karras(Linear()), shift=math.exp(mu))))
     a.set_timesteps(1, mu=mu)
     assert a.schedule == b.schedule
 
