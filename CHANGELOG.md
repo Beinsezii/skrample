@@ -19,6 +19,8 @@ Changed `HighOrderSampler.min_order/.max_order` into static methods rather than 
 
 `HighOrderSampler.effective_order` now always uses `1` as minimum.
 
+Removed FlowShift.mu
+
 ### Additions
 ScheduleModifier has multiple new helper functions for working with frozen
 
