@@ -315,15 +315,11 @@ class FlowShift(ScheduleModifier):
     def schedule(self, steps: int) -> NDArray[np.float64]:
         sigmas = self.base.sigmas(steps)
 
-        # Compute flow match in 0-1 scale
-        # TODO(beinsezii): maybe the shift itself should be rewritten to accomodate start/end?
-        start = sigmas.max()
-        sigmas = normalize(sigmas, start)
+        start = sigmas.max().item()
+        sigmas = self.shift / (self.shift + (start / sigmas - 1)) * start
 
-        sigmas = self.shift / (self.shift + (1 / sigmas - 1))
-
-        sigmas = regularize(sigmas, start)
         timesteps = self.sigmas_to_timesteps(sigmas)
+
         return np.stack([timesteps.flatten(), sigmas], axis=1)
 
 
