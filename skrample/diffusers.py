@@ -225,7 +225,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
         self._device: torch.device = torch.device("cpu")
         self._previous: list[SKSamples[Tensor]] = []
         self._noise_generator: BatchTensorNoise | None = None
-        self._schedule = self.schedule # copy of original for restoration in set_timesteps
+        self._schedule = self.schedule  # copy of original for restoration in set_timesteps
 
     @classmethod
     def from_diffusers_config[N: TensorNoiseProps | None](  # pyright fails if you use the outer generic
@@ -307,7 +307,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
         sigmas: Tensor | list[float] | None = None,
         mu: float | None = None,
     ) -> None:
-        self.schedule = self._schedule # Restore any replaced props
+        self.schedule = self._schedule  # Restore any replaced props
 
         if num_inference_steps is None:
             if timesteps is not None:
