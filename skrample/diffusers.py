@@ -225,6 +225,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
         self._device: torch.device = torch.device("cpu")
         self._previous: list[SKSamples[Tensor]] = []
         self._noise_generator: BatchTensorNoise | None = None
+        self._schedule = self.schedule  # copy of original for restoration in set_timesteps
 
     @classmethod
     def from_diffusers_config[N: TensorNoiseProps | None](  # pyright fails if you use the outer generic
@@ -293,7 +294,8 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
 
     @property
     def config(self) -> OrderedDict[str, Any]:
-        return attr_dict(**(self.fake_config | as_diffusers_config(self.sampler, self.schedule, self.predictor)))
+        # Diffusers expects the frozen shift value
+        return attr_dict(**(self.fake_config | as_diffusers_config(self.sampler, self._schedule, self.predictor)))
 
     def time_shift(self, mu: float, sigma: float, t: Tensor) -> Tensor:
         return math.exp(mu) / (math.exp(mu) + (1 / t - 1) ** sigma)
@@ -306,6 +308,8 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
         sigmas: Tensor | list[float] | None = None,
         mu: float | None = None,
     ) -> None:
+        self.schedule = self._schedule  # Restore any replaced props
+
         if num_inference_steps is None:
             if timesteps is not None:
                 num_inference_steps = len(timesteps)
@@ -317,11 +321,12 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
         self._steps = num_inference_steps
 
         if (
-            isinstance(self.schedule, scheduling.ScheduleModifier)
+            mu is not None
+            and isinstance(self.schedule, scheduling.ScheduleModifier)
             and (found := self.schedule.find_split(scheduling.FlowShift)) is not None
         ):
             before, flow, after, base = found
-            self.schedule = self.schedule.stack([*before, dataclasses.replace(flow, mu=mu), *after], base)
+            self.schedule = self.schedule.stack([*before, dataclasses.replace(flow, shift=math.exp(mu)), *after], base)
 
         self._previous = []
         self._noise_generator = None

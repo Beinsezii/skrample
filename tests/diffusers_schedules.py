@@ -1,3 +1,5 @@
+import math
+
 import torch
 from diffusers.schedulers.scheduling_euler_discrete import EulerDiscreteScheduler
 from diffusers.schedulers.scheduling_flow_match_euler_discrete import FlowMatchEulerDiscreteScheduler
@@ -98,7 +100,7 @@ def test_zsnr() -> None:
 
 def test_flow_dynamic() -> None:
     compare_schedules(
-        FlowShift(Linear(), mu=0.7),
+        FlowShift(Linear(), shift=math.exp(0.7)),
         FlowMatchEulerDiscreteScheduler.from_config(
             FLOW_CONFIG,
         ),

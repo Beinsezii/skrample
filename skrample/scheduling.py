@@ -309,28 +309,17 @@ class NoMod(ScheduleModifier):
 
 @dataclass(frozen=True)
 class FlowShift(ScheduleModifier):
-    mu: float | None = None
-    """None for non-dynamic shifting.
-    Should be caluclated from input sequence length for dynamic shifting"""
-
     shift: float = 3.0
-    """Amount to offset noise schedule by. Exact effect depends on mu"""
+    """Amount to shift noise schedule by."""
 
     def schedule(self, steps: int) -> NDArray[np.float64]:
         sigmas = self.base.sigmas(steps)
 
-        # Compute flow match in 0-1 scale
-        # TODO(beinsezii): maybe the shift itself should be rewritten to accomodate start/end?
-        start = sigmas.max()
-        sigmas = normalize(sigmas, start)
+        start = sigmas.max().item()
+        sigmas = self.shift / (self.shift + (start / sigmas - 1)) * start
 
-        if self.mu is not None:  # dynamic
-            sigmas = np.divide(math.exp(self.mu), math.exp(self.mu) + (np.divide(1, sigmas) - 1))
-        else:  # non-dynamic
-            sigmas = self.shift * sigmas / (1 + (self.shift - 1) * sigmas)
-
-        sigmas = regularize(sigmas, start)
         timesteps = self.sigmas_to_timesteps(sigmas)
+
         return np.stack([timesteps.flatten(), sigmas], axis=1)
 
 
