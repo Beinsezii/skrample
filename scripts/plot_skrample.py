@@ -14,7 +14,7 @@ from numpy.typing import NDArray
 
 import skrample.sampling as sampling
 import skrample.scheduling as scheduling
-from skrample.common import SigmaTransform, sigma_complement, sigma_polar
+from skrample.common import SigmaTransform, sigma_complement, sigma_polar, spowf
 
 OKLAB_XYZ_M1 = np.array(
     [
@@ -30,10 +30,6 @@ OKLAB_M2 = np.array(
         [-0.0040720468, 0.4505937099, -0.8086757660],
     ]
 )
-
-
-def spowf(array: NDArray[np.float64], power: int | float | list[int | float]) -> NDArray[np.float64]:
-    return np.copysign(np.abs(array) ** power, array)
 
 
 def oklch_to_srgb(array: NDArray[np.float64]) -> list[float]:

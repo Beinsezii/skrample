@@ -5,7 +5,7 @@ from dataclasses import dataclass, replace
 import numpy as np
 from numpy.typing import NDArray
 
-from skrample.common import Sample, SigmaTransform, safe_log
+from skrample.common import Sample, SigmaTransform, safe_log, spowf
 
 # Just hardcode 5 because >=6 is 100% unusable
 ADAMS_BASHFORTH_COEFFICIENTS: tuple[tuple[float, ...], ...] = (
@@ -478,6 +478,7 @@ class SPC(SkrampleSampler):
     predictor: SkrampleSampler = Euler()  # noqa: RUF009  # Is immutable
     corrector: SkrampleSampler = Adams(order=4)  # noqa: RUF009  # Is immutable
     midpoint: float = 0.5
+    power: float = 1
 
     @property
     def require_noise(self) -> bool:
@@ -501,21 +502,25 @@ class SPC(SkrampleSampler):
             predictions = [*(p.prediction for p in previous), prediction]
             offset_previous = [replace(p, prediction=pred) for p, pred in zip(previous, predictions[1:], strict=True)]
             prior = offset_previous.pop()
-            sample = (
-                sample * (1 - self.midpoint)
-                + (
-                    self.corrector.sample(
-                        prior.sample,
-                        prior.prediction,
-                        step - 1,
-                        sigma_schedule,
-                        sigma_transform,
-                        prior.noise,
-                        offset_previous,
-                    ).final
-                )
-                * self.midpoint
-            )  # type: ignore
+
+            corrected = self.corrector.sample(
+                prior.sample,
+                prior.prediction,
+                step - 1,
+                sigma_schedule,
+                sigma_transform,
+                prior.noise,
+                offset_previous,
+            ).final
+
+            if abs(self.power - 1) > 1e-8:  # short circuit because spowf is expensive
+                sample = spowf(
+                    spowf(sample, self.power) * (1 - self.midpoint) + spowf(corrected, self.power) * self.midpoint,
+                    1 / self.power,
+                )  # type: ignore
+            else:
+                sample = sample * (1 - self.midpoint) + corrected * self.midpoint  # type: ignore
+
         return replace(
             self.predictor.sample(sample, prediction, step, sigma_schedule, sigma_transform, noise, previous),
             noise=noise,  # the corrector may or may not need noise so we always store
