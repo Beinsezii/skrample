@@ -110,3 +110,9 @@ def regularize(normal_array: NDArray[np.float64], start: float, end: float = 0) 
 
 def sigmoid(array: NDArray[np.float64]) -> NDArray[np.float64]:
     return 1 / (1 + np.exp(array))
+
+
+def spowf[T: Sample](x: T, f: float) -> T:
+    """Computes x^f in absolute then re-applies the sign to stabilize chaotic inputs.
+    More computationally expensive than plain `math.pow`"""
+    return abs(x) ** f * (-1 * (x < 0) | 1)  # type: ignore
