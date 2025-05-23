@@ -45,7 +45,7 @@ def sample_model(
             step=step,
             sigma_schedule=schedule,
             sigma_transform=transform,
-            previous=previous,
+            previous=tuple(previous),
             noise=random(),
         )
         previous.append(result)

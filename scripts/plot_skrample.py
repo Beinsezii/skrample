@@ -162,7 +162,7 @@ if args.command == "samplers":
                 step=step,
                 sigma_schedule=schedule,
                 sigma_transform=TRANSFORMS[args.transform],
-                previous=previous,
+                previous=tuple(previous),
                 noise=random(),
             )
             previous.append(result)

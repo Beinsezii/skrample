@@ -407,7 +407,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
             sigma_schedule=schedule[:, 1],
             step=step,
             noise=noise,
-            previous=self._previous,
+            previous=tuple(self._previous),
             sigma_transform=self.schedule.sigma_transform,
         )
         self._previous.append(sampled)

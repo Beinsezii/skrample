@@ -67,7 +67,7 @@ class SkrampleSampler(ABC):
         sigma_schedule: NDArray,
         sigma_transform: SigmaTransform,
         noise: T | None = None,
-        previous: list[SKSamples[T]] = [],
+        previous: tuple[SKSamples[T], ...] = (),
     ) -> SKSamples[T]:
         """sigma_schedule is just the sigmas, IE SkrampleSchedule()[:, 1].
 
@@ -93,7 +93,7 @@ class SkrampleSampler(ABC):
         sigma_schedule: NDArray,
         sigma_transform: SigmaTransform,
         noise: T | None = None,
-        previous: list[SKSamples[T]] = [],
+        previous: tuple[SKSamples[T], ...] = (),
     ) -> SKSamples[T]:
         return self.sample(
             sample=sample,
@@ -126,7 +126,7 @@ class HighOrderSampler(SkrampleSampler):
     def require_previous(self) -> int:
         return max(min(self.order, self.max_order()), self.min_order()) - 1
 
-    def effective_order(self, step: int, schedule: NDArray, previous: list[SKSamples]) -> int:
+    def effective_order(self, step: int, schedule: NDArray, previous: tuple[SKSamples, ...]) -> int:
         "The order used in calculation given a step, schedule length, and previous sample count"
         return max(
             1,  # not min_order because previous may be < min. samplers should check effective >= min
@@ -162,7 +162,7 @@ class Euler(SkrampleSampler):
         sigma_schedule: NDArray,
         sigma_transform: SigmaTransform,
         noise: T | None = None,
-        previous: list[SKSamples[T]] = [],
+        previous: tuple[SKSamples[T], ...] = (),
     ) -> SKSamples[T]:
         sigma = self.get_sigma(step, sigma_schedule)
         sigma_next = self.get_sigma(step + 1, sigma_schedule)
@@ -207,7 +207,7 @@ class DPM(HighOrderSampler, StochasticSampler):
         sigma_schedule: NDArray,
         sigma_transform: SigmaTransform,
         noise: T | None = None,
-        previous: list[SKSamples[T]] = [],
+        previous: tuple[SKSamples[T], ...] = (),
     ) -> SKSamples[T]:
         sigma = self.get_sigma(step, sigma_schedule)
         sigma_next = self.get_sigma(step + 1, sigma_schedule)
@@ -293,7 +293,7 @@ class Adams(HighOrderSampler, Euler):
         sigma_schedule: NDArray,
         sigma_transform: SigmaTransform,
         noise: T | None = None,
-        previous: list[SKSamples[T]] = [],
+        previous: tuple[SKSamples[T], ...] = (),
     ) -> SKSamples[T]:
         effective_order = self.effective_order(step, sigma_schedule, previous)
 
@@ -339,7 +339,7 @@ class UniPC(HighOrderSampler):
         step: int,
         sigma_schedule: NDArray,
         sigma_transform: SigmaTransform,
-        previous: list[SKSamples[T]],
+        previous: tuple[SKSamples[T], ...],
         lambda_X: float,
         h_X: float,
         order: int,
@@ -401,7 +401,7 @@ class UniPC(HighOrderSampler):
         sigma_schedule: NDArray,
         sigma_transform: SigmaTransform,
         noise: T | None = None,
-        previous: list[SKSamples[T]] = [],
+        previous: tuple[SKSamples[T], ...] = (),
     ) -> SKSamples[T]:
         sigma = self.get_sigma(step, sigma_schedule)
 
@@ -496,12 +496,14 @@ class SPC(SkrampleSampler):
         sigma_schedule: NDArray,
         sigma_transform: SigmaTransform,
         noise: T | None = None,
-        previous: list[SKSamples[T]] = [],
+        previous: tuple[SKSamples[T], ...] = (),
     ) -> SKSamples[T]:
         if previous:
-            predictions = [*(p.prediction for p in previous), prediction]
-            offset_previous = [replace(p, prediction=pred) for p, pred in zip(previous, predictions[1:], strict=True)]
-            prior = offset_previous.pop()
+            offset_previous = tuple(
+                replace(p, prediction=pred)
+                for p, pred in zip(previous, (*(p.prediction for p in previous[1:]), prediction), strict=True)
+            )
+            prior = offset_previous[-1]
 
             corrected = self.corrector.sample(
                 prior.sample,
@@ -510,7 +512,7 @@ class SPC(SkrampleSampler):
                 sigma_schedule,
                 sigma_transform,
                 prior.noise,
-                offset_previous,
+                offset_previous[:-1],
             ).final
 
             if abs(self.power - 1) > 1e-8:  # short circuit because spowf is expensive
