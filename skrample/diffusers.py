@@ -294,7 +294,8 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
 
     @property
     def config(self) -> OrderedDict[str, Any]:
-        return attr_dict(**(self.fake_config | as_diffusers_config(self.sampler, self.schedule, self.predictor)))
+        # Diffusers expects the frozen shift value
+        return attr_dict(**(self.fake_config | as_diffusers_config(self.sampler, self._schedule, self.predictor)))
 
     def time_shift(self, mu: float, sigma: float, t: Tensor) -> Tensor:
         return math.exp(mu) / (math.exp(mu) + (1 / t - 1) ** sigma)
