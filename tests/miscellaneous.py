@@ -109,7 +109,7 @@ def test_require_previous() -> None:
     for sampler in samplers:
         sample = 1.5
         prediction = 0.5
-        previous = [SKSamples(n / 2, n * 2, n * 1.5) for n in range(100)]
+        previous = tuple(SKSamples(n / 2, n * 2, n * 1.5) for n in range(100))
 
         a = sampler.sample(
             sample,
@@ -149,7 +149,7 @@ def test_require_noise() -> None:
     for sampler in samplers:
         sample = 1.5
         prediction = 0.5
-        previous = [SKSamples(n / 2, n * 2, n * 1.5) for n in range(100)]
+        previous = tuple(SKSamples(n / 2, n * 2, n * 1.5) for n in range(100))
         noise = -0.5
 
         a = sampler.sample(
