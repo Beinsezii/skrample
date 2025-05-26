@@ -5,7 +5,7 @@ from dataclasses import dataclass, replace
 import numpy as np
 from numpy.typing import NDArray
 
-from skrample.common import Sample, SigmaTransform, safe_log, spowf
+from skrample.common import Sample, SigmaTransform, safe_log, softmax, spowf
 
 # Just hardcode 5 because >=6 is 100% unusable
 ADAMS_BASHFORTH_COEFFICIENTS: tuple[tuple[float, ...], ...] = (
@@ -473,12 +473,21 @@ class UniPC(HighOrderSampler):
 @dataclass(frozen=True)
 class SPC(SkrampleSampler):
     """Simple predictor-corrector.
-    Uses midpoint correction against the previous sample."""
+    Uses basic blended correction against the previous sample."""
 
     predictor: SkrampleSampler = Euler()  # noqa: RUF009  # Is immutable
+    "Sampler for the current step"
     corrector: SkrampleSampler = Adams(order=4)  # noqa: RUF009  # Is immutable
-    midpoint: float = 0.5
+    "Sampler to correct the previous step"
+
+    bias: float = 0
+    "Lower for more prediction, higher for more correction"
     power: float = 1
+    "Scale the predicted and corrected samples before blending"
+    adaptive: bool = True
+    "Weight the predcition/correction ratio based on the sigma schedule"
+    invert: bool = False
+    "Invert the prediction/correction ratios"
 
     @property
     def require_noise(self) -> bool:
@@ -515,13 +524,23 @@ class SPC(SkrampleSampler):
                 offset_previous[:-1],
             ).final
 
+            if self.adaptive:
+                p, c = sigma_transform(self.get_sigma(step, sigma_schedule))
+            else:
+                p, c = 0, 0
+
+            p, c = softmax((p - self.bias, c + self.bias))
+
+            if self.invert:
+                p, c = c, p
+
             if abs(self.power - 1) > 1e-8:  # short circuit because spowf is expensive
                 sample = spowf(
-                    spowf(sample, self.power) * (1 - self.midpoint) + spowf(corrected, self.power) * self.midpoint,
+                    spowf(sample, self.power) * p + spowf(corrected, self.power) * c,
                     1 / self.power,
                 )  # type: ignore
             else:
-                sample = sample * (1 - self.midpoint) + corrected * self.midpoint  # type: ignore
+                sample = sample * p + corrected * c  # type: ignore
 
         return replace(
             self.predictor.sample(sample, prediction, step, sigma_schedule, sigma_transform, noise, previous),
