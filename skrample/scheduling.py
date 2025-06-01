@@ -395,6 +395,9 @@ class Hyper(ScheduleModifier):
     Mathematically this is tanh for positive and sinh negative"""
 
     def schedule(self, steps: int) -> NDArray[np.float64]:
+        if abs(self.scale) <= 1e-8:
+            return self.base.schedule(steps)
+
         sigmas = self.base.sigmas(steps)
         start = sigmas[0].item()
 
