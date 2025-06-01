@@ -313,7 +313,7 @@ class Adams(HighOrderSampler, Euler):
 class UniP(HighOrderSampler):
     "Just the solver from UniPC without any correction stages."
 
-    fast_solve: bool = True
+    fast_solve: bool = False
     "Skip matrix solve for UniP-2 and UniC-1"
 
     @staticmethod
