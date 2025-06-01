@@ -313,6 +313,9 @@ class Adams(HighOrderSampler, Euler):
 class UniP(HighOrderSampler):
     "Just the solver from UniPC without any correction stages."
 
+    fast_solve: bool = True
+    "Skip matrix solve for UniP-2 and UniC-1"
+
     @staticmethod
     def max_order() -> int:
         # TODO(beinsezii): seems more stable after converting to python scalars
@@ -367,7 +370,7 @@ class UniP(HighOrderSampler):
                 rks.append(0)  # TODO(beinsezii): proper value?
             D1s.append((prediction_prev_N - prediction) / rk)
 
-        # WARN(beinsezii): this part feels wrong but it's what diffusers does
+        # INFO(beinsezii): Fast solve from F.1 in paper
         if prediction_next is not None:
             rks.append(1.0)
             order_check: int = 1
@@ -384,7 +387,7 @@ class UniP(HighOrderSampler):
             b.append(h_phi_k * math.factorial(n) / B_h)
             h_phi_k = h_phi_k / hh_X - 1 / math.factorial(n + 1)
 
-        if effective_order <= order_check:
+        if not rks or (effective_order == order_check and self.fast_solve):
             rhos: list[float] = [0.5]
         else:
             # small array order x order, fast to do it in just np
