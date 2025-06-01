@@ -1,3 +1,7 @@
+## TBD
+### Additions
+Hyper schedule modifier
+
 ## 0.3.0
 ### Breaking
 Made SkrampleSchedule and SkrampleSampler frozen and therefore hashable
