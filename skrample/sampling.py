@@ -310,7 +310,7 @@ class Adams(HighOrderSampler, Euler):
 
 
 @dataclass(frozen=True)
-class UniSolver(HighOrderSampler):
+class UniP(HighOrderSampler):
     "Just the solver from UniPC without any correction stages."
 
     @staticmethod
@@ -426,7 +426,7 @@ class UniSolver(HighOrderSampler):
 
 
 @dataclass(frozen=True)
-class UniPC(UniSolver):
+class UniPC(UniP):
     """Unique sampler that can correct other samplers or its own prediction function.
     The additional correction essentially adds +1 order on top of what is set.
     https://arxiv.org/abs/2302.04867"""
