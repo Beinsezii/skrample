@@ -393,8 +393,8 @@ class Hyper(ScheduleModifier):
 
     def schedule(self, steps: int) -> NDArray[np.float64]:
         sigmas = self.base.sigmas(steps)
+        start = sigmas[0].item()
 
-        start = sigmas[0]
         sigmas = normalize(sigmas, start)  # Base -> 1..0
         sigmas = regularize(sigmas, self.scale, -self.scale)  # 1..0 -> scale..-scale
         sigmas = np.sinh(sigmas) if self.vertical else np.tanh(sigmas)  # double-ended hyperbolic functions
