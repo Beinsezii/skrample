@@ -388,8 +388,13 @@ class Beta(ScheduleModifier):
 
 @dataclass(frozen=True)
 class Hyper(ScheduleModifier):
+    "Hyperbolic curve modifier"
+
     scale: float = 2
+    "Sharpness of curve"
     vertical: bool = False
+    """Direction of s-curve.
+    Mathematically this is tanh for False and sinh for True"""
 
     def schedule(self, steps: int) -> NDArray[np.float64]:
         sigmas = self.base.sigmas(steps)
