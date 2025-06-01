@@ -388,3 +388,23 @@ class Beta(ScheduleModifier):
         timesteps = self.sigmas_to_timesteps(sigmas)
 
         return np.stack([timesteps.flatten(), sigmas], axis=1)
+
+
+@dataclass(frozen=True)
+class Hyper(ScheduleModifier):
+    scale: float = 2
+    vertical: bool = False
+
+    def schedule(self, steps: int) -> NDArray[np.float64]:
+        sigmas = self.base.sigmas(steps)
+
+        start = sigmas[0]
+        sigmas = normalize(sigmas, start)  # Base -> 1..0
+        sigmas = regularize(sigmas, self.scale, -self.scale)  # 1..0 -> scale..-scale
+        sigmas = np.sinh(sigmas) if self.vertical else np.tanh(sigmas)  # double-ended hyperbolic functions
+        # don't use -1 because no endcaps
+        sigmas = normalize(sigmas, sigmas[0], -sigmas[0])  # hyper..-hyper -> 1..0
+        sigmas = regularize(sigmas, start)  # 1..0 -> Base
+
+        timesteps = self.sigmas_to_timesteps(sigmas)
+        return np.stack([timesteps.flatten(), sigmas], axis=1)
