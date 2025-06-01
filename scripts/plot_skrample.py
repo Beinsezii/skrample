@@ -65,6 +65,7 @@ SAMPLERS: dict[str, sampling.SkrampleSampler] = {
     "euler": sampling.Euler(),
     "adams": sampling.Adams(),
     "dpm": sampling.DPM(),
+    "unip": sampling.UniP(),
     "unipc": sampling.UniPC(),
     "spc": sampling.SPC(),
 }
@@ -88,6 +89,8 @@ MODIFIERS: dict[str, tuple[type[scheduling.ScheduleModifier], dict[str, Any]] | 
     "karras": (scheduling.Karras, {}),
     "flow": (scheduling.FlowShift, {}),
     "flow_mu": (scheduling.FlowShift, {"mu": 1}),
+    "hyper": (scheduling.Hyper, {}),
+    "vyper": (scheduling.Hyper, {"vertical": True}),
     "none": None,
 }
 
