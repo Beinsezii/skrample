@@ -391,10 +391,8 @@ class Hyper(ScheduleModifier):
     "Hyperbolic curve modifier"
 
     scale: float = 2
-    "Sharpness of curve"
-    vertical: bool = False
-    """Direction of s-curve.
-    Mathematically this is tanh for False and sinh for True"""
+    """Sharpness of curve.
+    Mathematically this is tanh for positive and sinh negative"""
 
     def schedule(self, steps: int) -> NDArray[np.float64]:
         sigmas = self.base.sigmas(steps)
@@ -402,7 +400,7 @@ class Hyper(ScheduleModifier):
 
         sigmas = normalize(sigmas, start)  # Base -> 1..0
         sigmas = regularize(sigmas, self.scale, -self.scale)  # 1..0 -> scale..-scale
-        sigmas = np.sinh(sigmas) if self.vertical else np.tanh(sigmas)  # double-ended hyperbolic functions
+        sigmas = np.sinh(sigmas) if self.scale < 0 else np.tanh(sigmas)  # double-ended hyperbolic functions
         # don't use -1 because no endcaps
         sigmas = normalize(sigmas, sigmas[0], -sigmas[0])  # hyper..-hyper -> 1..0
         sigmas = regularize(sigmas, start)  # 1..0 -> Base
