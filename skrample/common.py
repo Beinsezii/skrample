@@ -108,8 +108,17 @@ def regularize(normal_array: NDArray[np.float64], start: float, end: float = 0) 
     return normal_array * (start - end) + end
 
 
-def sigmoid(array: NDArray[np.float64]) -> NDArray[np.float64]:
-    return 1 / (1 + np.exp(array))
+def exp[T: Sample](x: T) -> T:
+    return math.e**x  # type: ignore
+
+
+def sigmoid[T: Sample](array: T) -> T:
+    return 1 / (1 + exp(array))  # type: ignore
+
+
+def softmax[T: tuple[Sample, ...]](elems: T) -> T:
+    sm = sum(map(exp, elems))
+    return tuple(exp(e) / sm for e in elems)  # type: ignore
 
 
 def spowf[T: Sample](x: T, f: float) -> T:

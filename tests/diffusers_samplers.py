@@ -158,7 +158,7 @@ def test_unipc() -> None:
         # Considering Diffusers just NaNs out in like half the order as mine, I'm fine with fudging the margins
         for order in range(1, 5):
             compare_samplers(
-                UniPC(order=order),
+                UniPC(order=order, fast_solve=True),
                 UniPCMultistepScheduler.from_config(
                     SCALED_CONFIG,
                     final_sigmas_type="zero",
