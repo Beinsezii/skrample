@@ -336,10 +336,8 @@ class Karras(ScheduleModifier):
         sigma_min = sigmas[-1].item()
         sigma_max = sigmas[0].item()
 
-        ramp = np.linspace(0, 1, steps, dtype=np.float64)
-        min_inv_rho = sigma_min ** (1 / self.rho)
-        max_inv_rho = sigma_max ** (1 / self.rho)
-        sigmas = (max_inv_rho + ramp * (min_inv_rho - max_inv_rho)) ** self.rho
+        ramp = np.linspace(1, 0, steps, dtype=np.float64)
+        sigmas = regularize(ramp, sigma_max ** (1 / self.rho), sigma_min ** (1 / self.rho)) ** self.rho
 
         timesteps = self.sigmas_to_timesteps(sigmas)
 
@@ -359,10 +357,9 @@ class Exponential(ScheduleModifier):
         sigma_max = sigmas[0].item()
 
         ramp = np.linspace(1, 0, steps, dtype=np.float64) ** self.rho
-        sigmas = np.exp(ramp * (math.log(sigma_max) - math.log(sigma_min)) + math.log(sigma_min))
+        sigmas = np.exp(regularize(ramp, math.log(sigma_max), math.log(sigma_min)))
 
         timesteps = self.sigmas_to_timesteps(sigmas)
-
         return np.stack([timesteps, sigmas], axis=1)
 
 
@@ -378,15 +375,14 @@ class Beta(ScheduleModifier):
         import scipy
 
         sigmas = self.base.sigmas(steps)
-
         sigma_min = sigmas[-1].item()
         sigma_max = sigmas[0].item()
 
-        pparr = scipy.stats.beta.ppf(1 - np.linspace(0, 1, steps, dtype=np.float64), self.alpha, self.beta)
-        sigmas = sigma_min + (pparr * (sigma_max - sigma_min))
+        # WARN(beinsezii): I think this should be endpiont=False and end=0 but I'm not gonna fight diffusers
+        pparr = scipy.stats.beta.ppf(np.linspace(1, 0, steps, dtype=np.float64), self.alpha, self.beta)
+        sigmas = regularize(pparr, sigma_max, sigma_min)
 
         timesteps = self.sigmas_to_timesteps(sigmas)
-
         return np.stack([timesteps.flatten(), sigmas], axis=1)
 
 
