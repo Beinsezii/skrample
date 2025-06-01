@@ -65,6 +65,7 @@ SAMPLERS: dict[str, sampling.SkrampleSampler] = {
     "euler": sampling.Euler(),
     "adams": sampling.Adams(),
     "dpm": sampling.DPM(),
+    "unip": sampling.UniP(),
     "unipc": sampling.UniPC(),
     "spc": sampling.SPC(),
 }
