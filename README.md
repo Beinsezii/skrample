@@ -1,4 +1,4 @@
-# Skrample 0.2.3
+# Skrample 0.3.0
 Composable sampling functions for diffusion models
 
 ## Status
@@ -16,14 +16,15 @@ Vertical slice, overtaking most diffusers features in [quickdif](https://github.
 
 ### Samplers
 - Euler
-  - Ancestral
 - DPM
   - 1st order, 2nd order, 3rd order
   - SDE
 - Adams/IPNDM
-- UniPC
+- UniP & UniPC
   - N order, limited to 9 for stability
   - Custom solver via other SkrampleSampler types
+- SPC
+  - Basic fully customizable midpoint corrector
 
 ### Schedules
 - Linear

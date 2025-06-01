@@ -33,6 +33,8 @@ Updated `scripts/plot_schedules.py` -> `scripts/plot_skrample.py` for plotting s
 
 Support for `return_dict=True`
 
+`UniP` standalone sampler
+
 ## 0.2.3
 ### Fixes
 Wrapper seed generation failing on non-contiguous inputs
