@@ -90,7 +90,9 @@ MODIFIERS: dict[str, tuple[type[scheduling.ScheduleModifier], dict[str, Any]] | 
     "flow": (scheduling.FlowShift, {}),
     "flow_mu": (scheduling.FlowShift, {"mu": 1}),
     "hyper": (scheduling.Hyper, {}),
-    "vyper": (scheduling.Hyper, {"vertical": True}),
+    "vyper": (scheduling.Hyper, {"scale": -2}),
+    "hype": (scheduling.Hyper, {"tail": False}),
+    "vype": (scheduling.Hyper, {"scale": -2, "tail": False}),
     "none": None,
 }
 
