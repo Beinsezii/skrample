@@ -394,6 +394,9 @@ class Hyper(ScheduleModifier):
     """Sharpness of curve.
     Mathematically this is tanh for positive and sinh negative"""
 
+    tail: bool = True
+    "Include the trailing end to make an S curve"
+
     def schedule(self, steps: int) -> NDArray[np.float64]:
         if abs(self.scale) <= 1e-8:
             return self.base.schedule(steps)
@@ -402,10 +405,11 @@ class Hyper(ScheduleModifier):
         start = sigmas[0].item()
 
         sigmas = normalize(sigmas, start)  # Base -> 1..0
-        sigmas = regularize(sigmas, self.scale, -self.scale)  # 1..0 -> scale..-scale
-        sigmas = np.sinh(sigmas) if self.scale < 0 else np.tanh(sigmas)  # double-ended hyperbolic functions
+        sigmas = regularize(sigmas, self.scale, -self.scale * self.tail)  # 1..0 -> scale..-scale
+        # WARN(beinsezii): sqrt(2) is more or less a magic number afaict
+        sigmas = np.sinh(sigmas) if self.scale < 0 else np.tanh(sigmas / math.sqrt(2))
         # don't use -1 because no endcaps
-        sigmas = normalize(sigmas, sigmas[0], -sigmas[0])  # hyper..-hyper -> 1..0
+        sigmas = normalize(sigmas, sigmas[0], -sigmas[0] * self.tail)  # hyper..-hyper -> 1..0
         sigmas = regularize(sigmas, start)  # 1..0 -> Base
 
         timesteps = self.sigmas_to_timesteps(sigmas)
