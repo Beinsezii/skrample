@@ -2,6 +2,8 @@
 ### Additions
 Hyper schedule modifier
 
+`SkrampleWrapperSchedule.allow_dynamic`
+
 ## 0.3.0
 ### Breaking
 Made SkrampleSchedule and SkrampleSampler frozen and therefore hashable
