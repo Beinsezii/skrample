@@ -215,6 +215,9 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
     noise_type: type[TensorNoiseCommon[T]] = Random  # type: ignore  # Unsure why?
     noise_props: T | None = None
     compute_scale: torch.dtype | None = torch.float32
+    allow_dynamic: bool = True
+    """Whether or not classes can be overridden during sampling.
+    Currently only applies to FlowShift when `mu` is provided, IE "use_dynamic_shifting" in diffusers."""
     fake_config: dict[str, Any] = dataclasses.field(default_factory=lambda: DEFAULT_FAKE_CONFIG.copy())
     """Extra items presented in scheduler.config to the pipeline.
     It is recommended to use an actual diffusers scheduler config if one is available."""
@@ -241,6 +244,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
         noise_props: N | None = None,
         schedule_props: dict[str, Any] = {},
         modifier_merge_strategy: MergeStrategy = MergeStrategy.UniqueBefore,
+        allow_dynamic: bool = True,
     ) -> "SkrampleWrapperScheduler[N]":
         "Thin sugar over `parse_diffusers_config` to make a complete wrapper with arbitrary customizations"
         parsed = parse_diffusers_config(config=config, sampler=sampler, schedule=schedule)
@@ -264,6 +268,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
             noise_props=noise_props,  # type: ignore
             compute_scale=compute_scale,
             fake_config=config.copy() if isinstance(config, dict) else dict(config.config),
+            allow_dynamic=allow_dynamic,
         )
 
     @property
@@ -321,7 +326,8 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
         self._steps = num_inference_steps
 
         if (
-            mu is not None
+            self.allow_dynamic
+            and mu is not None
             and isinstance(self.schedule, scheduling.ScheduleModifier)
             and (found := self.schedule.find_split(scheduling.FlowShift)) is not None
         ):
