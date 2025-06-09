@@ -1,4 +1,4 @@
-# Skrample 0.3.0
+# Skrample 0.4.0
 Composable sampling functions for diffusion models
 
 ## Status
@@ -38,6 +38,7 @@ Vertical slice, overtaking most diffusers features in [quickdif](https://github.
 - Exponential
 - FlowShift
 - Beta
+- Hyper
 
 ### Predictors
 - Epsilon
