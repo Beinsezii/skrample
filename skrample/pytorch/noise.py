@@ -180,7 +180,7 @@ class Pyramid(TensorNoiseCommon[PyramidProps]):
 
             # Compact leading non-resized dims for iteration
             leading = permuted_mask.index(True)
-            compact_permuation_shape = tuple([math.prod(permuted_shape[:leading])] + permuted_shape[leading:])
+            compact_permuation_shape = (math.prod(permuted_shape[:leading]), *permuted_shape[leading:])
 
             # Perform the permutation and iteration, unsqueezeing because interpolate() expects B,C,H,W
             variance = variance.permute(permuted_dims).reshape(compact_permuation_shape)
