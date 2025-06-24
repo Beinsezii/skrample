@@ -225,7 +225,7 @@ class Brownian(TensorNoiseCommon[BrownianProps]):
     ramp: NDArray[np.float64]
 
     def __post_init__(self) -> None:
-        import torchsde  # noqa: PLC0415
+        import torchsde
 
         if len(self.ramp) < 2:
             err = "Brownian.ramp must have at least two positions"
