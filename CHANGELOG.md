@@ -1,3 +1,7 @@
+## 0.4.1
+### Fixes
+Add `SkrampleWrapperScheduler.set_begin_index` for diffusers 0.34 compat
+
 ## 0.4.0
 ### Additions
 Hyper schedule modifier
