@@ -208,7 +208,7 @@ class SigmoidCDF(Linear):
     "Multiply the inverse CDF output before the sigmoid function is applied"
 
     def sigmas(self, steps: int) -> NDArray[np.float64]:
-        from scipy.stats import norm
+        from scipy.stats import norm  # noqa: PLC0415
 
         step_peak = 1 / (steps * math.pi / 2)
         probabilities = np.linspace(step_peak, 1 - step_peak, steps, dtype=np.float64)
@@ -372,7 +372,7 @@ class Beta(ScheduleModifier):
     beta: float = 0.6
 
     def schedule(self, steps: int) -> NDArray[np.float64]:
-        import scipy
+        import scipy  # noqa: PLC0415
 
         sigmas = self.base.sigmas(steps)
         sigma_min = sigmas[-1].item()

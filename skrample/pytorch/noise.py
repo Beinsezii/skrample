@@ -180,7 +180,7 @@ class Pyramid(TensorNoiseCommon[PyramidProps]):
 
             # Compact leading non-resized dims for iteration
             leading = permuted_mask.index(True)
-            compact_permuation_shape = tuple([math.prod(permuted_shape[:leading])] + permuted_shape[leading:])
+            compact_permuation_shape = (math.prod(permuted_shape[:leading]), *permuted_shape[leading:])
 
             # Perform the permutation and iteration, unsqueezeing because interpolate() expects B,C,H,W
             variance = variance.permute(permuted_dims).reshape(compact_permuation_shape)
@@ -225,7 +225,7 @@ class Brownian(TensorNoiseCommon[BrownianProps]):
     ramp: NDArray[np.float64]
 
     def __post_init__(self) -> None:
-        import torchsde
+        import torchsde  # noqa: PLC0415
 
         if len(self.ramp) < 2:
             err = "Brownian.ramp must have at least two positions"
