@@ -23,4 +23,4 @@ def bench_wrapper() -> int:
 
 if __name__ == "__main__":
     for run in range(5):
-        print(bench_wrapper())  # noqa: T201
+        print(bench_wrapper())

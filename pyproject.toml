@@ -21,10 +21,7 @@ pytorch = ["torch>=2.5"]
 
 all = ["skrample[beta-schedule,brownian-noise,cdf-schedule,diffusers-wrapper,pytorch]"]
 
-scripts = [
-    "skrample[all]",
-    "matplotlib>=3.10.1"
-]
+scripts = ["skrample[all]", "matplotlib>=3.10.1"]
 
 test = [
     "skrample[scripts]",
@@ -34,14 +31,12 @@ test = [
     "pyright>=1.1.400",
     "pytest-xdist>=3.6.1",
     "pytest>=8.3",
-    "ruff>=0.11",
+    "ruff>=0.12",
     "sentencepiece>=0.2",
     "transformers>=4.48",
 ]
 
-dev = [
-    "skrample[test]",
-]
+dev = ["skrample[test]"]
 
 [tool.ruff]
 line-length = 120
@@ -49,44 +44,48 @@ namespace-packages = ["tests"]
 
 [tool.ruff.lint]
 select = [
-    "A",    # std types
-    "ANN",  # annotations
-    "BLE",  # blanket except
-    "C4",   # comprehension
-    "E",    # style errors
-    "EM",   # error messages
-    "EXE",  # shebangs
-    "F",    # format
-    "FA",   # future
-    "FLY",  # expr fstring
-    "FURB", # syn upgrades
-    "G",    # log messages
-    "I",    # imports
-    "ICN",  # import conventions
+    "A",      # std types
+    "ANN",    # annotations
+    "BLE",    # blanket except
+    "C4",     # comprehension
+    "E",      # style errors
+    "EM",     # error messages
+    "EXE",    # shebangs
+    "F",      # format
+    "FA",     # future
+    "FLY",    # expr fstring
+    "FURB",   # syn upgrades
+    "G",      # log messages
+    "I",      # imports
+    "ICN",    # import conventions
     "INP001",
-    "ISC",  # str cat
-    "LOG",  # logging
-    "NPY",  # numpy
-    "PERF", # perflint
-    "PIE",  # misc
-    "PL",   # pylint
-    "PT",   # pytest
-    "Q",    # quotes
-    "RUF",  # variety
-    "T10",  # pdb.trace
-    "T20",  # print
-    "TC",   # type checking
-    "TD",   # todos
-    "TRY",  # try/catch
-    "UP",   # syn upgrades
-    "W",    # style warnings
+    "ISC",    # str cat
+    "LOG",    # logging
+    "NPY",    # numpy
+    "PERF",   # perflint
+    "PIE",    # misc
+    "PL",     # pylint
+    "PT",     # pytest
+    "Q",      # quotes
+    "RUF",    # variety
+    "T10",    # pdb.trace
+    "T20",    # print
+    "TC",     # type checking
+    "TD",     # todos
+    "TRY",    # try/catch
+    "UP",     # syn upgrades
+    "W",      # style warnings
 ]
 ignore = [
-    "PIE808", # range start 0
-    "PLR",    # silly
-    "TD003",  # todo require link
-    "UP015",  # open() mode='r'
+    "PIE808",  # range start 0
+    "PLR",     # silly
+    "PLC0415", # imports inside functions
+    "TD003",   # todo require link
+    "UP015",   # open() mode='r'
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/*.py" = ["T201"]
 
 [tool.pytest.ini_options]
 python_files = "tests/*.py"
