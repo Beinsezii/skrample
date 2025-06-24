@@ -187,7 +187,8 @@ def as_diffusers_config(sampler: SkrampleSampler, schedule: SkrampleSchedule, pr
     skrample_config["skrample_predictor"] = predictor
 
     if isinstance(schedule, ScheduleModifier):
-        skrample_config |= dataclasses.asdict(schedule.base) | dataclasses.asdict(schedule)
+        for modifier in schedule.all:
+            skrample_config |= dataclasses.asdict(modifier)
         skrample_config["skrample_modifier"] = type(schedule)
     else:
         skrample_config |= dataclasses.asdict(schedule)
@@ -304,6 +305,9 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
 
     def time_shift(self, mu: float, sigma: float, t: Tensor) -> Tensor:
         return math.exp(mu) / (math.exp(mu) + (1 / t - 1) ** sigma)
+
+    def set_begin_index(self, begin_index: int = 0) -> None:
+        self.fake_config["begin_index"] = begin_index
 
     def set_timesteps(
         self,
