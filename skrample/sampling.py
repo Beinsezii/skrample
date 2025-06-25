@@ -170,15 +170,9 @@ class Euler(SkrampleSampler):
         sigma_u, sigma_v = sigma_transform(sigma)
         sigma_u_next, sigma_v_next = sigma_transform(sigma_next)
 
-        try:
-            ratio = sigma_u_next / sigma_next
-        except ZeroDivisionError:
-            ratio = 1
-
-        # thx Qwen
-        term1 = (sample * sigma) / sigma_u
-        term2 = (term1 - prediction) * (sigma_next / sigma - 1)
-        final = (term1 + term2) * ratio
+        scale = sigma_u_next / sigma_u
+        delta = sigma_v_next - sigma_v * scale  # aka `h` or `dt`
+        final = sample * scale + prediction * delta
 
         return SKSamples(  # type: ignore
             final=final,
