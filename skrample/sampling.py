@@ -362,22 +362,20 @@ class UniP(HighOrderSampler):
         else:
             order_check = 2
 
-        R: list[list[float]] = []
-        b: list[float] = []
-
-        h_phi_k = h_phi_1 / hh_X - 1
-
-        for n in range(1, effective_order + 1):
-            R.append([math.pow(v, n - 1) for v in rks])
-            b.append(h_phi_k * math.factorial(n) / B_h)
-            h_phi_k = h_phi_k / hh_X - 1 / math.factorial(n + 1)
-
         if not rks or (effective_order == order_check and self.fast_solve):
             rhos: list[float] = [0.5]
         else:
+            h_phi_k = h_phi_1 / hh_X - 1
+            R: list[list[float]] = []
+            b: list[float] = []
+
+            for n in range(1, len(rks) + 1):
+                R.append([math.pow(v, n - 1) for v in rks])
+                b.append(h_phi_k * math.factorial(n) / B_h)
+                h_phi_k = h_phi_k / hh_X - 1 / math.factorial(n + 1)
+
             # small array order x order, fast to do it in just np
-            n = len(rks)
-            rhos = np.linalg.solve(R[:n], b[:n]).tolist()
+            rhos = np.linalg.solve(R, b).tolist()
 
         result = math.sumprod(rhos[: len(D1s)], D1s)  # type: ignore  # Float
 
