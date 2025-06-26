@@ -5,16 +5,7 @@ from dataclasses import dataclass, replace
 import numpy as np
 from numpy.typing import NDArray
 
-from skrample.common import Sample, SigmaTransform, safe_log, softmax, spowf
-
-# Just hardcode 5 because >=6 is 100% unusable
-ADAMS_BASHFORTH_COEFFICIENTS: tuple[tuple[float, ...], ...] = (
-    (1,),
-    (3 / 2, -1 / 2),
-    (23 / 12, -4 / 3, 5 / 12),
-    (55 / 24, -59 / 24, 37 / 24, -3 / 8),
-    (1901 / 720, -1387 / 360, 109 / 30, -637 / 360, 251 / 720),
-)
+from skrample.common import Sample, SigmaTransform, bashforth, safe_log, softmax, spowf
 
 
 @dataclass(frozen=True)
@@ -277,7 +268,7 @@ class Adams(HighOrderSampler, Euler):
 
     @staticmethod
     def max_order() -> int:
-        return len(ADAMS_BASHFORTH_COEFFICIENTS)
+        return 9
 
     def sample[T: Sample](
         self,
@@ -294,7 +285,7 @@ class Adams(HighOrderSampler, Euler):
         predictions = [prediction, *reversed([p.prediction for p in previous[-effective_order + 1 :]])]
         weighted_prediction: T = math.sumprod(
             predictions[:effective_order],  # type: ignore
-            ADAMS_BASHFORTH_COEFFICIENTS[effective_order - 1],
+            bashforth(effective_order),
         )
 
         return replace(
@@ -371,22 +362,20 @@ class UniP(HighOrderSampler):
         else:
             order_check = 2
 
-        R: list[list[float]] = []
-        b: list[float] = []
-
-        h_phi_k = h_phi_1 / hh_X - 1
-
-        for n in range(1, effective_order + 1):
-            R.append([math.pow(v, n - 1) for v in rks])
-            b.append(h_phi_k * math.factorial(n) / B_h)
-            h_phi_k = h_phi_k / hh_X - 1 / math.factorial(n + 1)
-
         if not rks or (effective_order == order_check and self.fast_solve):
             rhos: list[float] = [0.5]
         else:
+            h_phi_k = h_phi_1 / hh_X - 1
+            R: list[list[float]] = []
+            b: list[float] = []
+
+            for n in range(1, len(rks) + 1):
+                R.append([math.pow(v, n - 1) for v in rks])
+                b.append(h_phi_k * math.factorial(n) / B_h)
+                h_phi_k = h_phi_k / hh_X - 1 / math.factorial(n + 1)
+
             # small array order x order, fast to do it in just np
-            n = len(rks)
-            rhos = np.linalg.solve(R[:n], b[:n]).tolist()
+            rhos = np.linalg.solve(R, b).tolist()
 
         result = math.sumprod(rhos[: len(D1s)], D1s)  # type: ignore  # Float
 
