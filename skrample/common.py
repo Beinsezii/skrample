@@ -1,6 +1,7 @@
 import enum
 import math
 from collections.abc import Callable
+from functools import lru_cache
 from typing import TYPE_CHECKING, TypeVar
 
 import numpy as np
@@ -125,3 +126,14 @@ def spowf[T: Sample](x: T, f: float) -> T:
     """Computes x^f in absolute then re-applies the sign to stabilize chaotic inputs.
     More computationally expensive than plain `math.pow`"""
     return abs(x) ** f * (-1 * (x < 0) | 1)  # type: ignore
+
+
+@lru_cache
+def bashforth(order: int) -> tuple[float, ...]:  # tuple return so lru isnt mutable
+    "Bashforth coefficients for a given order"
+    return tuple(
+        np.linalg.solve(
+            [[(-j) ** k for j in range(order)] for k in range(order)],
+            [1 / (k + 1) for k in range(order)],
+        ).tolist()
+    )

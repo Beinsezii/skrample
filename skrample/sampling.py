@@ -5,16 +5,7 @@ from dataclasses import dataclass, replace
 import numpy as np
 from numpy.typing import NDArray
 
-from skrample.common import Sample, SigmaTransform, safe_log, softmax, spowf
-
-# Just hardcode 5 because >=6 is 100% unusable
-ADAMS_BASHFORTH_COEFFICIENTS: tuple[tuple[float, ...], ...] = (
-    (1,),
-    (3 / 2, -1 / 2),
-    (23 / 12, -4 / 3, 5 / 12),
-    (55 / 24, -59 / 24, 37 / 24, -3 / 8),
-    (1901 / 720, -1387 / 360, 109 / 30, -637 / 360, 251 / 720),
-)
+from skrample.common import Sample, SigmaTransform, bashforth, safe_log, softmax, spowf
 
 
 @dataclass(frozen=True)
@@ -277,7 +268,7 @@ class Adams(HighOrderSampler, Euler):
 
     @staticmethod
     def max_order() -> int:
-        return len(ADAMS_BASHFORTH_COEFFICIENTS)
+        return 9
 
     def sample[T: Sample](
         self,
@@ -294,7 +285,7 @@ class Adams(HighOrderSampler, Euler):
         predictions = [prediction, *reversed([p.prediction for p in previous[-effective_order + 1 :]])]
         weighted_prediction: T = math.sumprod(
             predictions[:effective_order],  # type: ignore
-            ADAMS_BASHFORTH_COEFFICIENTS[effective_order - 1],
+            bashforth(effective_order),
         )
 
         return replace(
