@@ -40,7 +40,7 @@ dev = ["skrample[test]"]
 
 [tool.ruff]
 line-length = 120
-namespace-packages = ["examples", "tests"]
+namespace-packages = ["tests"]
 
 [tool.ruff.lint]
 select = [
