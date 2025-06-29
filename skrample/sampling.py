@@ -62,11 +62,13 @@ class SkrampleSampler(ABC):
     ) -> SKSamples[T]:
         """sigma_schedule is just the sigmas, IE SkrampleSchedule()[:, 1].
 
+        `sigma_transform` is a function for mapping an arbitrary sigma to more normalized coordinates.
+        Typically this is `sigma_complement` for flow models, othersie `sigma_polar`.
+        All SkrampleSchedules contain a `.sigma_transform` property with this defined.
+
         `noise` is noise specific to this step for StochasticSampler or other schedulers that compute against noise.
         This is NOT the input noise, which is added directly into the sample with `merge_noise()`
 
-        `subnormal` is whether or not the noise schedule is all <= 1.0, IE Flow.
-        All SkrampleSchedules contain a `.subnormal` property with this defined.
         """
 
     def scale_input[T: Sample](self, sample: T, sigma: float, sigma_transform: SigmaTransform) -> T:
@@ -473,9 +475,9 @@ class SPC(SkrampleSampler):
     """Simple predictor-corrector.
     Uses basic blended correction against the previous sample."""
 
-    predictor: SkrampleSampler = Euler()  # noqa: RUF009  # Is immutable
+    predictor: SkrampleSampler = Euler()
     "Sampler for the current step"
-    corrector: SkrampleSampler = Adams(order=4)  # noqa: RUF009  # Is immutable
+    corrector: SkrampleSampler = Adams(order=4)
     "Sampler to correct the previous step"
 
     bias: float = 0
