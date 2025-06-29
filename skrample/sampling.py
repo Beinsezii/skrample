@@ -475,9 +475,9 @@ class SPC(SkrampleSampler):
     """Simple predictor-corrector.
     Uses basic blended correction against the previous sample."""
 
-    predictor: SkrampleSampler = Euler()  # noqa: RUF009  # Is immutable
+    predictor: SkrampleSampler = Euler()
     "Sampler for the current step"
-    corrector: SkrampleSampler = Adams(order=4)  # noqa: RUF009  # Is immutable
+    corrector: SkrampleSampler = Adams(order=4)
     "Sampler to correct the previous step"
 
     bias: float = 0
