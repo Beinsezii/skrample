@@ -192,30 +192,10 @@ def test_merge() -> None:
     aX = list(range(1, 41, 2)) + list(range(41, 110))
     bX = []
     tests: list[tuple[list[int], list[int], MergeStrategy, list[int]]] = [
-        (
-            a,
-            b,
-            MergeStrategy.UniqueBefore,
-            b + aX,
-        ),
-        (
-            b,
-            a,
-            MergeStrategy.UniqueBefore,
-            a + bX,
-        ),
-        (
-            a,
-            b,
-            MergeStrategy.UniqueAfter,
-            a + bX,
-        ),
-        (
-            b,
-            a,
-            MergeStrategy.UniqueAfter,
-            b + aX,
-        ),
+        (a, b, MergeStrategy.UniqueBefore, b + aX),
+        (b, a, MergeStrategy.UniqueBefore, a + bX),
+        (a, b, MergeStrategy.UniqueAfter, a + bX),
+        (b, a, MergeStrategy.UniqueAfter, b + aX),
     ]
     for ours, theirs, ms, merged in tests:
         assert ms.merge(ours, theirs) == merged, f"{ours} {ms} {theirs} : {merged}"
