@@ -6,7 +6,7 @@ import numpy as np
 import torch
 from testing_common import compare_tensors
 
-from skrample.common import bashforth, sigma_complement
+from skrample.common import MergeStrategy, bashforth, sigma_complement
 from skrample.diffusers import SkrampleWrapperScheduler
 from skrample.sampling import (
     DPM,
@@ -182,3 +182,40 @@ def test_bashforth() -> None:
         np.array(c) for c in ((1,), (3 / 2, -1 / 2), (23 / 12, -4 / 3, 5 / 12), (55 / 24, -59 / 24, 37 / 24, -3 / 8))
     ):
         assert np.allclose(coeffs, np.array(bashforth(n + 1)), atol=1e-12, rtol=1e-12)
+
+
+def test_merge() -> None:
+    # input
+    a = list(range(0, 110))
+    b = list(range(0, 41, 2))
+    # output
+    aX = list(range(1, 41, 2)) + list(range(41, 110))
+    bX = []
+    tests: list[tuple[list[int], list[int], MergeStrategy, list[int]]] = [
+        (
+            a,
+            b,
+            MergeStrategy.UniqueBefore,
+            b + aX,
+        ),
+        (
+            b,
+            a,
+            MergeStrategy.UniqueBefore,
+            a + bX,
+        ),
+        (
+            a,
+            b,
+            MergeStrategy.UniqueAfter,
+            a + bX,
+        ),
+        (
+            b,
+            a,
+            MergeStrategy.UniqueAfter,
+            b + aX,
+        ),
+    ]
+    for ours, theirs, ms, merged in tests:
+        assert ms.merge(ours, theirs) == merged, f"{ours} {ms} {theirs} : {merged}"
