@@ -2,7 +2,10 @@
 Composable sampling functions for diffusion models
 
 ## Status
-Vertical slice, overtaking most diffusers features in [quickdif](https://github.com/Beinsezii/quickdif.git)
+Mostly complete for common models, superseding all diffusers features in [quickdif](https://github.com/Beinsezii/quickdif.git)
+
+### Quickstart
+Fastest way to jump in is [examples](./examples/). The classes and functions themselves have docstrings and type hints, so it's recommended to make liberal use of your IDE or python `help()`
 
 ### Feature Flags
  - `beta-schedule` -> `scipy` : For the `Beta()` schedule modifier
@@ -58,7 +61,6 @@ Vertical slice, overtaking most diffusers features in [quickdif](https://github.
   - [X] SDXL
   - [X] SD3
   - [X] Flux
-  - [ ] Others?
 - [X] Import from config
   - [X] Sampler
   - [X] Schedule

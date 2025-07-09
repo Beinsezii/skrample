@@ -1,6 +1,8 @@
 import enum
 import math
 from collections.abc import Callable
+from functools import lru_cache
+from itertools import repeat
 from typing import TYPE_CHECKING, TypeVar
 
 import numpy as np
@@ -52,9 +54,9 @@ class MergeStrategy(enum.StrEnum):  # str for easy UI options
             case MergeStrategy.Before:
                 return theirs + ours
             case MergeStrategy.UniqueAfter:
-                return ours + [i for i in theirs if not any(map(cmp, ours, [i] * len(theirs)))]
+                return ours + [i for i in theirs if not any(map(cmp, ours, repeat(i)))]
             case MergeStrategy.UniqueBefore:
-                return theirs + [i for i in ours if not any(map(cmp, theirs, [i] * len(ours)))]
+                return theirs + [i for i in ours if not any(map(cmp, theirs, repeat(i)))]
 
 
 def sigma_complement(sigma: float) -> tuple[float, float]:
@@ -125,3 +127,14 @@ def spowf[T: Sample](x: T, f: float) -> T:
     """Computes x^f in absolute then re-applies the sign to stabilize chaotic inputs.
     More computationally expensive than plain `math.pow`"""
     return abs(x) ** f * (-1 * (x < 0) | 1)  # type: ignore
+
+
+@lru_cache
+def bashforth(order: int) -> tuple[float, ...]:  # tuple return so lru isnt mutable
+    "Bashforth coefficients for a given order"
+    return tuple(
+        np.linalg.solve(
+            [[(-j) ** k for j in range(order)] for k in range(order)],
+            [1 / (k + 1) for k in range(order)],
+        ).tolist()
+    )

@@ -6,7 +6,7 @@ import numpy as np
 import torch
 from testing_common import compare_tensors
 
-from skrample.common import sigma_complement
+from skrample.common import MergeStrategy, bashforth, sigma_complement
 from skrample.diffusers import SkrampleWrapperScheduler
 from skrample.sampling import (
     DPM,
@@ -175,3 +175,34 @@ def test_require_noise() -> None:
         b = replace(b, noise=a.noise)
 
         assert a == b, (sampler, sampler.require_noise)
+
+
+def test_bashforth() -> None:
+    for n, coeffs in enumerate(
+        np.array(c) for c in ((1,), (3 / 2, -1 / 2), (23 / 12, -4 / 3, 5 / 12), (55 / 24, -59 / 24, 37 / 24, -3 / 8))
+    ):
+        assert np.allclose(coeffs, np.array(bashforth(n + 1)), atol=1e-12, rtol=1e-12)
+
+
+def test_merge() -> None:
+    array_deltas: list[tuple[list[int], list[int], list[int], list[int]]] = [
+        (list(range(0, 11)), list(range(0, 15, 2)), list(range(1, 10, 2)), list(range(12, 15, 2))),
+        (list(range(4, 15)), list(range(0, 11, 2)), list(range(5, 11, 2)) + list(range(11, 15)), list(range(0, 4, 2))),
+    ]
+    for a, b, aX, bX in array_deltas:
+        tests: list[tuple[list[int], list[int], MergeStrategy, list[int]]] = [
+            (a, b, MergeStrategy.Ours, a),
+            (b, a, MergeStrategy.Ours, b),
+            (a, b, MergeStrategy.Theirs, b),
+            (b, a, MergeStrategy.Theirs, a),
+            (a, b, MergeStrategy.After, a + b),
+            (b, a, MergeStrategy.After, b + a),
+            (a, b, MergeStrategy.Before, b + a),
+            (b, a, MergeStrategy.Before, a + b),
+            (a, b, MergeStrategy.UniqueBefore, b + aX),
+            (b, a, MergeStrategy.UniqueBefore, a + bX),
+            (a, b, MergeStrategy.UniqueAfter, a + bX),
+            (b, a, MergeStrategy.UniqueAfter, b + aX),
+        ]
+        for ours, theirs, ms, merged in tests:
+            assert ms.merge(ours, theirs) == merged, f"{ours} {ms} {theirs} : {merged}"

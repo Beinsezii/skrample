@@ -5,16 +5,7 @@ from dataclasses import dataclass, replace
 import numpy as np
 from numpy.typing import NDArray
 
-from skrample.common import Sample, SigmaTransform, safe_log, softmax, spowf
-
-# Just hardcode 5 because >=6 is 100% unusable
-ADAMS_BASHFORTH_COEFFICIENTS: tuple[tuple[float, ...], ...] = (
-    (1,),
-    (3 / 2, -1 / 2),
-    (23 / 12, -4 / 3, 5 / 12),
-    (55 / 24, -59 / 24, 37 / 24, -3 / 8),
-    (1901 / 720, -1387 / 360, 109 / 30, -637 / 360, 251 / 720),
-)
+from skrample.common import Sample, SigmaTransform, bashforth, safe_log, softmax, spowf
 
 
 @dataclass(frozen=True)
@@ -71,11 +62,13 @@ class SkrampleSampler(ABC):
     ) -> SKSamples[T]:
         """sigma_schedule is just the sigmas, IE SkrampleSchedule()[:, 1].
 
+        `sigma_transform` is a function for mapping an arbitrary sigma to more normalized coordinates.
+        Typically this is `sigma_complement` for flow models, othersie `sigma_polar`.
+        All SkrampleSchedules contain a `.sigma_transform` property with this defined.
+
         `noise` is noise specific to this step for StochasticSampler or other schedulers that compute against noise.
         This is NOT the input noise, which is added directly into the sample with `merge_noise()`
 
-        `subnormal` is whether or not the noise schedule is all <= 1.0, IE Flow.
-        All SkrampleSchedules contain a `.subnormal` property with this defined.
         """
 
     def scale_input[T: Sample](self, sample: T, sigma: float, sigma_transform: SigmaTransform) -> T:
@@ -170,15 +163,9 @@ class Euler(SkrampleSampler):
         sigma_u, sigma_v = sigma_transform(sigma)
         sigma_u_next, sigma_v_next = sigma_transform(sigma_next)
 
-        try:
-            ratio = sigma_u_next / sigma_next
-        except ZeroDivisionError:
-            ratio = 1
-
-        # thx Qwen
-        term1 = (sample * sigma) / sigma_u
-        term2 = (term1 - prediction) * (sigma_next / sigma - 1)
-        final = (term1 + term2) * ratio
+        scale = sigma_u_next / sigma_u
+        delta = sigma_v_next - sigma_v * scale  # aka `h` or `dt`
+        final = sample * scale + prediction * delta
 
         return SKSamples(  # type: ignore
             final=final,
@@ -283,7 +270,7 @@ class Adams(HighOrderSampler, Euler):
 
     @staticmethod
     def max_order() -> int:
-        return len(ADAMS_BASHFORTH_COEFFICIENTS)
+        return 9
 
     def sample[T: Sample](
         self,
@@ -300,7 +287,7 @@ class Adams(HighOrderSampler, Euler):
         predictions = [prediction, *reversed([p.prediction for p in previous[-effective_order + 1 :]])]
         weighted_prediction: T = math.sumprod(
             predictions[:effective_order],  # type: ignore
-            ADAMS_BASHFORTH_COEFFICIENTS[effective_order - 1],
+            bashforth(effective_order),
         )
 
         return replace(
@@ -377,22 +364,20 @@ class UniP(HighOrderSampler):
         else:
             order_check = 2
 
-        R: list[list[float]] = []
-        b: list[float] = []
-
-        h_phi_k = h_phi_1 / hh_X - 1
-
-        for n in range(1, effective_order + 1):
-            R.append([math.pow(v, n - 1) for v in rks])
-            b.append(h_phi_k * math.factorial(n) / B_h)
-            h_phi_k = h_phi_k / hh_X - 1 / math.factorial(n + 1)
-
         if not rks or (effective_order == order_check and self.fast_solve):
             rhos: list[float] = [0.5]
         else:
+            h_phi_k = h_phi_1 / hh_X - 1
+            R: list[list[float]] = []
+            b: list[float] = []
+
+            for n in range(1, len(rks) + 1):
+                R.append([math.pow(v, n - 1) for v in rks])
+                b.append(h_phi_k * math.factorial(n) / B_h)
+                h_phi_k = h_phi_k / hh_X - 1 / math.factorial(n + 1)
+
             # small array order x order, fast to do it in just np
-            n = len(rks)
-            rhos = np.linalg.solve(R[:n], b[:n]).tolist()
+            rhos = np.linalg.solve(R, b).tolist()
 
         result = math.sumprod(rhos[: len(D1s)], D1s)  # type: ignore  # Float
 
@@ -490,9 +475,9 @@ class SPC(SkrampleSampler):
     """Simple predictor-corrector.
     Uses basic blended correction against the previous sample."""
 
-    predictor: SkrampleSampler = Euler()  # noqa: RUF009  # Is immutable
+    predictor: SkrampleSampler = Euler()
     "Sampler for the current step"
-    corrector: SkrampleSampler = Adams(order=4)  # noqa: RUF009  # Is immutable
+    corrector: SkrampleSampler = Adams(order=4)
     "Sampler to correct the previous step"
 
     bias: float = 0
