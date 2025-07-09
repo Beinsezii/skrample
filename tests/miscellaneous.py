@@ -186,8 +186,8 @@ def test_bashforth() -> None:
 
 def test_merge() -> None:
     array_deltas: list[tuple[list[int], list[int], list[int], list[int]]] = [
-        (list(range(0, 11)), list(range(0, 41, 2)), list(range(1, 10, 2)), list(range(12, 42, 2))),
-        (list(range(0, 110)), list(range(0, 41, 2)), list(range(1, 41, 2)) + list(range(41, 110)), []),
+        (list(range(0, 11)), list(range(0, 15, 2)), list(range(1, 10, 2)), list(range(12, 15, 2))),
+        (list(range(4, 15)), list(range(0, 11, 2)), list(range(5, 11, 2)) + list(range(11, 15)), list(range(0, 4, 2))),
     ]
     for a, b, aX, bX in array_deltas:
         tests: list[tuple[list[int], list[int], MergeStrategy, list[int]]] = [
