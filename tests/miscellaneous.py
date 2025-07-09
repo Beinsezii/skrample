@@ -186,16 +186,23 @@ def test_bashforth() -> None:
 
 def test_merge() -> None:
     # input
-    a = list(range(0, 110))
+    a = list(range(0, 11))
+    a2 = list(range(0, 110))
     b = list(range(0, 41, 2))
     # output
-    aX = list(range(1, 41, 2)) + list(range(41, 110))
-    bX = []
+    aX = list(range(1, 10, 2))
+    bX = list(range(12, 42, 2))
+    a2X = list(range(1, 41, 2)) + list(range(41, 110))
+    b2X = []
     tests: list[tuple[list[int], list[int], MergeStrategy, list[int]]] = [
         (a, b, MergeStrategy.UniqueBefore, b + aX),
         (b, a, MergeStrategy.UniqueBefore, a + bX),
         (a, b, MergeStrategy.UniqueAfter, a + bX),
         (b, a, MergeStrategy.UniqueAfter, b + aX),
+        (a2, b, MergeStrategy.UniqueBefore, b + a2X),
+        (b, a2, MergeStrategy.UniqueBefore, a2 + b2X),
+        (a2, b, MergeStrategy.UniqueAfter, a2 + b2X),
+        (b, a2, MergeStrategy.UniqueAfter, b + a2X),
     ]
     for ours, theirs, ms, merged in tests:
         assert ms.merge(ours, theirs) == merged, f"{ours} {ms} {theirs} : {merged}"
