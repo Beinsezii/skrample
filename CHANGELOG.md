@@ -1,3 +1,12 @@
+## 0.4.2
+### Additions
+Unlocked Adams order
+
+Algorithm performance improvements
+
+### Fixes
+Fix `MergeStrategy` possibly not fully deduplicating lists
+
 ## 0.4.1
 ### Fixes
 Add `SkrampleWrapperScheduler.set_begin_index` for diffusers 0.34 compat
