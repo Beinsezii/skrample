@@ -2,6 +2,7 @@ import enum
 import math
 from collections.abc import Callable
 from functools import lru_cache
+from itertools import repeat
 from typing import TYPE_CHECKING, TypeVar
 
 import numpy as np
@@ -53,9 +54,9 @@ class MergeStrategy(enum.StrEnum):  # str for easy UI options
             case MergeStrategy.Before:
                 return theirs + ours
             case MergeStrategy.UniqueAfter:
-                return ours + [i for i in theirs if not any(map(cmp, ours, [i] * len(theirs)))]
+                return ours + [i for i in theirs if not any(map(cmp, ours, repeat(i)))]
             case MergeStrategy.UniqueBefore:
-                return theirs + [i for i in ours if not any(map(cmp, theirs, [i] * len(ours)))]
+                return theirs + [i for i in ours if not any(map(cmp, theirs, repeat(i)))]
 
 
 def sigma_complement(sigma: float) -> tuple[float, float]:
