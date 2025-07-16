@@ -3,7 +3,7 @@ import math
 from collections.abc import Callable
 from functools import lru_cache
 from itertools import repeat
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING
 
 import numpy as np
 from numpy.typing import NDArray
@@ -11,18 +11,16 @@ from numpy.typing import NDArray
 if TYPE_CHECKING:
     from torch.types import Tensor
 
-    SampleVar = TypeVar("SampleVar", float, NDArray[np.floating], Tensor)
-    Sample = float | NDArray[np.floating] | Tensor
+    type Sample = float | NDArray[np.floating] | Tensor
 else:
     # Avoid pulling all of torch as the code doesn't explicitly depend on it.
-    SampleVar = TypeVar("SampleVar", float, NDArray[np.floating])
-    Sample = float | NDArray[np.floating]
+    type Sample = float | NDArray[np.floating]
 
 
-SigmaTransform = Callable[[float], tuple[float, float]]
+type SigmaTransform = Callable[[float], tuple[float, float]]
 "Transforms a single noise sigma into a pair"
 
-Predictor = Callable[[SampleVar, SampleVar, float, SigmaTransform], SampleVar]
+type Predictor[S: Sample] = Callable[[S, S, float, SigmaTransform], S]
 "sample, output, sigma, sigma_transform"
 
 
