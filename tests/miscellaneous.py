@@ -6,7 +6,7 @@ import numpy as np
 import torch
 from testing_common import compare_tensors
 
-from skrample.common import MergeStrategy, bashforth, sigma_complement
+from skrample.common import MergeStrategy, bashforth, sigma_complement, sigmoid, softmax, spowf
 from skrample.diffusers import SkrampleWrapperScheduler
 from skrample.sampling import (
     DPM,
@@ -182,6 +182,17 @@ def test_bashforth() -> None:
         np.array(c) for c in ((1,), (3 / 2, -1 / 2), (23 / 12, -4 / 3, 5 / 12), (55 / 24, -59 / 24, 37 / 24, -3 / 8))
     ):
         assert np.allclose(coeffs, np.array(bashforth(n + 1)), atol=1e-12, rtol=1e-12)
+
+
+def test_sigmoid() -> None:
+    assert abs(torch.sigmoid(torch.tensor(1.5, dtype=torch.float64)).item() - sigmoid(1.5)) < 1e-12
+
+
+def test_softmax() -> None:
+    items = spowf(torch.linspace(-2, 2, 9, dtype=torch.float64), 2)
+    a = torch.softmax(items, 0)
+    b = torch.tensor(softmax(tuple(items)), dtype=torch.float64)
+    assert torch.allclose(a, b, rtol=0, atol=1e-12), (a.tolist(), b.tolist())
 
 
 def test_merge() -> None:

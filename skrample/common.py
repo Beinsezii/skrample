@@ -113,7 +113,7 @@ def exp[T: Sample](x: T) -> T:
 
 
 def sigmoid[T: Sample](array: T) -> T:
-    return 1 / (1 + exp(array))  # type: ignore
+    return 1 / (1 + exp(-array))  # type: ignore
 
 
 def softmax[T: tuple[Sample, ...]](elems: T) -> T:
