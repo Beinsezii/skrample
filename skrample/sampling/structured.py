@@ -5,7 +5,7 @@ from dataclasses import dataclass, replace
 import numpy as np
 from numpy.typing import NDArray
 
-from skrample.common import Sample, SigmaTransform, bashforth, safe_log, softmax, spowf
+from skrample.common import Sample, SigmaTransform, bashforth, euler, safe_log, softmax, spowf
 
 
 @dataclass(frozen=True)
@@ -27,7 +27,7 @@ class SKSamples[T: Sample]:
 
 
 @dataclass(frozen=True)
-class SkrampleSampler(ABC):
+class StructuredSampler(ABC):
     """Generic sampler structure with basic configurables and a stateless design.
     Abstract class not to be used directly.
 
@@ -100,7 +100,7 @@ class SkrampleSampler(ABC):
 
 
 @dataclass(frozen=True)
-class HighOrderSampler(SkrampleSampler):
+class StructuredMultistep(StructuredSampler):
     """Samplers inheriting this trait support order > 1, and will require
     `prevous` be managed and passed to function accordingly."""
 
@@ -134,7 +134,7 @@ class HighOrderSampler(SkrampleSampler):
 
 
 @dataclass(frozen=True)
-class StochasticSampler(SkrampleSampler):
+class StructuredStochastic(StructuredSampler):
     add_noise: bool = False
     "Flag for whether or not to add the given noise"
 
@@ -144,7 +144,7 @@ class StochasticSampler(SkrampleSampler):
 
 
 @dataclass(frozen=True)
-class Euler(SkrampleSampler):
+class Euler(StructuredSampler):
     """Basic sampler, the "safe" choice."""
 
     def sample[T: Sample](
@@ -159,23 +159,15 @@ class Euler(SkrampleSampler):
     ) -> SKSamples[T]:
         sigma = self.get_sigma(step, sigma_schedule)
         sigma_next = self.get_sigma(step + 1, sigma_schedule)
-
-        sigma_u, sigma_v = sigma_transform(sigma)
-        sigma_u_next, sigma_v_next = sigma_transform(sigma_next)
-
-        scale = sigma_u_next / sigma_u
-        delta = sigma_v_next - sigma_v * scale  # aka `h` or `dt`
-        final = sample * scale + prediction * delta
-
-        return SKSamples(  # type: ignore
-            final=final,
+        return SKSamples(
+            final=euler(sample, prediction, sigma, sigma_next, sigma_transform),
             prediction=prediction,
             sample=sample,
         )
 
 
 @dataclass(frozen=True)
-class DPM(HighOrderSampler, StochasticSampler):
+class DPM(StructuredMultistep, StructuredStochastic):
     """Good sampler, supports basically everything. Recommended default.
 
     https://arxiv.org/abs/2211.01095
@@ -263,7 +255,7 @@ class DPM(HighOrderSampler, StochasticSampler):
 
 
 @dataclass(frozen=True)
-class Adams(HighOrderSampler, Euler):
+class Adams(StructuredMultistep, Euler):
     "Higher order extension to Euler using the Adams-Bashforth coefficients on the model prediction"
 
     order: int = 2
@@ -297,7 +289,7 @@ class Adams(HighOrderSampler, Euler):
 
 
 @dataclass(frozen=True)
-class UniP(HighOrderSampler):
+class UniP(StructuredMultistep):
     "Just the solver from UniPC without any correction stages."
 
     fast_solve: bool = False
@@ -419,7 +411,7 @@ class UniPC(UniP):
     The additional correction essentially adds +1 order on top of what is set.
     https://arxiv.org/abs/2302.04867"""
 
-    solver: SkrampleSampler | None = None
+    solver: StructuredSampler | None = None
     "If not set, defaults to `UniSolver(order=self.order)`"
 
     @staticmethod
@@ -471,13 +463,13 @@ class UniPC(UniP):
 
 
 @dataclass(frozen=True)
-class SPC(SkrampleSampler):
+class SPC(StructuredSampler):
     """Simple predictor-corrector.
     Uses basic blended correction against the previous sample."""
 
-    predictor: SkrampleSampler = Euler()
+    predictor: StructuredSampler = Euler()
     "Sampler for the current step"
-    corrector: SkrampleSampler = Adams(order=4)
+    corrector: StructuredSampler = Adams(order=4)
     "Sampler to correct the previous step"
 
     bias: float = 0

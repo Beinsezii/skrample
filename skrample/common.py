@@ -90,6 +90,15 @@ def predict_flow[T: Sample](sample: T, output: T, sigma: float, sigma_transform:
     return sample - sigma * output  # type: ignore
 
 
+def euler[T: Sample](sample: T, prediction: T, sigma: float, sigma_next: float, sigma_transform: SigmaTransform) -> T:
+    sigma_u, sigma_v = sigma_transform(sigma)
+    sigma_u_next, sigma_v_next = sigma_transform(sigma_next)
+
+    scale = sigma_u_next / sigma_u
+    delta = sigma_v_next - sigma_v * scale  # aka `h` or `dt`
+    return sample * scale + prediction * delta  # type: ignore
+
+
 def safe_log(x: float) -> float:
     "Returns inf rather than throw an err"
     try:

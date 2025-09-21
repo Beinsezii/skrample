@@ -12,7 +12,7 @@ from skrample.common import Predictor, sigma_complement, sigma_polar
 from skrample.common import predict_epsilon as EPSILON
 from skrample.common import predict_flow as FLOW
 from skrample.common import predict_velocity as VELOCITY
-from skrample.sampling import DPM, Euler, SkrampleSampler, SKSamples, UniPC
+from skrample.sampling.structured import DPM, Euler, SKSamples, StructuredSampler, UniPC
 
 DiffusersScheduler = (
     EulerDiscreteScheduler | DPMSolverMultistepScheduler | FlowMatchEulerDiscreteScheduler | UniPCMultistepScheduler
@@ -25,7 +25,7 @@ def fake_model(t: torch.Tensor) -> torch.Tensor:
 
 
 def dual_sample(
-    a: SkrampleSampler,
+    a: StructuredSampler,
     b: DiffusersScheduler,
     predictor: Predictor,
     steps: range,
@@ -83,7 +83,7 @@ def dual_sample(
 
 
 def compare_samplers(
-    a: SkrampleSampler,
+    a: StructuredSampler,
     b: DiffusersScheduler,
     p: Predictor = EPSILON,
     mu: float | None = None,

@@ -8,15 +8,16 @@ from testing_common import compare_tensors
 
 from skrample.common import MergeStrategy, bashforth, sigma_complement, sigmoid, softmax, spowf
 from skrample.diffusers import SkrampleWrapperScheduler
-from skrample.sampling import (
+from skrample.sampling.interface import StructuredFunctionalAdapter
+from skrample.sampling.structured import (
     DPM,
     SPC,
     Adams,
     Euler,
-    HighOrderSampler,
-    SkrampleSampler,
     SKSamples,
-    StochasticSampler,
+    StructuredMultistep,
+    StructuredSampler,
+    StructuredStochastic,
     UniPC,
 )
 from skrample.scheduling import Beta, FlowShift, Karras, Linear, Scaled, SigmoidCDF
@@ -53,7 +54,7 @@ def test_sampler_generics() -> None:
     eps = 1e-12
     for sampler in [
         *(cls() for cls in ALL_SAMPLERS),
-        *(cls(order=cls.max_order()) for cls in ALL_SAMPLERS if issubclass(cls, HighOrderSampler)),
+        *(cls(order=cls.max_order()) for cls in ALL_SAMPLERS if issubclass(cls, StructuredMultistep)),
     ]:
         for schedule in Scaled(), FlowShift(Linear()):
             i, o = random.random(), random.random()
@@ -94,9 +95,9 @@ def test_mu_set() -> None:
 
 
 def test_require_previous() -> None:
-    samplers: list[SkrampleSampler] = []
+    samplers: list[StructuredSampler] = []
     for cls in ALL_SAMPLERS:
-        if issubclass(cls, HighOrderSampler):
+        if issubclass(cls, StructuredMultistep):
             samplers.extend([cls(order=o + 1) for o in range(cls.min_order(), cls.max_order())])
         else:
             samplers.append(cls())
@@ -134,9 +135,9 @@ def test_require_previous() -> None:
 
 
 def test_require_noise() -> None:
-    samplers: list[SkrampleSampler] = []
+    samplers: list[StructuredSampler] = []
     for cls in ALL_SAMPLERS:
-        if issubclass(cls, StochasticSampler):
+        if issubclass(cls, StructuredStochastic):
             samplers.extend([cls(add_noise=n) for n in (False, True)])
         else:
             samplers.append(cls())
@@ -175,6 +176,41 @@ def test_require_noise() -> None:
         b = replace(b, noise=a.noise)
 
         assert a == b, (sampler, sampler.require_noise)
+
+
+def test_functional_adapter() -> None:
+    def fake_model(x: float, _: float, s: float) -> float:
+        return x + math.sin(x) * s
+
+    samplers: list[StructuredSampler] = [DPM(n, o) for o in range(1, 4) for n in [False, True]]
+    for schedule in Linear(), Scaled():
+        for sampler in samplers:
+            for steps in [1, 3, 4, 9, 512, 999]:
+                sample = 1.5
+                adapter = StructuredFunctionalAdapter(schedule, sampler)
+                noise = [random.random() for _ in range(steps)]
+
+                rng = iter(noise)
+                sample_f = adapter.sample_model(sample, fake_model, steps, rng=lambda: next(rng))
+
+                rng = iter(noise)
+                schedule_np = schedule.schedule(steps)
+                sample_s = sample
+                previous: list[SKSamples[float]] = []
+                for n, (t, s) in enumerate(schedule_np.tolist()):
+                    results = sampler.sample(
+                        sample_s,
+                        fake_model(sample_s, t, s),
+                        n,
+                        schedule_np[:, 1],
+                        schedule.sigma_transform,
+                        next(rng),
+                        tuple(previous),
+                    )
+                    previous.append(results)
+                    sample_s = results.final
+
+                assert sample_s == sample_f, (sample_s, sample_f, sampler, schedule, steps)
 
 
 def test_bashforth() -> None:

@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from numpy.typing import NDArray
 
-import skrample.sampling as sampling
+import skrample.sampling.structured as sampling
 import skrample.scheduling as scheduling
 from skrample.common import SigmaTransform, sigma_complement, sigma_polar, spowf
 
@@ -61,7 +61,7 @@ TRANSFORMS: dict[str, SigmaTransform] = {
     "polar": sigma_polar,
     "complement": sigma_complement,
 }
-SAMPLERS: dict[str, sampling.SkrampleSampler] = {
+SAMPLERS: dict[str, sampling.StructuredSampler] = {
     "euler": sampling.Euler(),
     "adams": sampling.Adams(),
     "dpm": sampling.DPM(),
@@ -70,7 +70,7 @@ SAMPLERS: dict[str, sampling.SkrampleSampler] = {
     "spc": sampling.SPC(),
 }
 for k, v in list(SAMPLERS.items()):
-    if isinstance(v, sampling.HighOrderSampler):
+    if isinstance(v, sampling.StructuredMultistep):
         for o in range(1, v.max_order() + 1):
             if o != v.order:
                 SAMPLERS[k + str(o)] = replace(v, order=o)
@@ -156,7 +156,7 @@ if args.command == "samplers":
 
     schedule = scheduling.Linear(base_timesteps=10_000)
 
-    def sample_model(sampler: sampling.SkrampleSampler, schedule: NDArray[np.float64]) -> list[float]:
+    def sample_model(sampler: sampling.StructuredSampler, schedule: NDArray[np.float64]) -> list[float]:
         previous: list[sampling.SKSamples] = []
         sample = 1.0
         sampled_values = [sample]
@@ -185,7 +185,7 @@ if args.command == "samplers":
     for sampler in [SAMPLERS[s] for s in args.sampler]:
         sigmas = schedule.sigmas(args.steps)
         label = type(sampler).__name__
-        if isinstance(sampler, sampling.HighOrderSampler) and sampler.order != type(sampler).order:
+        if isinstance(sampler, sampling.StructuredMultistep) and sampler.order != type(sampler).order:
             label += " " + str(sampler.order)
         plt.plot([*sigmas, 0], sample_model(sampler, sigmas), label=label, color=next(COLORS), linestyle="--")
 

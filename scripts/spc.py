@@ -9,7 +9,7 @@ from random import random
 import numpy as np
 from numpy.typing import NDArray
 
-import skrample.sampling as sampling
+import skrample.sampling.structured as sampling
 import skrample.scheduling as scheduling
 from skrample.common import SigmaTransform, sigma_complement, sigma_polar
 
@@ -33,7 +33,7 @@ class Row:
 
 
 def sample_model(
-    sampler: sampling.SkrampleSampler, schedule: NDArray[np.float64], curve: int, transform: SigmaTransform
+    sampler: sampling.StructuredSampler, schedule: NDArray[np.float64], curve: int, transform: SigmaTransform
 ) -> NDArray:
     previous: list[sampling.SKSamples] = []
     sample = 1.0
@@ -54,9 +54,9 @@ def sample_model(
     return np.array(sampled_values)
 
 
-samplers: set[sampling.SkrampleSampler] = {sampling.Euler(), sampling.Adams(order=2), sampling.DPM(order=2)}
+samplers: set[sampling.StructuredSampler] = {sampling.Euler(), sampling.Adams(order=2), sampling.DPM(order=2)}
 for v in samplers.copy():
-    if isinstance(v, sampling.HighOrderSampler):
+    if isinstance(v, sampling.StructuredMultistep):
         for o in range(2, v.max_order() + 1):
             samplers.add(replace(v, order=o))
 
@@ -74,8 +74,8 @@ for t in [sigma_polar, sigma_complement]:
                     sampled = sample_model(spc, schedule.sigmas(h), k, t)
                     table.append(
                         Row(
-                            type(pe).__name__ + (str(pe.order) if isinstance(pe, sampling.HighOrderSampler) else ""),
-                            type(ce).__name__ + (str(ce.order) if isinstance(ce, sampling.HighOrderSampler) else ""),
+                            type(pe).__name__ + (str(pe.order) if isinstance(pe, sampling.StructuredMultistep) else ""),
+                            type(ce).__name__ + (str(ce.order) if isinstance(ce, sampling.StructuredMultistep) else ""),
                             t.__name__,
                             k,
                             h,
