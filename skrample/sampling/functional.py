@@ -31,7 +31,7 @@ class FunctionalSampler(ABC):
 
 
 @dataclasses.dataclass(frozen=True)
-class FunctionalSinglestep(FunctionalSampler):
+class FunctionalHigher(FunctionalSampler):
     order: int = 1
 
     @staticmethod
@@ -46,6 +46,9 @@ class FunctionalSinglestep(FunctionalSampler):
         "Adjust the steps to approximate an equal amount of model calls"
         return round(steps / self.order)
 
+
+@dataclasses.dataclass(frozen=True)
+class FunctionalSinglestep(FunctionalSampler):
     @abstractmethod
     def step[T: common.Sample](
         self,
@@ -77,7 +80,7 @@ class FunctionalSinglestep(FunctionalSampler):
 
 
 @dataclasses.dataclass(frozen=True)
-class Heun(FunctionalSinglestep):
+class Heun(FunctionalHigher, FunctionalSinglestep):
     order: int = 2
 
     @staticmethod
