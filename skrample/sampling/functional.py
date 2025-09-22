@@ -106,55 +106,47 @@ class RungeKutta(FunctionalHigher, FunctionalSinglestep):
     ) -> T:
         step_next = step + self.step_increment()
 
-        def euler_kt2(k: T, t2: int) -> T:
-            return common.euler(sample, k, schedule[step][1], schedule[t2][1], self.schedule.sigma_transform)
-
-        K1: T = model(sample, *schedule[step])
-
-        if self.order > 2 and step_next < len(schedule):
+        stages: tuple[tuple[None | tuple[float, ...], int, int], ...]
+        effective_order = self.order if step_next < len(schedule) else 1
+        if effective_order >= 3:
             assert (step + step_next) % 2 == 0
             step_mid = (step + step_next) // 2
-
-            S1: T = euler_kt2(K1, step_mid)
-
-            K2: T = model(S1, *schedule[step_mid])
-
-            if self.order > 3:
-                S2: T = euler_kt2(K2, step_mid)
-
-                K3: T = model(S2, *schedule[step_mid])
-                S3: T = euler_kt2(K3, step_next)
-
-                K4: T = model(S3, *schedule[step_next])
-                return euler_kt2(
-                    (K1 + 2 * K2 + 2 * K3 + K4) / 6,  # type: ignore
-                    step_next,
+            if effective_order >= 4:  # RK4
+                stages = (
+                    (None, step, step_mid),
+                    (None, step_mid, step_mid),
+                    (None, step_mid, step_next),
+                    ((1 / 6, 2 / 6, 2 / 6, 1 / 6), step_next, step_next),
                 )
-            else:
-                S2: T = euler_kt2(
-                    -K1 + 2 * K2,  # type: ignore
-                    step_next,
+            else:  # RK3
+                stages = (
+                    (None, step, step_mid),
+                    ((-1, 2), step_mid, step_next),
+                    ((1 / 6, 4 / 6, 1 / 6), step_next, step_next),
                 )
-
-                K3: T = model(S2, *schedule[step_next])
-                return euler_kt2(
-                    (K1 + 4 * K2 + K3) / 6,  # type: ignore
-                    step_next,
-                )
+        elif effective_order >= 2:  # Heun / RK2
+            stages = (
+                (None, step, step_next),
+                ((1 / 2, 1 / 2), step_next, step_next),
+            )
         else:
-            S1: T = common.euler(
+            return common.euler(
                 sample,
-                K1,
+                model(sample, *schedule[step]),
                 schedule[step][1],
                 schedule[step_next][1] if step_next < len(schedule) else 0,
                 self.schedule.sigma_transform,
             )
 
-            if step_next < len(schedule) and self.order > 1:
-                K2: T = model(S1, *schedule[step_next])
-                return euler_kt2(
-                    (K1 + K2) / 2,  # type: ignore
-                    step_next,
-                )
-            else:
-                return S1
+        Xn: T = sample
+        k_terms: list[T] = []
+        for coeffs, model_t, sample_t in stages:
+            k_terms.append(model(Xn, *schedule[model_t]))
+            Xn = common.euler(
+                sample,
+                math.sumprod(k_terms, coeffs) if coeffs else k_terms[-1],  # type: ignore
+                schedule[step][1],
+                schedule[sample_t][1] if step_next < len(schedule) else 0,
+                self.schedule.sigma_transform,
+            )
+        return Xn
