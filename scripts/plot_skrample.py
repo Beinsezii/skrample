@@ -12,9 +12,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 from numpy.typing import NDArray
 
-import skrample.sampling.structured as sampling
 import skrample.scheduling as scheduling
 from skrample.common import SigmaTransform, sigma_complement, sigma_polar, spowf
+from skrample.sampling import functional, structured
+from skrample.sampling.interface import StructuredFunctionalAdapter
 
 OKLAB_XYZ_M1 = np.array(
     [
@@ -61,16 +62,17 @@ TRANSFORMS: dict[str, SigmaTransform] = {
     "polar": sigma_polar,
     "complement": sigma_complement,
 }
-SAMPLERS: dict[str, sampling.StructuredSampler] = {
-    "euler": sampling.Euler(),
-    "adams": sampling.Adams(),
-    "dpm": sampling.DPM(),
-    "unip": sampling.UniP(),
-    "unipc": sampling.UniPC(),
-    "spc": sampling.SPC(),
+SAMPLERS: dict[str, structured.StructuredSampler | functional.FunctionalSampler] = {
+    "euler": structured.Euler(),
+    "adams": structured.Adams(),
+    "dpm": structured.DPM(),
+    "unip": structured.UniP(),
+    "unipc": structured.UniPC(),
+    "spc": structured.SPC(),
+    "rk": functional.RungeKutta(scheduling.Linear()),
 }
 for k, v in list(SAMPLERS.items()):
-    if isinstance(v, sampling.StructuredMultistep):
+    if isinstance(v, structured.StructuredMultistep | functional.FunctionalHigher):
         for o in range(1, v.max_order() + 1):
             if o != v.order:
                 SAMPLERS[k + str(o)] = replace(v, order=o)
@@ -154,30 +156,42 @@ if args.command == "samplers":
     plt.ylabel("Sample")
     plt.title("Skrample Samplers")
 
-    schedule = scheduling.Linear(base_timesteps=10_000)
+    schedule = scheduling.Linear(base_timesteps=10_000, custom_transform=TRANSFORMS[args.transform])
 
-    def sample_model(sampler: sampling.StructuredSampler, schedule: NDArray[np.float64]) -> list[float]:
-        previous: list[sampling.SKSamples] = []
+    def sample_model(sampler: structured.StructuredSampler | functional.FunctionalSampler, steps: int) -> list[float]:
+        if isinstance(sampler, structured.StructuredSampler):
+            sampler = StructuredFunctionalAdapter(schedule, sampler)
+        else:
+            sampler = replace(sampler, schedule=schedule)
+
         sample = 1.0
         sampled_values = [sample]
-        for step, sigma in enumerate(schedule):
-            result = sampler.sample(
-                sample=sample,
-                prediction=math.sin(sigma * args.curve),
-                step=step,
-                sigma_schedule=schedule,
-                sigma_transform=TRANSFORMS[args.transform],
-                previous=tuple(previous),
-                noise=random(),
-            )
-            previous.append(result)
-            sample = result.final
-            sampled_values.append(sample)
+
+        if isinstance(sampler, functional.FunctionalHigher) and False:
+            adjusted = sampler.adjust_steps(steps)
+        else:
+            adjusted = steps
+
+        sampler.sample_model(
+            sample=sample,
+            model=lambda sample, timestep, sigma: math.sin(sigma * args.curve),
+            steps=adjusted,
+            rng=random,
+            callback=lambda x: sampled_values.append(x),
+        )
+
+        # if isinstance(sampler, functional.FunctionalHigher):
+        #     sampled_values = np.interp(
+        #         np.linspace(0, 1, steps + 1),
+        #         np.linspace(0, 1, len(sampled_values)),
+        #         np.array(sampled_values),
+        #     ).tolist()
+
         return sampled_values
 
     plt.plot(
         [*schedule.sigmas(schedule.base_timesteps), 0],
-        sample_model(sampling.Euler(), schedule.sigmas(schedule.base_timesteps)),
+        sample_model(structured.Euler(), schedule.base_timesteps),
         label="Reference",
         color=next(COLORS),
     )
@@ -185,9 +199,12 @@ if args.command == "samplers":
     for sampler in [SAMPLERS[s] for s in args.sampler]:
         sigmas = schedule.sigmas(args.steps)
         label = type(sampler).__name__
-        if isinstance(sampler, sampling.StructuredMultistep) and sampler.order != type(sampler).order:
+        if (
+            isinstance(sampler, structured.StructuredMultistep | functional.FunctionalHigher)
+            and sampler.order != type(sampler).order
+        ):
             label += " " + str(sampler.order)
-        plt.plot([*sigmas, 0], sample_model(sampler, sigmas), label=label, color=next(COLORS), linestyle="--")
+        plt.plot([*sigmas, 0], sample_model(sampler, args.steps), label=label, color=next(COLORS), linestyle="--")
 
 elif args.command == "schedules":
     plt.xlabel("Step")

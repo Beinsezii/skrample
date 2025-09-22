@@ -49,6 +49,9 @@ class FunctionalHigher(FunctionalSampler):
 
 @dataclasses.dataclass(frozen=True)
 class FunctionalSinglestep(FunctionalSampler):
+    def step_increment(self) -> int:
+        return 1
+
     @abstractmethod
     def step[T: common.Sample](
         self,
@@ -68,10 +71,10 @@ class FunctionalSinglestep(FunctionalSampler):
         rng: FunctionalSampler.RNG[T] | None = None,
         callback: FunctionalSampler.SampleCallback | None = None,
     ) -> T:
-        schedule: list[tuple[float, float]] = self.schedule.schedule(steps).tolist()
+        schedule: list[tuple[float, float]] = self.schedule.schedule(steps * self.step_increment()).tolist()
 
-        for n in list(range(len(schedule)))[include]:
-            sample = self.step(sample, model, n, schedule, rng)
+        for n in list(range(steps))[include]:
+            sample = self.step(sample, model, n * self.step_increment(), schedule, rng)
 
             if callback:
                 callback(sample)
@@ -80,15 +83,18 @@ class FunctionalSinglestep(FunctionalSampler):
 
 
 @dataclasses.dataclass(frozen=True)
-class Heun(FunctionalHigher, FunctionalSinglestep):
+class RungeKutta(FunctionalHigher, FunctionalSinglestep):
     order: int = 2
 
     @staticmethod
     def max_order() -> int:
-        return 2
+        return 4
 
     def adjust_steps(self, steps: int) -> int:
         return math.ceil(steps / self.order)  # since we skip a call on final step
+
+    def step_increment(self) -> int:
+        return 2 if self.order > 2 else 1
 
     def step[T: common.Sample](
         self,
@@ -98,23 +104,57 @@ class Heun(FunctionalHigher, FunctionalSinglestep):
         schedule: list[tuple[float, float]],
         rng: FunctionalSampler.RNG[T] | None = None,
     ) -> T:
-        prediction = model(sample, *schedule[step])
-        sample_next = common.euler(
-            sample,
-            prediction,
-            schedule[step][1],
-            schedule[step + 1][1] if step + 1 < len(schedule) else 0,
-            self.schedule.sigma_transform,
-        )
+        step_next = step + self.step_increment()
 
-        if step + 1 < len(schedule) and self.order > 1:
-            prediction_next = model(sample_next, *schedule[step + 1])
-            return common.euler(
+        def euler_kt2(k: T, t2: int) -> T:
+            return common.euler(sample, k, schedule[step][1], schedule[t2][1], self.schedule.sigma_transform)
+
+        K1: T = model(sample, *schedule[step])
+
+        if self.order > 2 and step_next < len(schedule):
+            assert (step + step_next) % 2 == 0
+            step_mid = (step + step_next) // 2
+
+            S1: T = euler_kt2(K1, step_mid)
+
+            K2: T = model(S1, *schedule[step_mid])
+
+            if self.order > 3:
+                S2: T = euler_kt2(K2, step_mid)
+
+                K3: T = model(S2, *schedule[step_mid])
+                S3: T = euler_kt2(K3, step_next)
+
+                K4: T = model(S3, *schedule[step_next])
+                return euler_kt2(
+                    (K1 + 2 * K2 + 2 * K3 + K4) / 6,  # type: ignore
+                    step_next,
+                )
+            else:
+                S2: T = euler_kt2(
+                    -K1 + 2 * K2,  # type: ignore
+                    step_next,
+                )
+
+                K3: T = model(S2, *schedule[step_next])
+                return euler_kt2(
+                    (K1 + 4 * K2 + K3) / 6,  # type: ignore
+                    step_next,
+                )
+        else:
+            S1: T = common.euler(
                 sample,
-                (prediction + prediction_next) / 2,  # type: ignore
+                K1,
                 schedule[step][1],
-                schedule[step + 1][1],
+                schedule[step_next][1] if step_next < len(schedule) else 0,
                 self.schedule.sigma_transform,
             )
-        else:
-            return sample_next
+
+            if step_next < len(schedule) and self.order > 1:
+                K2: T = model(S1, *schedule[step_next])
+                return euler_kt2(
+                    (K1 + K2) / 2,  # type: ignore
+                    step_next,
+                )
+            else:
+                return S1
