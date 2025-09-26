@@ -280,12 +280,11 @@ class RKUltra(FunctionalHigher, FunctionalSinglestep):
         schedule: list[tuple[float, float]],
         rng: FunctionalSampler.RNG[T] | None = None,
     ) -> T:
-        effective_order = self.order if step + 1 < len(schedule) else 1
-        if effective_order >= 4:
+        if self.order >= 4:
             tableau = self.rk4.tableau()
-        elif effective_order >= 3:
+        elif self.order >= 3:
             tableau = self.rk3.tableau()
-        elif effective_order >= 2:
+        elif self.order >= 2:
             tableau = self.rk2.tableau()
         else:  # Euler / RK1
             tableau = (
@@ -306,7 +305,9 @@ class RKUltra(FunctionalHigher, FunctionalSinglestep):
                 )
             else:
                 combined = sample
-            k_terms.append(model(combined, *frac_sc))
+
+            # Do not call model on timestep = 0 or sigma = 0
+            k_terms.append(model(combined, *frac_sc) if not any(abs(v) < 1e-8 for v in frac_sc) else combined)
 
         return common.euler(
             sample,
