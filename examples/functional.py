@@ -26,7 +26,7 @@ with torch.inference_mode():
     # Equivalent to structured example
     sampler = StructuredFunctionalAdapter(schedule, structured.DPM(order=2, add_noise=True))
     # Native functional example
-    sampler = functional.RungeKutta(schedule, 4)
+    sampler = functional.RKUltra(schedule, 4)
 
     tokenizer: CLIPTokenizer = CLIPTokenizer.from_pretrained(url, subfolder="tokenizer")
     text_encoder: CLIPTextModel = CLIPTextModel.from_pretrained(

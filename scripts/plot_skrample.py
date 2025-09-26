@@ -69,7 +69,7 @@ SAMPLERS: dict[str, structured.StructuredSampler | functional.FunctionalSampler]
     "unip": structured.UniP(),
     "unipc": structured.UniPC(),
     "spc": structured.SPC(),
-    "rk": functional.RungeKutta(scheduling.Linear()),
+    "rk": functional.RKUltra(scheduling.Linear()),
 }
 for k, v in list(SAMPLERS.items()):
     if isinstance(v, structured.StructuredMultistep | functional.FunctionalHigher):
@@ -102,7 +102,7 @@ MODIFIERS: dict[str, tuple[type[scheduling.ScheduleModifier], dict[str, Any]] | 
 # Common
 parser = ArgumentParser()
 parser.add_argument("file", type=Path)
-parser.add_argument("--steps", "-s", type=int, default=20)
+parser.add_argument("--steps", "-s", type=int, default=25)
 subparsers = parser.add_subparsers(dest="command")
 
 # Samplers
