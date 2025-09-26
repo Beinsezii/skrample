@@ -84,6 +84,10 @@ class FunctionalSinglestep(FunctionalSampler):
 
 @dataclasses.dataclass(frozen=True)
 class RungeKutta(FunctionalHigher, FunctionalSinglestep):
+    type Stage = tuple[int, tuple[float, ...]]
+    type Final = tuple[float, ...]
+    type Tableau = tuple[tuple[Stage, ...], Final]
+
     order: int = 2
 
     @staticmethod
@@ -106,47 +110,62 @@ class RungeKutta(FunctionalHigher, FunctionalSinglestep):
     ) -> T:
         step_next = step + self.step_increment()
 
-        stages: tuple[tuple[None | tuple[float, ...], int, int], ...]
+        tableau: RungeKutta.Tableau
         effective_order = self.order if step_next < len(schedule) else 1
         if effective_order >= 3:
             assert (step + step_next) % 2 == 0
             step_mid = (step + step_next) // 2
             if effective_order >= 4:  # RK4
-                stages = (
-                    (None, step, step_mid),
-                    (None, step_mid, step_mid),
-                    (None, step_mid, step_next),
-                    ((1 / 6, 2 / 6, 2 / 6, 1 / 6), step_next, step_next),
+                tableau = (
+                    (
+                        (step, ()),
+                        (step_mid, (1,)),
+                        (step_mid, (0, 1)),
+                        (step_next, (0, 0, 1)),
+                    ),
+                    (1 / 6, 2 / 6, 2 / 6, 1 / 6),
                 )
             else:  # RK3
-                stages = (
-                    (None, step, step_mid),
-                    ((-1, 2), step_mid, step_next),
-                    ((1 / 6, 4 / 6, 1 / 6), step_next, step_next),
+                tableau = (
+                    (
+                        (step, ()),
+                        (step_mid, (1,)),
+                        (step_next, (-1, 2)),
+                    ),
+                    (1 / 6, 4 / 6, 1 / 6),
                 )
         elif effective_order >= 2:  # Heun / RK2
-            stages = (
-                (None, step, step_next),
-                ((1 / 2, 1 / 2), step_next, step_next),
+            tableau = (
+                (
+                    (step, ()),
+                    (step_next, (1,)),
+                ),
+                (1 / 2, 1 / 2),
             )
-        else:
-            return common.euler(
-                sample,
-                model(sample, *schedule[step]),
-                schedule[step][1],
-                schedule[step_next][1] if step_next < len(schedule) else 0,
-                self.schedule.sigma_transform,
+        else:  # Euler / RK1
+            tableau = (
+                ((step, ()),),
+                (1,),
             )
 
-        Xn: T = sample
         k_terms: list[T] = []
-        for coeffs, model_t, sample_t in stages:
-            k_terms.append(model(Xn, *schedule[model_t]))
-            Xn = common.euler(
-                sample,
-                math.sumprod(k_terms, coeffs) if coeffs else k_terms[-1],  # type: ignore
-                schedule[step][1],
-                schedule[sample_t][1] if step_next < len(schedule) else 0,
-                self.schedule.sigma_transform,
-            )
-        return Xn
+        for istep, icoeffs in tableau[0]:
+            if icoeffs:
+                combined: T = common.euler(
+                    sample,
+                    math.sumprod(k_terms, icoeffs),  # type: ignore
+                    schedule[step][1],
+                    schedule[istep][1] if istep < len(schedule) else 0,
+                    self.schedule.sigma_transform,
+                )
+            else:
+                combined = sample
+            k_terms.append(model(combined, *schedule[istep]))
+
+        return common.euler(
+            sample,
+            math.sumprod(k_terms, tableau[1]),  # type: ignore
+            schedule[step][1],
+            schedule[step_next][1] if step_next < len(schedule) else 0,
+            self.schedule.sigma_transform,
+        )
