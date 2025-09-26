@@ -119,8 +119,8 @@ class RungeKutta(FunctionalHigher, FunctionalSinglestep):
                 tableau = (
                     (
                         (step, ()),
-                        (step_mid, (1,)),
-                        (step_mid, (0, 1)),
+                        (step_mid, (1 / 2,)),
+                        (step_mid, (0, 1 / 2)),
                         (step_next, (0, 0, 1)),
                     ),
                     (1 / 6, 2 / 6, 2 / 6, 1 / 6),
@@ -129,7 +129,7 @@ class RungeKutta(FunctionalHigher, FunctionalSinglestep):
                 tableau = (
                     (
                         (step, ()),
-                        (step_mid, (1,)),
+                        (step_mid, (1 / 2,)),
                         (step_next, (-1, 2)),
                     ),
                     (1 / 6, 4 / 6, 1 / 6),
@@ -153,9 +153,9 @@ class RungeKutta(FunctionalHigher, FunctionalSinglestep):
             if icoeffs:
                 combined: T = common.euler(
                     sample,
-                    math.sumprod(k_terms, icoeffs),  # type: ignore
+                    math.sumprod(k_terms, icoeffs) / math.fsum(icoeffs),  # type: ignore
                     schedule[step][1],
-                    schedule[istep][1] if istep < len(schedule) else 0,
+                    schedule[istep][1],
                     self.schedule.sigma_transform,
                 )
             else:
