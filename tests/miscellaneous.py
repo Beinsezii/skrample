@@ -8,6 +8,7 @@ from testing_common import compare_tensors
 
 from skrample.common import MergeStrategy, bashforth, sigma_complement, sigmoid, softmax, spowf
 from skrample.diffusers import SkrampleWrapperScheduler
+from skrample.sampling.functional import RKUltra
 from skrample.sampling.interface import StructuredFunctionalAdapter
 from skrample.sampling.structured import (
     DPM,
@@ -218,6 +219,20 @@ def test_bashforth() -> None:
         np.array(c) for c in ((1,), (3 / 2, -1 / 2), (23 / 12, -4 / 3, 5 / 12), (55 / 24, -59 / 24, 37 / 24, -3 / 8))
     ):
         assert np.allclose(coeffs, np.array(bashforth(n + 1)), atol=1e-12, rtol=1e-12)
+
+
+def test_tableau() -> None:
+    for order in [RKUltra.RK2, RKUltra.RK3, RKUltra.RK4]:
+        variant: RKUltra.RK2 | RKUltra.RK3 | RKUltra.RK4
+        for variant in order:
+            tab = variant.tableau()
+
+            for stage in tab[0]:
+                stage_err = abs(stage[0] - math.fsum(stage[1]))
+                assert stage_err < 1e-15, (variant, stage)
+
+            final_err = abs(1 - math.fsum(variant.tableau()[1]))
+            assert final_err < 1e-15, variant
 
 
 def test_sigmoid() -> None:
