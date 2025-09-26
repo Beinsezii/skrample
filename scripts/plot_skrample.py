@@ -107,7 +107,7 @@ subparsers = parser.add_subparsers(dest="command")
 
 # Samplers
 parser_sampler = subparsers.add_parser("samplers")
-parser_sampler.add_argument("--curve", "-k", type=int, default=10)
+parser_sampler.add_argument("--curve", "-k", type=int, default=30)
 parser_sampler.add_argument("--transform", "-t", type=str, choices=list(TRANSFORMS.keys()), default="polar")
 parser_sampler.add_argument(
     "--sampler",
@@ -174,7 +174,7 @@ if args.command == "samplers":
 
         sampler.sample_model(
             sample=sample,
-            model=lambda sample, timestep, sigma: math.sin(sigma * args.curve),
+            model=lambda sample, timestep, sigma: sample + math.sin(sigma * args.curve),
             steps=adjusted,
             rng=random,
             callback=lambda x: sampled_values.append(x),
