@@ -241,14 +241,34 @@ class RKUltra(FunctionalHigher, FunctionalSinglestep):
                         ),
                     )
 
+    @enum.unique
+    class RK5(enum.StrEnum):
+        Nystrom = enum.auto()
+
+        def tableau(self) -> "RKUltra.Tableau":
+            match self:
+                case self.Nystrom:
+                    return (
+                        (
+                            (0, ()),
+                            (1 / 3, (1 / 3,)),
+                            (2 / 5, (4 / 25, 6 / 25)),
+                            (1, (1 / 4, -3, 15 / 4)),
+                            (2 / 3, (2 / 27, 10 / 9, -50 / 81, 8 / 81)),
+                            (4 / 5, (2 / 25, 12 / 25, 2 / 15, 8 / 75, 0)),
+                        ),
+                        (23 / 192, 0, 125 / 192, 0, -27 / 64, 125 / 192),
+                    )
+
     order: int = 2
     rk2: RK2 = RK2.Ralston
     rk3: RK3 = RK3.Ralston
     rk4: RK4 = RK4.Ralston
+    rk5: RK5 = RK5.Nystrom
 
     @staticmethod
     def max_order() -> int:
-        return 4
+        return 5
 
     def adjust_steps(self, steps: int) -> int:
         return math.ceil(steps / self.order)  # since we skip a call on final step
@@ -280,7 +300,9 @@ class RKUltra(FunctionalHigher, FunctionalSinglestep):
         schedule: list[tuple[float, float]],
         rng: FunctionalSampler.RNG[T] | None = None,
     ) -> T:
-        if self.order >= 4:
+        if self.order >= 5:
+            tableau = self.rk5.tableau()
+        elif self.order >= 4:
             tableau = self.rk4.tableau()
         elif self.order >= 3:
             tableau = self.rk3.tableau()

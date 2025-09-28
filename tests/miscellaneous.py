@@ -222,8 +222,8 @@ def test_bashforth() -> None:
 
 
 def test_tableau() -> None:
-    for order in [RKUltra.RK2, RKUltra.RK3, RKUltra.RK4]:
-        variant: RKUltra.RK2 | RKUltra.RK3 | RKUltra.RK4
+    for order in [RKUltra.RK2, RKUltra.RK3, RKUltra.RK4, RKUltra.RK5]:
+        variant: RKUltra.RK2 | RKUltra.RK3 | RKUltra.RK4 | RKUltra.RK5
         for variant in order:
             tab = variant.tableau()
 
