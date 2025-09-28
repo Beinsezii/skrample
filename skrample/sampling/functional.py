@@ -261,17 +261,27 @@ class RKUltra(FunctionalHigher, FunctionalSinglestep):
                     )
 
     order: int = 2
+
     rk2: RK2 = RK2.Ralston
+    "2nd order methods"
     rk3: RK3 = RK3.Ralston
+    "3rd order methods"
     rk4: RK4 = RK4.Ralston
+    "4th order methods"
     rk5: RK5 = RK5.Nystrom
+    "5th order methods"
+
+    custom_tableau: Tableau | None = None
+    "If set, will use this Butcher tableau instead of picking method based on `RKUltra.order`"
 
     @staticmethod
     def max_order() -> int:
         return 5
 
     def tableau(self, order: int | None = None) -> Tableau:
-        if order is None:
+        if self.custom_tableau is not None:
+            return self.custom_tableau
+        elif order is None:
             order = self.order
 
         if order >= 5:
