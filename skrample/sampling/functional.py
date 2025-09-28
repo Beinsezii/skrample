@@ -270,8 +270,32 @@ class RKUltra(FunctionalHigher, FunctionalSinglestep):
     def max_order() -> int:
         return 5
 
+    def tableau(self, order: int | None = None) -> Tableau:
+        if order is None:
+            order = self.order
+
+        if order >= 5:
+            return self.rk5.tableau()
+        elif order >= 4:
+            return self.rk4.tableau()
+        elif order >= 3:
+            return self.rk3.tableau()
+        elif order >= 2:
+            return self.rk2.tableau()
+        else:  # Euler / RK1
+            return (
+                ((0, ()),),
+                (1,),
+            )
+
     def adjust_steps(self, steps: int) -> int:
-        return math.ceil(steps / self.order)  # since we skip a call on final step
+        stages = self.tableau()[0]
+        calls = len(stages)
+
+        # Add back the skipped calls on penultimate T
+        adjusted = steps / calls + sum(abs(1 - f[0]) < 1e-8 for f in stages) / calls
+
+        return max(round(adjusted), 1)
 
     @staticmethod
     def fractional_step(
@@ -300,23 +324,11 @@ class RKUltra(FunctionalHigher, FunctionalSinglestep):
         schedule: list[tuple[float, float]],
         rng: FunctionalSampler.RNG[T] | None = None,
     ) -> T:
-        if self.order >= 5:
-            tableau = self.rk5.tableau()
-        elif self.order >= 4:
-            tableau = self.rk4.tableau()
-        elif self.order >= 3:
-            tableau = self.rk3.tableau()
-        elif self.order >= 2:
-            tableau = self.rk2.tableau()
-        else:  # Euler / RK1
-            tableau = (
-                ((0, ()),),
-                (1,),
-            )
-
+        stages, composite = self.tableau()
         k_terms: list[T] = []
-        fractions = self.fractional_step(schedule, step, tuple(f[0] for f in tableau[0]))
-        for frac_sc, icoeffs in zip(fractions, (t[1] for t in tableau[0]), strict=True):
+        fractions = self.fractional_step(schedule, step, tuple(f[0] for f in stages))
+
+        for frac_sc, icoeffs in zip(fractions, (t[1] for t in stages), strict=True):
             if icoeffs:
                 combined: T = common.euler(
                     sample,
@@ -333,7 +345,7 @@ class RKUltra(FunctionalHigher, FunctionalSinglestep):
 
         return common.euler(
             sample,
-            math.sumprod(k_terms, tableau[1]),  # type: ignore
+            math.sumprod(k_terms, composite),  # type: ignore
             schedule[step][1],
             schedule[step + 1][1] if step + 1 < len(schedule) else 0,
             self.schedule.sigma_transform,
