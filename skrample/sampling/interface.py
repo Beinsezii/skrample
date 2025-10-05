@@ -1,6 +1,6 @@
 import dataclasses
 
-from skrample import common
+from skrample.common import Sample, SigmaTransform
 from skrample.sampling import functional, structured
 
 
@@ -8,7 +8,10 @@ from skrample.sampling import functional, structured
 class StructuredFunctionalAdapter(functional.FunctionalSampler):
     sampler: structured.StructuredSampler
 
-    def sample_model[T: common.Sample](
+    def merge_noise[T: Sample](self, sample: T, noise: T, sigma: float, sigma_transform: SigmaTransform) -> T:
+        return self.sampler.merge_noise(sample, noise, sigma, sigma_transform)
+
+    def sample_model[T: Sample](
         self,
         sample: T,
         model: functional.FunctionalSampler.SampleableModel[T],

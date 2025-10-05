@@ -8,21 +8,25 @@ from typing import Any
 import numpy as np
 
 from skrample import common, scheduling
+from skrample.common import Sample, SigmaTransform
 
 
 @dataclasses.dataclass(frozen=True)
 class FunctionalSampler(ABC):
-    type SampleCallback[T: common.Sample] = Callable[[T], Any]
+    type SampleCallback[T: Sample] = Callable[[T], Any]
     "Return is ignored"
-    type SampleableModel[T: common.Sample] = Callable[[T, float, float], T]
+    type SampleableModel[T: Sample] = Callable[[T, float, float], T]
     "sample, timestep, sigma"
-    type RNG[T: common.Sample] = Callable[[], T]
+    type RNG[T: Sample] = Callable[[], T]
     "Distribution should match model, typically normal"
 
     schedule: scheduling.SkrampleSchedule
 
+    def merge_noise[T: Sample](self, sample: T, noise: T, sigma: float, sigma_transform: SigmaTransform) -> T:
+        return common.merge_noise(sample, noise, sigma, sigma_transform)
+
     @abstractmethod
-    def sample_model[T: common.Sample](
+    def sample_model[T: Sample](
         self,
         sample: T,
         model: SampleableModel[T],
@@ -31,6 +35,34 @@ class FunctionalSampler(ABC):
         rng: RNG[T] | None = None,
         callback: SampleCallback | None = None,
     ) -> T: ...
+    """Runs the noisy sample through the model for a given range `include` of total steps.
+    Calls callback every step with sampled value."""
+
+    def generate_model[T: Sample](
+        self,
+        model: SampleableModel[T],
+        rng: RNG[T],
+        steps: int,
+        include: slice = slice(None),
+        initial: T | None = None,
+        callback: SampleCallback | None = None,
+    ) -> T:
+        """Equivalent to `sample_model` except the noise is handled automatically
+        rather than being pre-added to the initial value"""
+
+        if initial is None and include.start is None:  # Short circuit for common case
+            sample: T = rng()
+        else:
+            sigmas = scheduling.schedule_lru(self.schedule, steps)[:, 1]
+            sample: T = self.merge_noise(
+                0 if initial is None else initial,  # type: ignore
+                rng(),
+                sigmas[include.start or 0].item(),
+                self.schedule.sigma_transform,
+            ) / self.merge_noise(0.0, 1.0, sigmas[0].item(), self.schedule.sigma_transform)
+            # Rescale sample by initial sigma. Mostly just to handle quirks with Scaled
+
+        return self.sample_model(sample, model, steps, include, rng, callback)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -53,7 +85,7 @@ class FunctionalHigher(FunctionalSampler):
 @dataclasses.dataclass(frozen=True)
 class FunctionalSinglestep(FunctionalSampler):
     @abstractmethod
-    def step[T: common.Sample](
+    def step[T: Sample](
         self,
         sample: T,
         model: FunctionalSampler.SampleableModel[T],
@@ -62,7 +94,7 @@ class FunctionalSinglestep(FunctionalSampler):
         rng: FunctionalSampler.RNG[T] | None = None,
     ) -> T: ...
 
-    def sample_model[T: common.Sample](
+    def sample_model[T: Sample](
         self,
         sample: T,
         model: FunctionalSampler.SampleableModel[T],
@@ -326,7 +358,7 @@ class RKUltra(FunctionalHigher, FunctionalSinglestep):
         )
         return result
 
-    def step[T: common.Sample](
+    def step[T: Sample](
         self,
         sample: T,
         model: FunctionalSampler.SampleableModel[T],

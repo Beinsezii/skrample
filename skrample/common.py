@@ -99,6 +99,11 @@ def euler[T: Sample](sample: T, prediction: T, sigma: float, sigma_next: float, 
     return sample * scale + prediction * delta  # type: ignore
 
 
+def merge_noise[T: Sample](sample: T, noise: T, sigma: float, sigma_transform: SigmaTransform) -> T:
+    sigma_u, sigma_v = sigma_transform(sigma)
+    return sample * sigma_v + noise * sigma_u  # type: ignore
+
+
 def safe_log(x: float) -> float:
     "Returns inf rather than throw an err"
     try:

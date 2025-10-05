@@ -104,7 +104,7 @@ class Scaled(ScheduleCommon):
     def timesteps(self, steps: int) -> NDArray[np.float64]:
         # # https://arxiv.org/abs/2305.08891 Table 2
         if self.uniform:
-            return np.linspace(self.base_timesteps - 1, 0, steps + 1, dtype=np.float64).round()[:-1]
+            return np.linspace(self.base_timesteps - 1, 0, steps, endpoint=False, dtype=np.float64).round()
         else:
             # They use a truncated ratio for ...reasons?
             return np.flip(np.arange(0, steps, dtype=np.float64) * (self.base_timesteps // steps)).round()

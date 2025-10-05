@@ -56,16 +56,14 @@ with torch.inference_mode():
         p = conditioned + (cfg - 1) * (conditioned - unconditioned)
         return skrample.common.predict_epsilon(x, p, s, schedule.sigma_transform)
 
-    if isinstance(sampler, functional.FunctionalSinglestep):
+    if isinstance(sampler, functional.FunctionalHigher):
         steps = sampler.adjust_steps(steps)
 
-    sample = torch.randn([1, 4, 80, 80], generator=seed).to(dtype=dtype, device=device)
-    rng = noise.Random.from_inputs(sample.shape, seed)
+    rng = noise.Random.from_inputs((1, 4, 80, 80), seed)
     bar = tqdm(total=steps)
-    sample = sampler.sample_model(
-        sample,
-        call_model,
-        steps,
+    sample = sampler.generate_model(
+        model=call_model,
+        steps=steps,
         rng=lambda: rng.generate().to(dtype=dtype, device=device),
         callback=lambda _: bar.update(),
     )

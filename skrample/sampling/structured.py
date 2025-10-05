@@ -5,7 +5,7 @@ from dataclasses import dataclass, replace
 import numpy as np
 from numpy.typing import NDArray
 
-from skrample.common import Sample, SigmaTransform, bashforth, euler, safe_log, softmax, spowf
+from skrample.common import Sample, SigmaTransform, bashforth, euler, merge_noise, safe_log, softmax, spowf
 
 
 @dataclass(frozen=True)
@@ -75,8 +75,7 @@ class StructuredSampler(ABC):
         return sample
 
     def merge_noise[T: Sample](self, sample: T, noise: T, sigma: float, sigma_transform: SigmaTransform) -> T:
-        sigma_u, sigma_v = sigma_transform(sigma)
-        return sample * sigma_v + noise * sigma_u  # type: ignore
+        return merge_noise(sample, noise, sigma, sigma_transform)
 
     def __call__[T: Sample](
         self,
