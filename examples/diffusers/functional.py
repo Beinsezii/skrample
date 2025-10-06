@@ -10,19 +10,29 @@ from diffusers.modular_pipelines.flux.modular_pipeline import FluxModularPipelin
 from diffusers.modular_pipelines.modular_pipeline import ModularPipelineBlocks, PipelineState, SequentialPipelineBlocks
 from tqdm import tqdm
 
-import skrample.sampling.functional as sampling
 import skrample.scheduling as scheduling
 from skrample.common import predict_flow
 from skrample.diffusers import SkrampleWrapperScheduler
-from skrample.sampling.structured import Euler
+from skrample.sampling import functional, structured
+from skrample.sampling.interface import StructuredFunctionalAdapter
 
 model_id = "black-forest-labs/FLUX.1-dev"
 
 blocks = SequentialPipelineBlocks.from_blocks_dict(TEXT2IMAGE_BLOCKS)
 
 schedule = scheduling.FlowShift(scheduling.Linear(), shift=2)
-sampler = sampling.RKUltra(schedule, order=4)
-wrapper = SkrampleWrapperScheduler(sampler=Euler(), schedule=schedule, predictor=predict_flow, allow_dynamic=False)
+wrapper = SkrampleWrapperScheduler(
+    sampler=structured.Euler(), schedule=schedule, predictor=predict_flow, allow_dynamic=False
+)
+
+# Equivalent to structured example
+sampler = StructuredFunctionalAdapter(schedule, structured.DPM(order=2, add_noise=True))
+# Native functional example
+sampler = functional.RKUltra(schedule, 4)
+# Dynamic model calls
+sampler = functional.FastHeun(schedule)
+# Dynamic step sizes
+sampler = functional.AdaptiveHeun(schedule)
 
 
 class FunctionalDenoise(FluxDenoiseStep):
@@ -34,7 +44,8 @@ class FunctionalDenoise(FluxDenoiseStep):
     def __call__(self, components: FluxModularPipeline, state: PipelineState) -> PipelineState:
         block_state = self.get_block_state(state)
 
-        block_state["num_inference_steps"] = sampler.adjust_steps(block_state["num_inference_steps"])
+        if isinstance(sampler, functional.FunctionalHigher):
+            block_state["num_inference_steps"] = sampler.adjust_steps(block_state["num_inference_steps"])
         progress = tqdm(total=block_state["num_inference_steps"])
 
         i = 0
@@ -55,10 +66,10 @@ class FunctionalDenoise(FluxDenoiseStep):
                 schedule.sigma_transform,
             )
 
-        def sample_callback(_: torch.Tensor) -> None:
+        def sample_callback(x: torch.Tensor, n: int, t: float, s: float) -> None:
             nonlocal i
-            i += 1
-            progress.update()
+            progress.update(n + 1 - progress.n)
+            i = n + 1
 
         block_state["latents"] = sampler.sample_model(
             sample=block_state["latents"],
@@ -91,6 +102,6 @@ pipe(  # type: ignore
     generator=torch.Generator("cpu").manual_seed(42),
     width=1024,
     height=1024,
-    num_inference_steps=20,
+    num_inference_steps=25,
     guidance_scale=2.5,
 ).get("images")[0].save("diffusers_functional.png")

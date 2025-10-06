@@ -27,6 +27,10 @@ with torch.inference_mode():
     sampler = StructuredFunctionalAdapter(schedule, structured.DPM(order=2, add_noise=True))
     # Native functional example
     sampler = functional.RKUltra(schedule, 4)
+    # Dynamic model calls
+    sampler = functional.FastHeun(schedule)
+    # Dynamic step sizes
+    sampler = functional.AdaptiveHeun(schedule)
 
     tokenizer: CLIPTokenizer = CLIPTokenizer.from_pretrained(url, subfolder="tokenizer")
     text_encoder: CLIPTextModel = CLIPTextModel.from_pretrained(
@@ -65,7 +69,7 @@ with torch.inference_mode():
         model=call_model,
         steps=steps,
         rng=lambda: rng.generate().to(dtype=dtype, device=device),
-        callback=lambda _: bar.update(),
+        callback=lambda x, n, t, s: bar.update(n + 1 - bar.n),
     )
 
     image: torch.Tensor = image_encoder.decode(sample / image_encoder.config.scaling_factor).sample[0]  # type: ignore

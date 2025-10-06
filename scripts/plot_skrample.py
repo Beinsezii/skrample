@@ -1,7 +1,7 @@
 #! /usr/bin/env python
 
 import math
-from argparse import ArgumentParser
+from argparse import ArgumentParser, BooleanOptionalAction
 from collections.abc import Generator
 from dataclasses import replace
 from pathlib import Path
@@ -70,10 +70,12 @@ SAMPLERS: dict[str, structured.StructuredSampler | functional.FunctionalSampler]
     "unipc": structured.UniPC(),
     "spc": structured.SPC(),
     "rk": functional.RKUltra(scheduling.Linear()),
+    "fheun": functional.FastHeun(scheduling.Linear()),
+    "aheun": functional.AdaptiveHeun(scheduling.Linear()),
 }
 for k, v in list(SAMPLERS.items()):
     if isinstance(v, structured.StructuredMultistep | functional.FunctionalHigher):
-        for o in range(1, v.max_order() + 1):
+        for o in range(v.min_order(), v.max_order() + 1):
             if o != v.order:
                 SAMPLERS[k + str(o)] = replace(v, order=o)
 
@@ -107,6 +109,7 @@ subparsers = parser.add_subparsers(dest="command")
 
 # Samplers
 parser_sampler = subparsers.add_parser("samplers")
+parser_sampler.add_argument("--adjust", type=bool, default=True, action=BooleanOptionalAction)
 parser_sampler.add_argument("--curve", "-k", type=int, default=30)
 parser_sampler.add_argument("--transform", "-t", type=str, choices=list(TRANSFORMS.keys()), default="polar")
 parser_sampler.add_argument(
@@ -158,7 +161,9 @@ if args.command == "samplers":
 
     schedule = scheduling.Linear(base_timesteps=10_000, custom_transform=TRANSFORMS[args.transform])
 
-    def sample_model(sampler: structured.StructuredSampler | functional.FunctionalSampler, steps: int) -> list[float]:
+    def sample_model(
+        sampler: structured.StructuredSampler | functional.FunctionalSampler, steps: int
+    ) -> tuple[list[float], list[float]]:
         if isinstance(sampler, structured.StructuredSampler):
             sampler = StructuredFunctionalAdapter(schedule, sampler)
         else:
@@ -166,8 +171,16 @@ if args.command == "samplers":
 
         sample = 1.0
         sampled_values = [sample]
+        sigmas = [0.0]
 
-        if isinstance(sampler, functional.FunctionalHigher) and False:
+        def callback(x: float, n: int, t: float, s: float) -> None:
+            nonlocal sampled_values, sigmas
+            sampled_values.append(x)
+            sigmas.insert(-1, s)
+
+        if isinstance(sampler, functional.AdaptiveHeun) and args.adjust:
+            adjusted = schedule.base_timesteps
+        elif isinstance(sampler, functional.FunctionalHigher) and args.adjust:
             adjusted = sampler.adjust_steps(steps)
         else:
             adjusted = steps
@@ -177,34 +190,21 @@ if args.command == "samplers":
             model=lambda sample, timestep, sigma: sample + math.sin(sigma * args.curve),
             steps=adjusted,
             rng=random,
-            callback=lambda x: sampled_values.append(x),
+            callback=callback,
         )
 
-        # if isinstance(sampler, functional.FunctionalHigher):
-        #     sampled_values = np.interp(
-        #         np.linspace(0, 1, steps + 1),
-        #         np.linspace(0, 1, len(sampled_values)),
-        #         np.array(sampled_values),
-        #     ).tolist()
+        return sigmas, sampled_values
 
-        return sampled_values
-
-    plt.plot(
-        [*schedule.sigmas(schedule.base_timesteps), 0],
-        sample_model(structured.Euler(), schedule.base_timesteps),
-        label="Reference",
-        color=next(COLORS),
-    )
+    plt.plot(*sample_model(structured.Euler(), schedule.base_timesteps), label="Reference", color=next(COLORS))
 
     for sampler in [SAMPLERS[s] for s in args.sampler]:
-        sigmas = schedule.sigmas(args.steps)
         label = type(sampler).__name__
         if (
             isinstance(sampler, structured.StructuredMultistep | functional.FunctionalHigher)
             and sampler.order != type(sampler).order
         ):
             label += " " + str(sampler.order)
-        plt.plot([*sigmas, 0], sample_model(sampler, args.steps), label=label, color=next(COLORS), linestyle="--")
+        plt.plot(*sample_model(sampler, args.steps), label=label, color=next(COLORS), linestyle="--")
 
 elif args.command == "schedules":
     plt.xlabel("Step")

@@ -13,7 +13,7 @@ from skrample.common import Sample, SigmaTransform
 
 @dataclasses.dataclass(frozen=True)
 class FunctionalSampler(ABC):
-    type SampleCallback[T: Sample] = Callable[[T], Any]
+    type SampleCallback[T: Sample] = Callable[[T, int, float, float], Any]
     "Return is ignored"
     type SampleableModel[T: Sample] = Callable[[T, float, float], T]
     "sample, timestep, sigma"
@@ -35,6 +35,7 @@ class FunctionalSampler(ABC):
         rng: RNG[T] | None = None,
         callback: SampleCallback | None = None,
     ) -> T: ...
+
     """Runs the noisy sample through the model for a given range `include` of total steps.
     Calls callback every step with sampled value."""
 
@@ -109,9 +110,25 @@ class FunctionalSinglestep(FunctionalSampler):
             sample = self.step(sample, model, n, schedule, rng)
 
             if callback:
-                callback(sample)
+                callback(sample, n, *schedule[n] if n < len(schedule) else (0, 0))
 
         return sample
+
+
+@dataclasses.dataclass(frozen=True)
+class FunctionalAdaptive(FunctionalSampler):
+    type Evaluator[T: Sample] = Callable[[T, T], float]
+
+    @staticmethod
+    def mse[T: Sample](a: T, b: T) -> float:
+        error: T = abs(a - b) ** 2  # type: ignore
+        if isinstance(error, float | int):
+            return error
+        else:
+            return error.mean().item()
+
+    evaluator: Evaluator = mse
+    threshold: float = 1e-2
 
 
 @dataclasses.dataclass(frozen=True)
@@ -392,3 +409,134 @@ class RKUltra(FunctionalHigher, FunctionalSinglestep):
             schedule[step + 1][1] if step + 1 < len(schedule) else 0,
             self.schedule.sigma_transform,
         )
+
+
+@dataclasses.dataclass(frozen=True)
+class FastHeun(FunctionalAdaptive, FunctionalSinglestep, FunctionalHigher):
+    order: int = 2
+
+    threshold: float = 5e-2
+
+    @staticmethod
+    def min_order() -> int:
+        return 2
+
+    @staticmethod
+    def max_order() -> int:
+        return 2
+
+    def adjust_steps(self, steps: int) -> int:
+        return round(steps * 0.75 + 0.25)
+
+    def step[T: Sample](
+        self,
+        sample: T,
+        model: FunctionalSampler.SampleableModel[T],
+        step: int,
+        schedule: list[tuple[float, float]],
+        rng: FunctionalSampler.RNG[T] | None = None,
+    ) -> T:
+        sigma = schedule[step][1]
+        sigma_next = schedule[step + 1][1] if step + 1 < len(schedule) else 0
+
+        sigma_u, sigma_v = self.schedule.sigma_transform(sigma)
+        sigma_u_next, sigma_v_next = self.schedule.sigma_transform(sigma_next)
+
+        scale = sigma_u_next / sigma_u
+        dt = sigma_v_next - sigma_v * scale
+
+        k1 = model(sample, *schedule[step])
+        result: T = sample * scale + k1 * dt  # type: ignore
+
+        # Multiplying by step size here is kind of an asspull, but so is this whole solver so...
+        if (
+            step + 1 < len(schedule)
+            and self.evaluator(sample, result) / max(self.evaluator(0, result), 1e-16) > self.threshold * dt
+        ):
+            k2 = model(result, *schedule[step + 1])
+            result: T = sample * scale + (k1 + k2) / 2 * dt  # type: ignore
+
+        return result
+
+
+@dataclasses.dataclass(frozen=True)
+class AdaptiveHeun(FunctionalAdaptive, FunctionalHigher):
+    order: int = 2
+
+    threshold: float = 1e-3
+
+    initial: float = 1 / 50
+    maximum: float = 1 / 4
+    adaption: float = 0.3
+
+    @staticmethod
+    def min_order() -> int:
+        return 2
+
+    @staticmethod
+    def max_order() -> int:
+        return 2
+
+    def adjust_steps(self, steps: int) -> int:
+        return steps
+
+    def sample_model[T: Sample](
+        self,
+        sample: T,
+        model: FunctionalSampler.SampleableModel[T],
+        steps: int,
+        include: slice = slice(None),
+        rng: FunctionalSampler.RNG[T] | None = None,
+        callback: FunctionalSampler.SampleCallback | None = None,
+    ) -> T:
+        epsilon: float = 1e-16  # lgtm
+        step_size: int = max(round(steps * self.initial), 1)
+
+        schedule: list[tuple[float, float]] = self.schedule.schedule(steps).tolist()
+
+        indices: list[int] = list(range(steps))[include]
+        step: int = indices[0]
+
+        while step <= indices[-1]:
+            step_next = min(step + step_size, indices[-1] + 1)
+
+            sigma = schedule[step][1]
+            sigma_next = schedule[step_next][1] if step_next < len(schedule) else 0
+
+            sigma_u, sigma_v = self.schedule.sigma_transform(sigma)
+            sigma_u_next, sigma_v_next = self.schedule.sigma_transform(sigma_next)
+
+            scale = sigma_u_next / sigma_u
+            dt = sigma_v_next - sigma_v * scale
+
+            k1 = model(sample, *schedule[step])
+            euler_step: T = sample * scale + k1 * dt  # type: ignore
+
+            if step_next < len(schedule):
+                k2 = model(euler_step, *schedule[step_next])
+                heun_step: T = sample * scale + (k1 + k2) / 2 * dt  # type: ignore
+
+                sample = heun_step
+
+                # The schedule is *also* trying to predict the step size, so we need the next step size too
+                sigma_next2 = schedule[step_next + step_size][1] if step_next + step_size < len(schedule) else 0
+                sigma_u_next2, sigma_v_next2 = self.schedule.sigma_transform(sigma_next2)
+                dt2 = sigma_v_next2 - sigma_v_next * (sigma_u_next2 / sigma_u_next)
+
+                # Normalize against pure error
+                error = self.evaluator(euler_step, heun_step) / max(self.evaluator(0, heun_step), epsilon)
+                # Offset adjustment by dt2 / dt to account for non-linearity
+                # Basically if we want a 50% larger step but the next dt will already be 25% larger,
+                # we should only set a 20% larger step ie 1.5 / 1.25
+                # Really this could be iterated to contrast dt2/dt and thresh/error until they're 100% matched but eh
+                adjustment: float = (self.threshold / max(error, epsilon)) ** self.adaption / (dt2 / dt)
+                step_size = max(round(min(step_size * adjustment, steps * self.maximum)), 1)
+            else:
+                sample = euler_step
+
+            if callback:
+                callback(sample, step, *schedule[step] if step < len(schedule) else (0, 0))
+
+            step = step_next
+
+        return sample

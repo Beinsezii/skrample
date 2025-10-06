@@ -48,6 +48,6 @@ class StructuredFunctionalAdapter(functional.FunctionalSampler):
             sample = sksamples.final
 
             if callback:
-                callback(sample)
+                callback(sample, n, *schedule[n] if n < len(schedule) else (0, 0))
 
         return sample
