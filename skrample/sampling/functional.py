@@ -11,6 +11,25 @@ from skrample import common, scheduling
 from skrample.common import Sample, SigmaTransform
 
 
+def fractional_step(
+    schedule: list[tuple[float, float]],
+    current: int,
+    idx: tuple[float, ...],
+) -> tuple[tuple[float, float], ...]:
+    schedule_np = np.array([*schedule, (0, 0)])
+    idx_np = np.array(idx) / len(schedule) + current / len(schedule)
+    scale = np.linspace(0, 1, len(schedule_np))
+
+    # TODO (beinszeii): better 2d interpolate
+    result = tuple(
+        zip(
+            (np.interp(idx_np, scale, schedule_np[:, 0])).tolist(),
+            (np.interp(idx_np, scale, schedule_np[:, 1])).tolist(),
+        )
+    )
+    return result
+
+
 @dataclasses.dataclass(frozen=True)
 class FunctionalSampler(ABC):
     type SampleCallback[T: Sample] = Callable[[T, int, float, float], Any]
@@ -356,25 +375,6 @@ class RKUltra(FunctionalHigher, FunctionalSinglestep):
 
         return max(round(adjusted), 1)
 
-    @staticmethod
-    def fractional_step(
-        schedule: list[tuple[float, float]],
-        current: int,
-        idx: tuple[float, ...],
-    ) -> tuple[tuple[float, float], ...]:
-        schedule_np = np.array([*schedule, (0, 0)])
-        idx_np = np.array(idx) / len(schedule) + current / len(schedule)
-        scale = np.linspace(0, 1, len(schedule_np))
-
-        # TODO (beinszeii): better 2d interpolate
-        result = tuple(
-            zip(
-                (np.interp(idx_np, scale, schedule_np[:, 0])).tolist(),
-                (np.interp(idx_np, scale, schedule_np[:, 1])).tolist(),
-            )
-        )
-        return result
-
     def step[T: Sample](
         self,
         sample: T,
@@ -385,7 +385,7 @@ class RKUltra(FunctionalHigher, FunctionalSinglestep):
     ) -> T:
         stages, composite = self.tableau()
         k_terms: list[T] = []
-        fractions = self.fractional_step(schedule, step, tuple(f[0] for f in stages))
+        fractions = fractional_step(schedule, step, tuple(f[0] for f in stages))
 
         for frac_sc, icoeffs in zip(fractions, (t[1] for t in stages), strict=True):
             if icoeffs:
@@ -460,7 +460,16 @@ class FastHeun(FunctionalAdaptive, FunctionalSinglestep, FunctionalHigher):
 
 
 @dataclasses.dataclass(frozen=True)
-class AdaptiveHeun(FunctionalAdaptive, FunctionalHigher):
+class RKMoire(FunctionalAdaptive, FunctionalHigher):
+    type ExtendedTableau = tuple[
+        tuple[
+            tuple[float, tuple[float, ...]],
+            ...,
+        ],
+        tuple[float, ...],
+        tuple[float, ...],
+    ]
+
     order: int = 2
 
     threshold: float = 1e-3
@@ -469,16 +478,73 @@ class AdaptiveHeun(FunctionalAdaptive, FunctionalHigher):
     maximum: float = 1 / 4
     adaption: float = 0.3
 
+    rescale_init: bool = True
+    "Scale initial by a tableau's model evals."
+
+    @enum.unique
+    class RKE2(enum.StrEnum):
+        Heun = enum.auto()
+        # Fehlberg = enum.auto()
+
+        def tableau(self) -> "RKMoire.ExtendedTableau":
+            match self:
+                case self.Heun:
+                    return (
+                        (
+                            (0, ()),
+                            (1, (1,)),
+                        ),
+                        (1 / 2, 1 / 2),
+                        (1, 0),
+                    )
+
+    @enum.unique
+    class RKE5(enum.StrEnum):
+        Fehlberg = enum.auto()
+        # CashKarp = enum.auto()
+        # DormandPrince = enum.auto()
+
+        def tableau(self) -> "RKMoire.ExtendedTableau":
+            match self:
+                case self.Fehlberg:
+                    return (
+                        (
+                            (0, ()),
+                            (1 / 4, (1 / 4,)),
+                            (3 / 8, (3 / 32, 9 / 32)),
+                            (12 / 13, (1932 / 2197, -7200 / 2197, 7296 / 2197)),
+                            (1, (439 / 216, -8, 3680 / 513, -845 / 4104)),
+                            (1 / 2, (-8 / 27, 2, -3544 / 2565, 1859 / 4104, -11 / 40)),
+                        ),
+                        (16 / 135, 0, 6656 / 12825, 28561 / 56430, -9 / 50, 2 / 55),
+                        (25 / 216, 0, 1408 / 2565, 2197 / 4104, -1 / 5, 0),
+                    )
+
+    custom_tableau: ExtendedTableau | None = None
+    rke2: RKE2 = RKE2.Heun
+    rke5: RKE5 = RKE5.Fehlberg
+
     @staticmethod
     def min_order() -> int:
         return 2
 
     @staticmethod
     def max_order() -> int:
-        return 2
+        return 5
 
     def adjust_steps(self, steps: int) -> int:
         return steps
+
+    def tableau(self, order: int | None = None) -> ExtendedTableau:
+        if self.custom_tableau is not None:
+            return self.custom_tableau
+        elif order is None:
+            order = self.order
+
+        if order >= 5:
+            return self.rke5.tableau()
+        else:
+            return self.rke2.tableau()
 
     def sample_model[T: Sample](
         self,
@@ -489,8 +555,14 @@ class AdaptiveHeun(FunctionalAdaptive, FunctionalHigher):
         rng: FunctionalSampler.RNG[T] | None = None,
         callback: FunctionalSampler.SampleCallback | None = None,
     ) -> T:
+        stages, comp_high, comp_low = self.tableau()
+
+        initial = self.initial
+        if self.rescale_init:
+            initial *= len(stages) / 2  # Heun is base so / 2
+
+        step_size: int = max(round(steps * initial), 1)
         epsilon: float = 1e-16  # lgtm
-        step_size: int = max(round(steps * self.initial), 1)
 
         schedule: list[tuple[float, float]] = self.schedule.schedule(steps).tolist()
 
@@ -500,42 +572,66 @@ class AdaptiveHeun(FunctionalAdaptive, FunctionalHigher):
         while step <= indices[-1]:
             step_next = min(step + step_size, indices[-1] + 1)
 
-            sigma = schedule[step][1]
-            sigma_next = schedule[step_next][1] if step_next < len(schedule) else 0
+            k_terms: list[T] = []
+            fractions = fractional_step(schedule, step, tuple(f[0] * step_size for f in stages))
 
-            sigma_u, sigma_v = self.schedule.sigma_transform(sigma)
-            sigma_u_next, sigma_v_next = self.schedule.sigma_transform(sigma_next)
+            for frac_sc, icoeffs in zip(fractions, (t[1] for t in stages), strict=True):
+                if icoeffs:
+                    combined: T = common.euler(
+                        sample,
+                        math.sumprod(k_terms, icoeffs) / math.fsum(icoeffs),  # type: ignore
+                        schedule[step][1],
+                        frac_sc[1],
+                        self.schedule.sigma_transform,
+                    )
+                else:
+                    combined = sample
 
-            scale = sigma_u_next / sigma_u
-            dt = sigma_v_next - sigma_v * scale
+                # Do not call model on timestep = 0 or sigma = 0
+                k_terms.append(model(combined, *frac_sc) if not any(abs(v) < 1e-8 for v in frac_sc) else combined)
 
-            k1 = model(sample, *schedule[step])
-            euler_step: T = sample * scale + k1 * dt  # type: ignore
+            sample_high: T = common.euler(
+                sample,
+                math.sumprod(k_terms, comp_high),  # type: ignore
+                schedule[step][1],
+                schedule[step_next][1] if step_next < len(schedule) else 0,
+                self.schedule.sigma_transform,
+            )
 
             if step_next < len(schedule):
-                k2 = model(euler_step, *schedule[step_next])
-                heun_step: T = sample * scale + (k1 + k2) / 2 * dt  # type: ignore
-
-                sample = heun_step
-
-                # The schedule is *also* trying to predict the step size, so we need the next step size too
+                sigma = schedule[step][1]
+                sigma_next = schedule[step_next][1] if step_next < len(schedule) else 0
                 sigma_next2 = schedule[step_next + step_size][1] if step_next + step_size < len(schedule) else 0
+
+                sigma_u, sigma_v = self.schedule.sigma_transform(sigma)
+                sigma_u_next, sigma_v_next = self.schedule.sigma_transform(sigma_next)
                 sigma_u_next2, sigma_v_next2 = self.schedule.sigma_transform(sigma_next2)
+
+                dt = sigma_v_next - sigma_v * (sigma_u_next / sigma_u)
                 dt2 = sigma_v_next2 - sigma_v_next * (sigma_u_next2 / sigma_u_next)
+                dt1x2 = dt2 / dt
+
+                sample_low: T = common.euler(
+                    sample,
+                    math.sumprod(k_terms, comp_low),  # type: ignore
+                    schedule[step][1],
+                    schedule[step_next][1] if step_next < len(schedule) else 0,
+                    self.schedule.sigma_transform,
+                )
 
                 # Normalize against pure error
-                error = self.evaluator(euler_step, heun_step) / max(self.evaluator(0, heun_step), epsilon)
+                error = self.evaluator(sample_low, sample_high) / max(self.evaluator(0, sample_high), epsilon)
                 # Offset adjustment by dt2 / dt to account for non-linearity
                 # Basically if we want a 50% larger step but the next dt will already be 25% larger,
                 # we should only set a 20% larger step ie 1.5 / 1.25
                 # Really this could be iterated to contrast dt2/dt and thresh/error until they're 100% matched but eh
-                adjustment: float = (self.threshold / max(error, epsilon)) ** self.adaption / (dt2 / dt)
+                adjustment: float = (self.threshold / max(error, epsilon)) ** self.adaption / dt1x2
                 step_size = max(round(min(step_size * adjustment, steps * self.maximum)), 1)
-            else:
-                sample = euler_step
+
+            sample = sample_high
 
             if callback:
-                callback(sample, step, *schedule[step] if step < len(schedule) else (0, 0))
+                callback(sample, step_next - 1, *schedule[step] if step < len(schedule) else (0, 0))
 
             step = step_next
 

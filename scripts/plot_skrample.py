@@ -69,9 +69,9 @@ SAMPLERS: dict[str, structured.StructuredSampler | functional.FunctionalSampler]
     "unip": structured.UniP(),
     "unipc": structured.UniPC(),
     "spc": structured.SPC(),
-    "rk": functional.RKUltra(scheduling.Linear()),
+    "rku": functional.RKUltra(scheduling.Linear()),
+    "rkm": functional.RKMoire(scheduling.Linear()),
     "fheun": functional.FastHeun(scheduling.Linear()),
-    "aheun": functional.AdaptiveHeun(scheduling.Linear()),
 }
 for k, v in list(SAMPLERS.items()):
     if isinstance(v, structured.StructuredMultistep | functional.FunctionalHigher):
@@ -178,7 +178,7 @@ if args.command == "samplers":
             sampled_values.append(x)
             sigmas.insert(-1, s)
 
-        if isinstance(sampler, functional.AdaptiveHeun) and args.adjust:
+        if isinstance(sampler, functional.RKMoire) and args.adjust:
             adjusted = schedule.base_timesteps
         elif isinstance(sampler, functional.FunctionalHigher) and args.adjust:
             adjusted = sampler.adjust_steps(steps)

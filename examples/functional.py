@@ -30,7 +30,7 @@ with torch.inference_mode():
     # Dynamic model calls
     sampler = functional.FastHeun(schedule)
     # Dynamic step sizes
-    sampler = functional.AdaptiveHeun(schedule)
+    sampler = functional.RKMoire(schedule)
 
     tokenizer: CLIPTokenizer = CLIPTokenizer.from_pretrained(url, subfolder="tokenizer")
     text_encoder: CLIPTextModel = CLIPTextModel.from_pretrained(

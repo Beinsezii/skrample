@@ -32,7 +32,7 @@ sampler = functional.RKUltra(schedule, 4)
 # Dynamic model calls
 sampler = functional.FastHeun(schedule)
 # Dynamic step sizes
-sampler = functional.AdaptiveHeun(schedule)
+sampler = functional.RKMoire(schedule)
 
 
 class FunctionalDenoise(FluxDenoiseStep):
