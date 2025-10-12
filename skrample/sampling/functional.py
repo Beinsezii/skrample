@@ -200,7 +200,7 @@ class RKUltra(FunctionalHigher, FunctionalSinglestep):
 
     order: int = 2
 
-    providers: dict[int, tableaux.TableauProvider | tableaux.ExtendedTableauProvider] = dataclasses.field(
+    providers: dict[int, tableaux.TableauProvider[tableaux.Tableau | tableaux.ExtendedTableau]] = dataclasses.field(
         default_factory=lambda: {
             2: tableaux.RK2.Ralston,
             3: tableaux.RK3.Ralston,
@@ -296,7 +296,7 @@ class FastHeun(FunctionalAdaptive, FunctionalSinglestep, FunctionalHigher):
 class RKMoire(FunctionalAdaptive, FunctionalHigher):
     order: int = 2
 
-    providers: dict[int, tableaux.ExtendedTableauProvider] = dataclasses.field(
+    providers: dict[int, tableaux.TableauProvider[tableaux.ExtendedTableau]] = dataclasses.field(
         default_factory=lambda: {
             2: tableaux.RKE2.Heun,
             5: tableaux.RKE5.Fehlberg,

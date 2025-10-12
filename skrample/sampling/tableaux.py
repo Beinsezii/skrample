@@ -1,4 +1,5 @@
 import abc
+import dataclasses
 import enum
 import math
 from typing import Protocol
@@ -68,15 +69,9 @@ def rk3_tableau(alpha: float, beta: float) -> Tableau:
     )
 
 
-class TableauProvider(Protocol):
+class TableauProvider[T: Tableau | ExtendedTableau](Protocol):
     @abc.abstractmethod
-    def tableau(self) -> Tableau:
-        raise NotImplementedError
-
-
-class ExtendedTableauProvider(Protocol):
-    @abc.abstractmethod
-    def tableau(self) -> ExtendedTableau:
+    def tableau(self) -> T:
         raise NotImplementedError
 
 
@@ -87,159 +82,149 @@ RK1: Tableau = (
 "Euler method"
 
 
-@enum.unique
-class RK2(enum.StrEnum):
-    Heun = enum.auto()
-    Mid = enum.auto()
-    Ralston = enum.auto()
+@dataclasses.dataclass(frozen=True)
+class CustomTableau[T: Tableau | ExtendedTableau](TableauProvider[T]):
+    custom: T
+
+    def tableau(self) -> T:
+        return self.custom
+
+
+@dataclasses.dataclass(frozen=True)
+class RK2Custom(TableauProvider):
+    alpha: float = 1.0
 
     def tableau(self) -> Tableau:
-        match self:
-            case self.Heun:
-                return rk2_tableau(1)
-            case self.Mid:
-                return rk2_tableau(1 / 2)
-            case self.Ralston:
-                return rk2_tableau(2 / 3)
+        return rk2_tableau(self.alpha)
 
 
-@enum.unique
-class RK3(enum.StrEnum):
-    Kutta = enum.auto()
-    Heun = enum.auto()
-    Ralston = enum.auto()
-    Wray = enum.auto()
-    SSPRK3 = enum.auto()
+@dataclasses.dataclass(frozen=True)
+class RK3Custom(TableauProvider):
+    alpha: float = 1 / 2
+    beta: float = 1.0
 
     def tableau(self) -> Tableau:
-        match self:
-            case self.Kutta:
-                return rk3_tableau(1 / 2, 1)
-            case self.Heun:
-                return rk3_tableau(1 / 3, 2 / 3)
-            case self.Ralston:
-                return rk3_tableau(1 / 2, 3 / 4)
-            case self.Wray:
-                return rk3_tableau(8 / 15, 2 / 3)
-            case self.SSPRK3:
-                return rk3_tableau(1, 1 / 2)
+        return rk3_tableau(self.alpha, self.beta)
 
 
 @enum.unique
-class RK4(enum.StrEnum):
-    Classic = enum.auto()
-    Eighth = enum.auto()
-    Ralston = enum.auto()
+class RK2(enum.Enum):
+    Heun = rk2_tableau(1)
+    Mid = rk2_tableau(1 / 2)
+    Ralston = rk2_tableau(2 / 3)
 
     def tableau(self) -> Tableau:
-        match self:
-            case self.Classic:
-                return (
-                    (
-                        (0, ()),
-                        (1 / 2, (1 / 2,)),
-                        (1 / 2, (0, 1 / 2)),
-                        (1, (0, 0, 1)),
-                    ),
-                    (1 / 6, 1 / 3, 1 / 3, 1 / 6),
-                )
-            case self.Eighth:
-                return (
-                    (
-                        (0, ()),
-                        (1 / 3, (1 / 3,)),
-                        (2 / 3, (-1 / 3, 1)),
-                        (1, (1, -1, 1)),
-                    ),
-                    (1 / 8, 3 / 8, 3 / 8, 1 / 8),
-                )
-            case self.Ralston:
-                sq5: float = math.sqrt(5)
-                return (
-                    (
-                        (0, ()),
-                        (2 / 5, (2 / 5,)),
-                        (
-                            (14 - 3 * sq5) / 16,
-                            (
-                                (-2889 + 1428 * sq5) / 1024,
-                                (3785 - 1620 * sq5) / 1024,
-                            ),
-                        ),
-                        (
-                            1,
-                            (
-                                (-3365 + 2094 * sq5) / 6040,
-                                (-975 - 3046 * sq5) / 2552,
-                                (467040 + 203968 * sq5) / 240845,
-                            ),
-                        ),
-                    ),
-                    (
-                        (263 + 24 * sq5) / 1812,
-                        (125 - 1000 * sq5) / 3828,
-                        (3426304 + 1661952 * sq5) / 5924787,
-                        (30 - 4 * sq5) / 123,
-                    ),
-                )
+        return self.value
 
 
 @enum.unique
-class RK5(enum.StrEnum):
-    Nystrom = enum.auto()
+class RK3(enum.Enum):
+    Kutta = rk3_tableau(1 / 2, 1)
+    Heun = rk3_tableau(1 / 3, 2 / 3)
+    Ralston = rk3_tableau(1 / 2, 3 / 4)
+    Wray = rk3_tableau(8 / 15, 2 / 3)
+    SSPRK3 = rk3_tableau(1, 1 / 2)
 
     def tableau(self) -> Tableau:
-        match self:
-            case self.Nystrom:
-                return (
-                    (
-                        (0, ()),
-                        (1 / 3, (1 / 3,)),
-                        (2 / 5, (4 / 25, 6 / 25)),
-                        (1, (1 / 4, -3, 15 / 4)),
-                        (2 / 3, (2 / 27, 10 / 9, -50 / 81, 8 / 81)),
-                        (4 / 5, (2 / 25, 12 / 25, 2 / 15, 8 / 75, 0)),
-                    ),
-                    (23 / 192, 0, 125 / 192, 0, -27 / 64, 125 / 192),
-                )
+        return self.value
 
 
 @enum.unique
-class RKE2(enum.StrEnum):
-    Heun = enum.auto()
+class RK4(enum.Enum):
+    Classic = (
+        (
+            (0, ()),
+            (1 / 2, (1 / 2,)),
+            (1 / 2, (0, 1 / 2)),
+            (1, (0, 0, 1)),
+        ),
+        (1 / 6, 1 / 3, 1 / 3, 1 / 6),
+    )
+    Eighth = (
+        (
+            (0, ()),
+            (1 / 3, (1 / 3,)),
+            (2 / 3, (-1 / 3, 1)),
+            (1, (1, -1, 1)),
+        ),
+        (1 / 8, 3 / 8, 3 / 8, 1 / 8),
+    )
+    Ralston = (
+        (
+            (0, ()),
+            (2 / 5, (2 / 5,)),
+            ((14 - 3 * math.sqrt(5)) / 16, ((-2889 + 1428 * math.sqrt(5)) / 1024, (3785 - 1620 * math.sqrt(5)) / 1024)),
+            (
+                1,
+                (
+                    (-3365 + 2094 * math.sqrt(5)) / 6040,
+                    (-975 - 3046 * math.sqrt(5)) / 2552,
+                    (467040 + 203968 * math.sqrt(5)) / 240845,
+                ),
+            ),
+        ),
+        (
+            (263 + 24 * math.sqrt(5)) / 1812,
+            (125 - 1000 * math.sqrt(5)) / 3828,
+            (3426304 + 1661952 * math.sqrt(5)) / 5924787,
+            (30 - 4 * math.sqrt(5)) / 123,
+        ),
+    )
+
+    def tableau(self) -> Tableau:
+        return self.value
+
+
+@enum.unique
+class RK5(enum.Enum):
+    Nystrom = (
+        (
+            (0, ()),
+            (1 / 3, (1 / 3,)),
+            (2 / 5, (4 / 25, 6 / 25)),
+            (1, (1 / 4, -3, 15 / 4)),
+            (2 / 3, (2 / 27, 10 / 9, -50 / 81, 8 / 81)),
+            (4 / 5, (2 / 25, 12 / 25, 2 / 15, 8 / 75, 0)),
+        ),
+        (23 / 192, 0, 125 / 192, 0, -27 / 64, 125 / 192),
+    )
+
+    def tableau(self) -> Tableau:
+        return self.value
+
+
+@enum.unique
+class RKE2(enum.Enum):
+    Heun = (
+        (
+            (0, ()),
+            (1, (1,)),
+        ),
+        (1 / 2, 1 / 2),
+        (1, 0),
+    )
     # Fehlberg = enum.auto()
 
     def tableau(self) -> ExtendedTableau:
-        match self:
-            case self.Heun:
-                return (
-                    (
-                        (0, ()),
-                        (1, (1,)),
-                    ),
-                    (1 / 2, 1 / 2),
-                    (1, 0),
-                )
+        return self.value
 
 
 @enum.unique
-class RKE5(enum.StrEnum):
-    Fehlberg = enum.auto()
+class RKE5(enum.Enum):
+    Fehlberg = (
+        (
+            (0, ()),
+            (1 / 4, (1 / 4,)),
+            (3 / 8, (3 / 32, 9 / 32)),
+            (12 / 13, (1932 / 2197, -7200 / 2197, 7296 / 2197)),
+            (1, (439 / 216, -8, 3680 / 513, -845 / 4104)),
+            (1 / 2, (-8 / 27, 2, -3544 / 2565, 1859 / 4104, -11 / 40)),
+        ),
+        (16 / 135, 0, 6656 / 12825, 28561 / 56430, -9 / 50, 2 / 55),
+        (25 / 216, 0, 1408 / 2565, 2197 / 4104, -1 / 5, 0),
+    )
     # CashKarp = enum.auto()
     # DormandPrince = enum.auto()
 
     def tableau(self) -> ExtendedTableau:
-        match self:
-            case self.Fehlberg:
-                return (
-                    (
-                        (0, ()),
-                        (1 / 4, (1 / 4,)),
-                        (3 / 8, (3 / 32, 9 / 32)),
-                        (12 / 13, (1932 / 2197, -7200 / 2197, 7296 / 2197)),
-                        (1, (439 / 216, -8, 3680 / 513, -845 / 4104)),
-                        (1 / 2, (-8 / 27, 2, -3544 / 2565, 1859 / 4104, -11 / 40)),
-                    ),
-                    (16 / 135, 0, 6656 / 12825, 28561 / 56430, -9 / 50, 2 / 55),
-                    (25 / 216, 0, 1408 / 2565, 2197 / 4104, -1 / 5, 0),
-                )
+        return self.value
