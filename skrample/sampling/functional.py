@@ -39,7 +39,7 @@ def step_tableau[T: Sample](
     schedule: list[tuple[float, float]],
     transform: SigmaTransform,
     step_size: int = 1,
-    epsilon: float = 1e-8
+    epsilon: float = 1e-8,
 ) -> tuple[T, ...]:
     nodes, weights = tableau[0], tableau[1:]
     k_terms: list[T] = []
@@ -189,7 +189,9 @@ class FunctionalAdaptive(FunctionalSampler):
             return error.mean().item()
 
     evaluator: Evaluator = mse
+    "Function used to measure error of two samples"
     threshold: float = 1e-2
+    "Target error threshold for a given evaluation"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -198,30 +200,27 @@ class RKUltra(FunctionalHigher, FunctionalSinglestep):
 
     order: int = 2
 
-    providers: tuple[tableaux.TableauProvider | tableaux.ExtendedTableauProvider, ...] = (
-        tableaux.RK2.Ralston,
-        tableaux.RK3.Ralston,
-        tableaux.RK4.Ralston,
-        tableaux.RK5.Nystrom,
+    providers: dict[int, tableaux.TableauProvider | tableaux.ExtendedTableauProvider] = dataclasses.field(
+        default_factory=lambda: {
+            2: tableaux.RK2.Ralston,
+            3: tableaux.RK3.Ralston,
+            4: tableaux.RK4.Ralston,
+            5: tableaux.RK5.Nystrom,
+        }
     )
     """Providers for a given order, starting from 2.
     Order 1 is always the Euler method."""
 
-    custom_tableau: tableaux.Tableau | tableaux.ExtendedTableau | None = None
-    "If set, will use this Butcher tableau instead of picking method based on `RKUltra.order`"
-
     @staticmethod
     def max_order() -> int:
-        return 5
+        return 99
 
     def tableau(self, order: int | None = None) -> tableaux.Tableau:
-        if self.custom_tableau is not None:
-            return self.custom_tableau[:2]
-        elif order is None:
+        if order is None:
             order = self.order
 
-        if order >= 2 and (morder := len(self.providers)):
-            return self.providers[min(order - 2, morder - 1)].tableau()[:2]
+        if order >= 2 and (morder := max(o for o in self.providers.keys() if o <= order)):
+            return self.providers[morder].tableau()[:2]
         else:  # Euler / RK1
             return tableaux.RK1
 
@@ -297,24 +296,26 @@ class FastHeun(FunctionalAdaptive, FunctionalSinglestep, FunctionalHigher):
 class RKMoire(FunctionalAdaptive, FunctionalHigher):
     order: int = 2
 
-    providers: tuple[tableaux.ExtendedTableauProvider, ...] = (
-        tableaux.RKE2.Heun,
-        tableaux.RKE2.Heun,
-        tableaux.RKE2.Heun,
-        tableaux.RKE5.Fehlberg,
+    providers: dict[int, tableaux.ExtendedTableauProvider] = dataclasses.field(
+        default_factory=lambda: {
+            2: tableaux.RKE2.Heun,
+            5: tableaux.RKE5.Fehlberg,
+        }
     )
+    """Providers for a given order, starting from 2.
+    Falls back to RKE2.Heun"""
 
     threshold: float = 1e-3
 
     initial: float = 1 / 50
+    "Percent of schedule to take as an initial step."
     maximum: float = 1 / 4
+    "Percent of schedule to take as a maximum step."
     adaption: float = 0.3
+    "How fast to adjust step size in relation to error"
 
     rescale_init: bool = True
     "Scale initial by a tableau's model evals."
-
-    custom_tableau: tableaux.ExtendedTableau | None = None
-    "If set, will use this Butcher tableau instead of picking method based on `RKMoire.order`"
 
     @staticmethod
     def min_order() -> int:
@@ -322,15 +323,13 @@ class RKMoire(FunctionalAdaptive, FunctionalHigher):
 
     @staticmethod
     def max_order() -> int:
-        return 5
+        return 99
 
     def adjust_steps(self, steps: int) -> int:
         return steps
 
     def tableau(self, order: int | None = None) -> tableaux.ExtendedTableau:
-        if self.custom_tableau is not None:
-            return self.custom_tableau
-        elif order is None:
+        if order is None:
             order = self.order
 
         if order >= 2 and (morder := len(self.providers)):

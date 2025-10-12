@@ -75,7 +75,7 @@ SAMPLERS: dict[str, structured.StructuredSampler | functional.FunctionalSampler]
 }
 for k, v in list(SAMPLERS.items()):
     if isinstance(v, structured.StructuredMultistep | functional.FunctionalHigher):
-        for o in range(v.min_order(), v.max_order() + 1):
+        for o in range(v.min_order(), min(v.max_order() + 1, 9)):
             if o != v.order:
                 SAMPLERS[k + str(o)] = replace(v, order=o)
 
