@@ -19,6 +19,20 @@ type ExtendedTableau = tuple[
 ]
 
 
+def validate_tableau(tab: Tableau | ExtendedTableau, tolerance: float = 1e-15) -> None | IndexError | ValueError:
+    for index, node in enumerate(tab[0]):
+        if index != (node_len := len(node[1])):
+            return IndexError(f"{index=}, {node_len=}, {node=}")
+        if tolerance < (node_err := abs(node[0] - math.fsum(node[1]))):
+            return ValueError(f"{tolerance=}, {node_err=}, {node=}")
+
+    for weight in tab[1:]:
+        if (node_count := len(tab[0])) != (weight_len := len(weight)):
+            return IndexError(f"{node_count=}, {weight_len=}, {weight=}")
+        if tolerance < (weight_err := abs(1 - math.fsum(weight))):
+            return ValueError(f"{tolerance=}, {weight_err=}, {weight=}")
+
+
 class TableauProvider(Protocol):
     @abc.abstractmethod
     def tableau(self) -> Tableau:

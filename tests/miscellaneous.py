@@ -224,18 +224,8 @@ def test_bashforth() -> None:
 def test_tableau() -> None:
     for provider in [tableaux.RK2, tableaux.RK3, tableaux.RK4, tableaux.RK5, tableaux.RKE2, tableaux.RKE5]:
         for variant in provider:
-            tab: tableaux.Tableau | tableaux.ExtendedTableau = variant.tableau()
-
-            for stage in tab[0]:
-                stage_err = abs(stage[0] - math.fsum(stage[1]))
-                assert stage_err < 1e-15, (variant, stage)
-
-            final_err = abs(1 - math.fsum(tab[1]))
-            assert final_err < 1e-15, variant
-
-            if len(tab) > 2:
-                low_err = abs(1 - math.fsum(tab[2]))
-                assert low_err < 1e-15, variant
+            if error := tableaux.validate_tableau(variant.tableau()):
+                raise error
 
 
 def test_sigmoid() -> None:
