@@ -313,7 +313,7 @@ class RKMoire(FunctionalAdaptive, FunctionalHigher):
     "Scale initial by a tableau's model evals."
 
     custom_tableau: tableaux.ExtendedTableau | None = None
-    "If set, will use this Butcher tableau instead of picking method based on `RKUltra.order`"
+    "If set, will use this Butcher tableau instead of picking method based on `RKMoire.order`"
 
     @staticmethod
     def min_order() -> int:
