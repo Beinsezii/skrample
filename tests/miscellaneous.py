@@ -8,7 +8,7 @@ from testing_common import compare_tensors
 
 from skrample.common import MergeStrategy, bashforth, sigma_complement, sigmoid, softmax, spowf
 from skrample.diffusers import SkrampleWrapperScheduler
-from skrample.sampling.functional import RKMoire, RKUltra
+from skrample.sampling import tableaux
 from skrample.sampling.interface import StructuredFunctionalAdapter
 from skrample.sampling.structured import (
     DPM,
@@ -222,9 +222,9 @@ def test_bashforth() -> None:
 
 
 def test_tableau() -> None:
-    for order in [RKUltra.RK2, RKUltra.RK3, RKUltra.RK4, RKUltra.RK5, RKMoire.RKE2, RKMoire.RKE5]:
-        for variant in order:
-            tab: RKUltra.Tableau | RKMoire.ExtendedTableau = variant.tableau()
+    for provider in [tableaux.RK2, tableaux.RK3, tableaux.RK4, tableaux.RK5, tableaux.RKE2, tableaux.RKE5]:
+        for variant in provider:
+            tab: tableaux.Tableau | tableaux.ExtendedTableau = variant.tableau()
 
             for stage in tab[0]:
                 stage_err = abs(stage[0] - math.fsum(stage[1]))
