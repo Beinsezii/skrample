@@ -39,6 +39,7 @@ def step_tableau[T: Sample](
     schedule: list[tuple[float, float]],
     transform: SigmaTransform,
     step_size: int = 1,
+    epsilon: float = 1e-8
 ) -> tuple[T, ...]:
     nodes, weights = tableau[0], tableau[1:]
     k_terms: list[T] = []
@@ -57,7 +58,7 @@ def step_tableau[T: Sample](
             combined = sample
 
         # Do not call model on timestep = 0 or sigma = 0
-        k_terms.append(model(combined, *frac_sc) if not any(abs(v) < 1e-8 for v in frac_sc) else combined)
+        k_terms.append(model(combined, *frac_sc) if not any(abs(v) < epsilon for v in frac_sc) else combined)
 
     return tuple(
         common.euler(
