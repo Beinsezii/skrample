@@ -221,11 +221,52 @@ def test_bashforth() -> None:
         assert np.allclose(coeffs, np.array(bashforth(n + 1)), atol=1e-12, rtol=1e-12)
 
 
-def test_tableau() -> None:
+def test_tableau_providers() -> None:
     for provider in [tableaux.RK2, tableaux.RK3, tableaux.RK4, tableaux.RK5, tableaux.RKE2, tableaux.RKE5]:
         for variant in provider:
             if error := tableaux.validate_tableau(variant.tableau()):
                 raise error
+
+
+def flat_tableau(t: tuple[float | tuple[float | tuple[float | tuple[float, ...], ...], ...], ...]) -> tuple[float, ...]:
+    return tuple(z for y in (flat_tableau(x) if isinstance(x, tuple) else (x,) for x in t) for z in y)
+
+
+def tableau_distance(a: tableaux.Tableau, b: tableaux.Tableau) -> float:
+    return abs(np.subtract(flat_tableau(a), flat_tableau(b))).max().item()
+
+
+def test_rk2_tableau() -> None:
+    assert (
+        tableau_distance(
+            (  # Ralston
+                (
+                    (0.0, ()),
+                    (2 / 3, (2 / 3,)),
+                ),
+                (1 / 4, 3 / 4),
+            ),
+            tableaux.rk2_tableau(2 / 3),
+        )
+        < 1e-20
+    )
+
+
+def test_rk3_tableau() -> None:
+    assert (
+        tableau_distance(
+            (  # Wray
+                (
+                    (0.0, ()),
+                    (8 / 15, (8 / 15,)),
+                    (2 / 3, (1 / 4, 5 / 12)),
+                ),
+                (1 / 4, 0.0, 3 / 4),
+            ),
+            tableaux.rk3_tableau(8 / 15, 2 / 3),
+        )
+        < 1e-15
+    )
 
 
 def test_sigmoid() -> None:

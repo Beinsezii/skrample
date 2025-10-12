@@ -33,6 +33,41 @@ def validate_tableau(tab: Tableau | ExtendedTableau, tolerance: float = 1e-15) -
             return ValueError(f"{tolerance=}, {weight_err=}, {weight=}")
 
 
+def rk2_tableau(alpha: float) -> Tableau:
+    "Create a generic 2nd order Tableau from a given alpha value."
+    alpha_w = 1 / (2 * alpha)
+    return (
+        (
+            (0.0, ()),
+            (alpha, (alpha,)),
+        ),
+        (1 - alpha_w, alpha_w),
+    )
+
+
+def rk3_tableau(alpha: float, beta: float) -> Tableau:
+    "Create a generic 3rd order Tableau from a given alpha and beta values."
+
+    return (
+        (
+            (0.0, ()),
+            (alpha, (alpha,)),
+            (
+                beta,
+                (
+                    beta / alpha * ((beta - 3 * alpha * (1 - alpha)) / (3 * alpha - 2)),
+                    -beta / alpha * ((beta - alpha) / (3 * alpha - 2)),
+                ),
+            ),
+        ),
+        (
+            1 - (3 * alpha + 3 * beta - 2) / (6 * alpha * beta),
+            (3 * beta - 2) / (6 * alpha * (beta - alpha)),
+            (2 - 3 * alpha) / (6 * beta * (beta - alpha)),
+        ),
+    )
+
+
 class TableauProvider(Protocol):
     @abc.abstractmethod
     def tableau(self) -> Tableau:
@@ -61,29 +96,11 @@ class RK2(enum.StrEnum):
     def tableau(self) -> Tableau:
         match self:
             case self.Heun:
-                return (
-                    (
-                        (0, ()),
-                        (1, (1,)),
-                    ),
-                    (1 / 2, 1 / 2),
-                )
+                return rk2_tableau(1)
             case self.Mid:
-                return (
-                    (
-                        (0, ()),
-                        (1 / 2, (1 / 2,)),
-                    ),
-                    (0, 1),
-                )
+                return rk2_tableau(1 / 2)
             case self.Ralston:
-                return (
-                    (
-                        (0, ()),
-                        (2 / 3, (2 / 3,)),
-                    ),
-                    (1 / 4, 3 / 4),
-                )
+                return rk2_tableau(2 / 3)
 
 
 @enum.unique
@@ -97,50 +114,15 @@ class RK3(enum.StrEnum):
     def tableau(self) -> Tableau:
         match self:
             case self.Kutta:
-                return (
-                    (
-                        (0, ()),
-                        (1 / 2, (1 / 2,)),
-                        (1, (-1, 2)),
-                    ),
-                    (1 / 6, 2 / 3, 1 / 6),
-                )
+                return rk3_tableau(1 / 2, 1)
             case self.Heun:
-                return (
-                    (
-                        (0, ()),
-                        (1 / 3, (1 / 3,)),
-                        (2 / 3, (0, 2 / 3)),
-                    ),
-                    (1 / 4, 0, 3 / 4),
-                )
+                return rk3_tableau(1 / 3, 2 / 3)
             case self.Ralston:
-                return (
-                    (
-                        (0, ()),
-                        (1 / 2, (1 / 2,)),
-                        (3 / 4, (0, 3 / 4)),
-                    ),
-                    (2 / 9, 1 / 3, 4 / 9),
-                )
+                return rk3_tableau(1 / 2, 3 / 4)
             case self.Wray:
-                return (
-                    (
-                        (0, ()),
-                        (8 / 15, (8 / 15,)),
-                        (2 / 3, (1 / 4, 5 / 12)),
-                    ),
-                    (1 / 4, 0, 3 / 4),
-                )
+                return rk3_tableau(8 / 15, 2 / 3)
             case self.SSPRK3:
-                return (
-                    (
-                        (0, ()),
-                        (1, (1,)),
-                        (1 / 2, (1 / 4, 1 / 4)),
-                    ),
-                    (1 / 6, 1 / 6, 2 / 3),
-                )
+                return rk3_tableau(1, 1 / 2)
 
 
 @enum.unique
