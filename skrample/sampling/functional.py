@@ -332,8 +332,8 @@ class RKMoire(FunctionalAdaptive, FunctionalHigher):
         if order is None:
             order = self.order
 
-        if order >= 2 and (morder := len(self.providers)):
-            return self.providers[min(order - 2, morder - 1)].tableau()
+        if order >= 2 and (morder := max(o for o in self.providers.keys() if o <= order)):
+            return self.providers[morder].tableau()
         else:
             return tableaux.RKE2.Heun.tableau()
 
