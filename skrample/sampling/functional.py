@@ -31,6 +31,46 @@ def fractional_step(
     return result
 
 
+def step_tableau[T: Sample](
+    tableau: tableaux.Tableau | tableaux.ExtendedTableau,
+    sample: T,
+    model: "FunctionalSampler.SampleableModel[T]",
+    step: int,
+    schedule: list[tuple[float, float]],
+    transform: SigmaTransform,
+    step_size: int = 1,
+) -> tuple[T, ...]:
+    nodes, weights = tableau[0], tableau[1:]
+    k_terms: list[T] = []
+    fractions = fractional_step(schedule, step, tuple(f[0] * step_size for f in nodes))
+
+    for frac_sc, icoeffs in zip(fractions, (t[1] for t in nodes), strict=True):
+        if icoeffs:
+            combined: T = common.euler(
+                sample,
+                math.sumprod(k_terms, icoeffs) / math.fsum(icoeffs),  # type: ignore
+                schedule[step][1],
+                frac_sc[1],
+                transform,
+            )
+        else:
+            combined = sample
+
+        # Do not call model on timestep = 0 or sigma = 0
+        k_terms.append(model(combined, *frac_sc) if not any(abs(v) < 1e-8 for v in frac_sc) else combined)
+
+    return tuple(
+        common.euler(
+            sample,
+            math.sumprod(k_terms, w),  # type: ignore
+            schedule[step][1],
+            schedule[step + step_size][1] if step + step_size < len(schedule) else 0,
+            transform,
+        )
+        for w in weights
+    )
+
+
 @dataclasses.dataclass(frozen=True)
 class FunctionalSampler(ABC):
     type SampleCallback[T: Sample] = Callable[[T, int, float, float], Any]
@@ -201,32 +241,7 @@ class RKUltra(FunctionalHigher, FunctionalSinglestep):
         schedule: list[tuple[float, float]],
         rng: FunctionalSampler.RNG[T] | None = None,
     ) -> T:
-        stages, composite = self.tableau()
-        k_terms: list[T] = []
-        fractions = fractional_step(schedule, step, tuple(f[0] for f in stages))
-
-        for frac_sc, icoeffs in zip(fractions, (t[1] for t in stages), strict=True):
-            if icoeffs:
-                combined: T = common.euler(
-                    sample,
-                    math.sumprod(k_terms, icoeffs) / math.fsum(icoeffs),  # type: ignore
-                    schedule[step][1],
-                    frac_sc[1],
-                    self.schedule.sigma_transform,
-                )
-            else:
-                combined = sample
-
-            # Do not call model on timestep = 0 or sigma = 0
-            k_terms.append(model(combined, *frac_sc) if not any(abs(v) < 1e-8 for v in frac_sc) else combined)
-
-        return common.euler(
-            sample,
-            math.sumprod(k_terms, composite),  # type: ignore
-            schedule[step][1],
-            schedule[step + 1][1] if step + 1 < len(schedule) else 0,
-            self.schedule.sigma_transform,
-        )
+        return step_tableau(self.tableau(), sample, model, step, schedule, self.schedule.sigma_transform)[0]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -331,11 +346,11 @@ class RKMoire(FunctionalAdaptive, FunctionalHigher):
         rng: FunctionalSampler.RNG[T] | None = None,
         callback: FunctionalSampler.SampleCallback | None = None,
     ) -> T:
-        stages, comp_high, comp_low = self.tableau()
+        tab = self.tableau()
 
         initial = self.initial
         if self.rescale_init:
-            initial *= len(stages) / 2  # Heun is base so / 2
+            initial *= len(tab[0]) / 2  # Heun is base so / 2
 
         step_size: int = max(round(steps * initial), 1)
         epsilon: float = 1e-16  # lgtm
@@ -348,33 +363,11 @@ class RKMoire(FunctionalAdaptive, FunctionalHigher):
         while step <= indices[-1]:
             step_next = min(step + step_size, indices[-1] + 1)
 
-            k_terms: list[T] = []
-            fractions = fractional_step(schedule, step, tuple(f[0] * step_size for f in stages))
-
-            for frac_sc, icoeffs in zip(fractions, (t[1] for t in stages), strict=True):
-                if icoeffs:
-                    combined: T = common.euler(
-                        sample,
-                        math.sumprod(k_terms, icoeffs) / math.fsum(icoeffs),  # type: ignore
-                        schedule[step][1],
-                        frac_sc[1],
-                        self.schedule.sigma_transform,
-                    )
-                else:
-                    combined = sample
-
-                # Do not call model on timestep = 0 or sigma = 0
-                k_terms.append(model(combined, *frac_sc) if not any(abs(v) < 1e-8 for v in frac_sc) else combined)
-
-            sample_high: T = common.euler(
-                sample,
-                math.sumprod(k_terms, comp_high),  # type: ignore
-                schedule[step][1],
-                schedule[step_next][1] if step_next < len(schedule) else 0,
-                self.schedule.sigma_transform,
-            )
-
             if step_next < len(schedule):
+                sample_high, sample_low = step_tableau(
+                    tab, sample, model, step, schedule, self.schedule.sigma_transform, step_size
+                )
+
                 sigma = schedule[step][1]
                 sigma_next = schedule[step_next][1] if step_next < len(schedule) else 0
                 sigma_next2 = schedule[step_next + step_size][1] if step_next + step_size < len(schedule) else 0
@@ -387,14 +380,6 @@ class RKMoire(FunctionalAdaptive, FunctionalHigher):
                 dt2 = sigma_v_next2 - sigma_v_next * (sigma_u_next2 / sigma_u_next)
                 dt1x2 = dt2 / dt
 
-                sample_low: T = common.euler(
-                    sample,
-                    math.sumprod(k_terms, comp_low),  # type: ignore
-                    schedule[step][1],
-                    schedule[step_next][1] if step_next < len(schedule) else 0,
-                    self.schedule.sigma_transform,
-                )
-
                 # Normalize against pure error
                 error = self.evaluator(sample_low, sample_high) / max(self.evaluator(0, sample_high), epsilon)
                 # Offset adjustment by dt2 / dt to account for non-linearity
@@ -403,6 +388,11 @@ class RKMoire(FunctionalAdaptive, FunctionalHigher):
                 # Really this could be iterated to contrast dt2/dt and thresh/error until they're 100% matched but eh
                 adjustment: float = (self.threshold / max(error, epsilon)) ** self.adaption / dt1x2
                 step_size = max(round(min(step_size * adjustment, steps * self.maximum)), 1)
+
+            else:  # Save the extra euler call since the 2nd weight isn't used
+                sample_high = step_tableau(
+                    tab[:2], sample, model, step, schedule, self.schedule.sigma_transform, step_size
+                )[0]
 
             sample = sample_high
 
