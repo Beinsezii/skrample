@@ -2,12 +2,13 @@ import dataclasses
 import math
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+from types import MappingProxyType
 from typing import Any
 
 import numpy as np
 
 from skrample import common, scheduling
-from skrample.common import Sample, SigmaTransform
+from skrample.common import DictOrProxy, Sample, SigmaTransform
 
 from . import tableaux
 
@@ -200,13 +201,15 @@ class RKUltra(FunctionalHigher, FunctionalSinglestep):
 
     order: int = 2
 
-    providers: dict[int, tableaux.TableauProvider[tableaux.Tableau | tableaux.ExtendedTableau]] = dataclasses.field(
-        default_factory=lambda: {
-            2: tableaux.RK2.Ralston,
-            3: tableaux.RK3.Ralston,
-            4: tableaux.RK4.Ralston,
-            5: tableaux.RK5.Nystrom,
-        }
+    providers: DictOrProxy[int, tableaux.TableauProvider[tableaux.Tableau | tableaux.ExtendedTableau]] = (
+        MappingProxyType(
+            {
+                2: tableaux.RK2.Ralston,
+                3: tableaux.RK3.Ralston,
+                4: tableaux.RK4.Ralston,
+                5: tableaux.RK5.Nystrom,
+            }
+        )
     )
     """Providers for a given order, starting from 2.
     Order 1 is always the Euler method."""
@@ -296,8 +299,8 @@ class FastHeun(FunctionalAdaptive, FunctionalSinglestep, FunctionalHigher):
 class RKMoire(FunctionalAdaptive, FunctionalHigher):
     order: int = 2
 
-    providers: dict[int, tableaux.TableauProvider[tableaux.ExtendedTableau]] = dataclasses.field(
-        default_factory=lambda: {
+    providers: DictOrProxy[int, tableaux.TableauProvider[tableaux.ExtendedTableau]] = MappingProxyType(
+        {
             2: tableaux.RKE2.Heun,
             5: tableaux.RKE5.Fehlberg,
         }

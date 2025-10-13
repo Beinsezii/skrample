@@ -3,6 +3,7 @@ import math
 from collections.abc import Callable
 from functools import lru_cache
 from itertools import repeat
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -22,6 +23,8 @@ type SigmaTransform = Callable[[float], tuple[float, float]]
 
 type Predictor[S: Sample] = Callable[[S, S, float, SigmaTransform], S]
 "sample, output, sigma, sigma_transform"
+
+type DictOrProxy[T, U] = MappingProxyType[T, U] | dict[T, U]  # Mapping does not implement __or__
 
 
 @enum.unique
