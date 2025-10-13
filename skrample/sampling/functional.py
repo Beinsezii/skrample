@@ -319,6 +319,8 @@ class RKMoire(FunctionalAdaptive, FunctionalHigher):
 
     rescale_init: bool = True
     "Scale initial by a tableau's model evals."
+    rescale_max: bool = False
+    "Scale maximum by a tableau's model evals."
 
     @staticmethod
     def min_order() -> int:
@@ -352,8 +354,11 @@ class RKMoire(FunctionalAdaptive, FunctionalHigher):
         tab = self.tableau()
 
         initial = self.initial
+        maximum = self.maximum
         if self.rescale_init:
             initial *= len(tab[0]) / 2  # Heun is base so / 2
+        if self.rescale_max:
+            maximum *= len(tab[0]) / 2  # Heun is base so / 2
 
         step_size: int = max(round(steps * initial), 1)
         epsilon: float = 1e-16  # lgtm
@@ -390,7 +395,7 @@ class RKMoire(FunctionalAdaptive, FunctionalHigher):
                 # we should only set a 20% larger step ie 1.5 / 1.25
                 # Really this could be iterated to contrast dt2/dt and thresh/error until they're 100% matched but eh
                 adjustment: float = (self.threshold / max(error, epsilon)) ** self.adaption / dt1x2
-                step_size = max(round(min(step_size * adjustment, steps * self.maximum)), 1)
+                step_size = max(round(min(step_size * adjustment, steps * maximum)), 1)
 
             else:  # Save the extra euler call since the 2nd weight isn't used
                 sample_high = step_tableau(
