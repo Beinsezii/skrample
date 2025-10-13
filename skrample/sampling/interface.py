@@ -1,6 +1,6 @@
 import dataclasses
 
-from skrample.common import Sample, SigmaTransform
+from skrample.common import RNG, Sample, SigmaTransform
 from skrample.sampling import functional, structured
 
 
@@ -14,11 +14,11 @@ class StructuredFunctionalAdapter(functional.FunctionalSampler):
     def sample_model[T: Sample](
         self,
         sample: T,
-        model: functional.FunctionalSampler.SampleableModel[T],
+        model: functional.SampleableModel[T],
         steps: int,
         include: slice = slice(None),
-        rng: functional.FunctionalSampler.RNG[T] | None = None,
-        callback: functional.FunctionalSampler.SampleCallback | None = None,
+        rng: RNG[T] | None = None,
+        callback: functional.SampleCallback | None = None,
     ) -> T:
         previous: list[structured.SKSamples[T]] = []
         schedule_np = self.schedule.schedule(steps)

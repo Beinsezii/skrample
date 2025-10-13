@@ -8,13 +8,18 @@ from typing import Any
 import numpy as np
 
 from skrample import common, scheduling
-from skrample.common import DictOrProxy, Sample, SigmaTransform
+from skrample.common import RNG, DictOrProxy, FloatSchedule, Sample, SigmaTransform
 
 from . import tableaux
 
+type SampleCallback[T: Sample] = Callable[[T, int, float, float], Any]
+"Return is ignored"
+type SampleableModel[T: Sample] = Callable[[T, float, float], T]
+"sample, timestep, sigma"
+
 
 def fractional_step(
-    schedule: list[tuple[float, float]],
+    schedule: FloatSchedule,
     current: int,
     idx: tuple[float, ...],
 ) -> tuple[tuple[float, float], ...]:
@@ -35,9 +40,9 @@ def fractional_step(
 def step_tableau[T: Sample](
     tableau: tableaux.Tableau | tableaux.ExtendedTableau,
     sample: T,
-    model: "FunctionalSampler.SampleableModel[T]",
+    model: SampleableModel[T],
     step: int,
-    schedule: list[tuple[float, float]],
+    schedule: FloatSchedule,
     transform: SigmaTransform,
     step_size: int = 1,
     epsilon: float = 1e-8,
@@ -62,12 +67,13 @@ def step_tableau[T: Sample](
         k_terms.append(model(combined, *frac_sc) if not any(abs(v) < epsilon for v in frac_sc) else combined)
 
     return tuple(
-        common.euler(
+        common.euler_step(
             sample,
             math.sumprod(k_terms, w),  # type: ignore
-            schedule[step][1],
-            schedule[step + step_size][1] if step + step_size < len(schedule) else 0,
+            step,
+            schedule,
             transform,
+            step_size,
         )
         for w in weights
     )
@@ -75,13 +81,6 @@ def step_tableau[T: Sample](
 
 @dataclasses.dataclass(frozen=True)
 class FunctionalSampler(ABC):
-    type SampleCallback[T: Sample] = Callable[[T, int, float, float], Any]
-    "Return is ignored"
-    type SampleableModel[T: Sample] = Callable[[T, float, float], T]
-    "sample, timestep, sigma"
-    type RNG[T: Sample] = Callable[[], T]
-    "Distribution should match model, typically normal"
-
     schedule: scheduling.SkrampleSchedule
 
     def merge_noise[T: Sample](self, sample: T, noise: T, sigma: float, sigma_transform: SigmaTransform) -> T:
@@ -151,22 +150,22 @@ class FunctionalSinglestep(FunctionalSampler):
     def step[T: Sample](
         self,
         sample: T,
-        model: FunctionalSampler.SampleableModel[T],
+        model: SampleableModel[T],
         step: int,
-        schedule: list[tuple[float, float]],
-        rng: FunctionalSampler.RNG[T] | None = None,
+        schedule: FloatSchedule,
+        rng: RNG[T] | None = None,
     ) -> T: ...
 
     def sample_model[T: Sample](
         self,
         sample: T,
-        model: FunctionalSampler.SampleableModel[T],
+        model: SampleableModel[T],
         steps: int,
         include: slice = slice(None),
-        rng: FunctionalSampler.RNG[T] | None = None,
-        callback: FunctionalSampler.SampleCallback | None = None,
+        rng: RNG[T] | None = None,
+        callback: SampleCallback | None = None,
     ) -> T:
-        schedule: list[tuple[float, float]] = self.schedule.schedule(steps).tolist()
+        schedule: FloatSchedule = self.schedule.schedule(steps).tolist()
 
         for n in list(range(steps))[include]:
             sample = self.step(sample, model, n, schedule, rng)
@@ -239,10 +238,10 @@ class RKUltra(FunctionalHigher, FunctionalSinglestep):
     def step[T: Sample](
         self,
         sample: T,
-        model: FunctionalSampler.SampleableModel[T],
+        model: SampleableModel[T],
         step: int,
-        schedule: list[tuple[float, float]],
-        rng: FunctionalSampler.RNG[T] | None = None,
+        schedule: FloatSchedule,
+        rng: RNG[T] | None = None,
     ) -> T:
         return step_tableau(self.tableau(), sample, model, step, schedule, self.schedule.sigma_transform)[0]
 
@@ -267,19 +266,12 @@ class FastHeun(FunctionalAdaptive, FunctionalSinglestep, FunctionalHigher):
     def step[T: Sample](
         self,
         sample: T,
-        model: FunctionalSampler.SampleableModel[T],
+        model: SampleableModel[T],
         step: int,
-        schedule: list[tuple[float, float]],
-        rng: FunctionalSampler.RNG[T] | None = None,
+        schedule: FloatSchedule,
+        rng: RNG[T] | None = None,
     ) -> T:
-        sigma = schedule[step][1]
-        sigma_next = schedule[step + 1][1] if step + 1 < len(schedule) else 0
-
-        sigma_u, sigma_v = self.schedule.sigma_transform(sigma)
-        sigma_u_next, sigma_v_next = self.schedule.sigma_transform(sigma_next)
-
-        scale = sigma_u_next / sigma_u
-        dt = sigma_v_next - sigma_v * scale
+        dt, scale = common.scaled_delta_step(step, schedule, self.schedule.sigma_transform)
 
         k1 = model(sample, *schedule[step])
         result: T = sample * scale + k1 * dt  # type: ignore
@@ -345,11 +337,11 @@ class RKMoire(FunctionalAdaptive, FunctionalHigher):
     def sample_model[T: Sample](
         self,
         sample: T,
-        model: FunctionalSampler.SampleableModel[T],
+        model: SampleableModel[T],
         steps: int,
         include: slice = slice(None),
-        rng: FunctionalSampler.RNG[T] | None = None,
-        callback: FunctionalSampler.SampleCallback | None = None,
+        rng: RNG[T] | None = None,
+        callback: SampleCallback | None = None,
     ) -> T:
         tab = self.tableau()
 
@@ -363,7 +355,7 @@ class RKMoire(FunctionalAdaptive, FunctionalHigher):
         step_size: int = max(round(steps * initial), 1)
         epsilon: float = 1e-16  # lgtm
 
-        schedule: list[tuple[float, float]] = self.schedule.schedule(steps).tolist()
+        schedule: FloatSchedule = self.schedule.schedule(steps).tolist()
 
         indices: list[int] = list(range(steps))[include]
         step: int = indices[0]
@@ -376,17 +368,8 @@ class RKMoire(FunctionalAdaptive, FunctionalHigher):
                     tab, sample, model, step, schedule, self.schedule.sigma_transform, step_size
                 )
 
-                sigma = schedule[step][1]
-                sigma_next = schedule[step_next][1] if step_next < len(schedule) else 0
-                sigma_next2 = schedule[step_next + step_size][1] if step_next + step_size < len(schedule) else 0
-
-                sigma_u, sigma_v = self.schedule.sigma_transform(sigma)
-                sigma_u_next, sigma_v_next = self.schedule.sigma_transform(sigma_next)
-                sigma_u_next2, sigma_v_next2 = self.schedule.sigma_transform(sigma_next2)
-
-                dt = sigma_v_next - sigma_v * (sigma_u_next / sigma_u)
-                dt2 = sigma_v_next2 - sigma_v_next * (sigma_u_next2 / sigma_u_next)
-                dt1x2 = dt2 / dt
+                delta = common.scaled_delta_step(step, schedule, self.schedule.sigma_transform, step_size)[0]
+                delta_next = common.scaled_delta_step(step_next, schedule, self.schedule.sigma_transform, step_size)[0]
 
                 # Normalize against pure error
                 error = self.evaluator(sample_low, sample_high) / max(self.evaluator(0, sample_high), epsilon)
@@ -394,7 +377,7 @@ class RKMoire(FunctionalAdaptive, FunctionalHigher):
                 # Basically if we want a 50% larger step but the next dt will already be 25% larger,
                 # we should only set a 20% larger step ie 1.5 / 1.25
                 # Really this could be iterated to contrast dt2/dt and thresh/error until they're 100% matched but eh
-                adjustment: float = (self.threshold / max(error, epsilon)) ** self.adaption / dt1x2
+                adjustment: float = (self.threshold / max(error, epsilon)) ** self.adaption / (delta_next / delta)
                 step_size = max(round(min(step_size * adjustment, steps * maximum)), 1)
 
             else:  # Save the extra euler call since the 2nd weight isn't used
