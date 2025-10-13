@@ -7,12 +7,10 @@ from typing import Protocol
 type TabNode = tuple[float, tuple[float, ...]]
 type TabWeight = tuple[float, ...]
 
-
 type Tableau = tuple[
     tuple[TabNode, ...],
     TabWeight,
 ]
-
 type ExtendedTableau = tuple[
     tuple[TabNode, ...],
     TabWeight,
@@ -36,19 +34,17 @@ def validate_tableau(tab: Tableau | ExtendedTableau, tolerance: float = 1e-15) -
 
 def rk2_tableau(alpha: float) -> Tableau:
     "Create a generic 2nd order Tableau from a given alpha value."
-    alpha_w = 1 / (2 * alpha)
     return (
         (
             (0.0, ()),
             (alpha, (alpha,)),
         ),
-        (1 - alpha_w, alpha_w),
+        (1 - 1 / (2 * alpha), 1 / (2 * alpha)),
     )
 
 
 def rk3_tableau(alpha: float, beta: float) -> Tableau:
     "Create a generic 3rd order Tableau from a given alpha and beta values."
-
     return (
         (
             (0.0, ()),
