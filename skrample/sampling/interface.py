@@ -37,7 +37,7 @@ class StructuredFunctionalAdapter(functional.FunctionalSampler):
                 n,
                 schedule,
                 self.schedule.sigma_transform,
-                noise=rng() if rng else None,
+                noise=rng() if rng and self.sampler.require_noise else None,
                 previous=tuple(previous),
             )
 
