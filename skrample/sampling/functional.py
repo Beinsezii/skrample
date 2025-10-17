@@ -316,6 +316,8 @@ class RKMoire(FunctionalAdaptive, FunctionalHigher):
     "Percent of schedule to take as a maximum step."
     adaption: float = 0.3
     "How fast to adjust step size in relation to error"
+    discard: float = float("inf")
+    "If the final adjustment down is more than this, the entire previous step is discarded."
 
     rescale_init: bool = True
     "Scale initial by a tableau's model evals."
@@ -387,6 +389,10 @@ class RKMoire(FunctionalAdaptive, FunctionalHigher):
                 # Really this could be iterated to contrast dt2/dt and thresh/error until they're 100% matched but eh
                 adjustment: float = (self.threshold / max(error, epsilon)) ** self.adaption / (delta_next / delta)
                 step_size = max(round(min(step_size * adjustment, steps * maximum)), 1)
+
+                # Only discard if it will actually decrease step size
+                if step_next - step > step_size and 1 / max(adjustment, epsilon) > self.discard:
+                    continue
 
             else:  # Save the extra euler call since the 2nd weight isn't used
                 sample_high = step_tableau(
