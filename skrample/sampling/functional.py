@@ -183,10 +183,7 @@ class FunctionalAdaptive(FunctionalSampler):
     @staticmethod
     def mse[T: Sample](a: T, b: T) -> float:
         error: T = abs(a - b) ** 2  # type: ignore
-        if isinstance(error, float | int):
-            return error
-        else:
-            return error.mean().item()
+        return common.mean(error)
 
     evaluator: Evaluator = mse
     "Function used to measure error of two samples"

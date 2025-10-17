@@ -181,6 +181,14 @@ def spowf[T: Sample](x: T, f: float) -> T:
     return abs(x) ** f * (-1 * (x < 0) | 1)  # type: ignore
 
 
+def mean(x: Sample) -> float:
+    "For an array this returns mean().item(). For a float this returns x"
+    if isinstance(x, float | int):
+        return x
+    else:
+        return x.mean().item()
+
+
 @lru_cache
 def bashforth(order: int) -> tuple[float, ...]:  # tuple return so lru isnt mutable
     "Bashforth coefficients for a given order"
