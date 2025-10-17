@@ -46,8 +46,8 @@ ALL_MODIFIERS = [
 
 def test_sigmas_to_timesteps() -> None:
     for schedule in [*(cls() for cls in ALL_SCHEDULES), Scaled(beta_scale=1)]:  # base schedules
-        timesteps = schedule.timesteps(123)
-        timesteps_inv = schedule.sigmas_to_timesteps(schedule.sigmas(123))
+        timesteps = schedule.timesteps_np(123)
+        timesteps_inv = schedule.sigmas_to_timesteps(schedule.sigmas_np(123))
         compare_tensors(torch.tensor(timesteps), torch.tensor(timesteps_inv), margin=0)  # shocked this rounds good
 
 

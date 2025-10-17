@@ -59,12 +59,7 @@ class FunctionalDenoise(FluxDenoiseStep):
                 i=i,
                 t=sample.new_tensor([timestep] * len(sample)),
             )
-            return wrapper.predictor(
-                sample,
-                block_state["noise_pred"],  # type: ignore
-                sigma,
-                schedule.sigma_transform,
-            )
+            return block_state["noise_pred"]  # type: ignore
 
         def sample_callback(x: torch.Tensor, n: int, t: float, s: float) -> None:
             nonlocal i
@@ -73,7 +68,7 @@ class FunctionalDenoise(FluxDenoiseStep):
 
         block_state["latents"] = sampler.sample_model(
             sample=block_state["latents"],
-            model=call_model,
+            model=sampler.model_with_predictor(call_model, wrapper.predictor),
             steps=block_state["num_inference_steps"],
             callback=sample_callback,
         )

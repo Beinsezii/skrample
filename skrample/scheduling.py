@@ -1,5 +1,6 @@
 import math
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from functools import lru_cache
 
@@ -27,11 +28,6 @@ def schedule_lru(schedule: "SkrampleSchedule", steps: int) -> FloatSchedule:
 class SkrampleSchedule(ABC):
     "Abstract class defining the bare minimum for a noise schedule"
 
-    def schedule(self, steps: int) -> FloatSchedule:
-        """Return the full noise schedule, timesteps stacked on top of sigmas.
-        Excludes the trailing zero"""
-        return tuple(map(tuple, self.schedule_np(steps).tolist()))
-
     @property
     @abstractmethod
     def sigma_transform(self) -> SigmaTransform:
@@ -42,13 +38,26 @@ class SkrampleSchedule(ABC):
         """Return the full noise schedule, timesteps stacked on top of sigmas.
         Excludes the trailing zero"""
 
-    def timesteps(self, steps: int) -> NDArray[np.float64]:
+    def timesteps_np(self, steps: int) -> NDArray[np.float64]:
         "Just the timesteps component as a 1-d array"
         return self.schedule_np(steps)[:, 0]
 
-    def sigmas(self, steps: int) -> NDArray[np.float64]:
+    def sigmas_np(self, steps: int) -> NDArray[np.float64]:
         "Just the sigmas component as a 1-d array"
         return self.schedule_np(steps)[:, 1]
+
+    def schedule(self, steps: int) -> FloatSchedule:
+        """Return the full noise schedule, [(timestep, sigma), ...)
+        Excludes the trailing zero"""
+        return tuple(map(tuple, self.schedule_np(steps).tolist()))
+
+    def timesteps(self, steps: int) -> Sequence[float]:
+        "Just the timesteps component"
+        return self.timesteps_np(steps).tolist()
+
+    def sigmas(self, steps: int) -> Sequence[float]:
+        "Just the sigmas component"
+        return self.sigmas_np(steps).tolist()
 
     def __call__(self, steps: int) -> NDArray[np.float64]:
         return self.schedule_np(steps)
@@ -113,7 +122,7 @@ class Scaled(ScheduleCommon):
         t = (1 - w) * low_idx + w * high_idx
         return t
 
-    def timesteps(self, steps: int) -> NDArray[np.float64]:
+    def timesteps_np(self, steps: int) -> NDArray[np.float64]:
         # # https://arxiv.org/abs/2305.08891 Table 2
         if self.uniform:
             return np.linspace(self.base_timesteps - 1, 0, steps, endpoint=False, dtype=np.float64).round()
@@ -140,7 +149,7 @@ class Scaled(ScheduleCommon):
 
     def schedule_np(self, steps: int) -> NDArray[np.float64]:
         sigmas = self.scaled_sigmas(self.alphas_cumprod(self.betas()))
-        timesteps = self.timesteps(steps)
+        timesteps = self.timesteps_np(steps)
         sigmas = np.interp(timesteps, np.arange(0, len(sigmas)), sigmas)
 
         return np.stack([timesteps, sigmas], axis=1)
@@ -200,11 +209,11 @@ class Linear(ScheduleCommon):
     def sigmas_to_timesteps(self, sigmas: NDArray[np.float64]) -> NDArray[np.float64]:
         return normalize(sigmas, self.sigma_start) * self.base_timesteps
 
-    def sigmas(self, steps: int) -> NDArray[np.float64]:
+    def sigmas_np(self, steps: int) -> NDArray[np.float64]:
         return np.linspace(self.sigma_start, 0, steps, endpoint=False, dtype=np.float64)
 
     def schedule_np(self, steps: int) -> NDArray[np.float64]:
-        sigmas = self.sigmas(steps)
+        sigmas = self.sigmas_np(steps)
         timesteps = self.sigmas_to_timesteps(sigmas)
 
         return np.stack([timesteps, sigmas], axis=1)
@@ -219,7 +228,7 @@ class SigmoidCDF(Linear):
     cdf_scale: float = 3
     "Multiply the inverse CDF output before the sigmoid function is applied"
 
-    def sigmas(self, steps: int) -> NDArray[np.float64]:
+    def sigmas_np(self, steps: int) -> NDArray[np.float64]:
         from scipy.stats import norm
 
         step_peak = 1 / (steps * math.pi / 2)
@@ -325,7 +334,7 @@ class FlowShift(ScheduleModifier):
     """Amount to shift noise schedule by."""
 
     def schedule_np(self, steps: int) -> NDArray[np.float64]:
-        sigmas = self.base.sigmas(steps)
+        sigmas = self.base.sigmas_np(steps)
 
         start = sigmas.max().item()
         sigmas = self.shift / (self.shift + (start / sigmas - 1)) * start
@@ -343,7 +352,7 @@ class Karras(ScheduleModifier):
     "Ramp power"
 
     def schedule_np(self, steps: int) -> NDArray[np.float64]:
-        sigmas = self.base.sigmas(steps)
+        sigmas = self.base.sigmas_np(steps)
 
         sigma_min = sigmas[-1].item()
         sigma_max = sigmas[0].item()
@@ -364,7 +373,7 @@ class Exponential(ScheduleModifier):
     "Ramp power"
 
     def schedule_np(self, steps: int) -> NDArray[np.float64]:
-        sigmas = self.base.sigmas(steps)
+        sigmas = self.base.sigmas_np(steps)
         sigma_min = sigmas[-1].item()
         sigma_max = sigmas[0].item()
 
@@ -386,7 +395,7 @@ class Beta(ScheduleModifier):
     def schedule_np(self, steps: int) -> NDArray[np.float64]:
         import scipy
 
-        sigmas = self.base.sigmas(steps)
+        sigmas = self.base.sigmas_np(steps)
         sigma_min = sigmas[-1].item()
         sigma_max = sigmas[0].item()
 
@@ -413,7 +422,7 @@ class Hyper(ScheduleModifier):
         if abs(self.scale) <= 1e-8:
             return self.base.schedule_np(steps)
 
-        sigmas = self.base.sigmas(steps)
+        sigmas = self.base.sigmas_np(steps)
         start = sigmas[0].item()
 
         sigmas = normalize(sigmas, start)  # Base -> 1..0

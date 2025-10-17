@@ -1,6 +1,5 @@
 import dataclasses
 
-from skrample import scheduling
 from skrample.common import RNG, FloatSchedule, Sample
 from skrample.sampling import functional, structured
 
@@ -10,8 +9,8 @@ class StructuredFunctionalAdapter(functional.FunctionalSampler):
     sampler: structured.StructuredSampler
 
     def merge_noise[T: Sample](self, sample: T, noise: T, steps: int, start: int) -> T:
-        schedule = scheduling.schedule_lru(self.schedule, steps)
-        sigma = schedule[start][1] if start < len(schedule) else 0
+        sigmas = self.schedule.sigmas(steps)
+        sigma = sigmas[start] if start < len(sigmas) else 0
         return self.sampler.merge_noise(sample, noise, sigma, self.schedule.sigma_transform)
 
     def sample_model[T: Sample](
