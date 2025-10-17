@@ -11,7 +11,15 @@ from torch import Tensor
 
 import skrample.sampling.structured as sampling
 from skrample import scheduling
-from skrample.common import MergeStrategy, Predictor, predict_epsilon, predict_flow, predict_sample, predict_velocity
+from skrample.common import (
+    FloatSchedule,
+    MergeStrategy,
+    Predictor,
+    predict_epsilon,
+    predict_flow,
+    predict_sample,
+    predict_velocity,
+)
 from skrample.pytorch.noise import (
     BatchTensorNoise,
     Random,
@@ -272,8 +280,12 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
         )
 
     @property
-    def schedule_np(self) -> NDArray[np.float64]:
+    def schedule_float(self) -> FloatSchedule:
         return scheduling.schedule_lru(self.schedule, self._steps)
+
+    @property
+    def schedule_np(self) -> NDArray[np.float64]:
+        return scheduling.np_schedule_lru(self.schedule, self._steps)
 
     @property
     def schedule_pt(self) -> Tensor:
@@ -291,7 +303,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
 
     @property
     def init_noise_sigma(self) -> float:
-        return self.sampler.scale_input(1, self.schedule_np[0, 1].item(), sigma_transform=self.schedule.sigma_transform)
+        return self.sampler.scale_input(1, self.schedule_float[0][1], sigma_transform=self.schedule.sigma_transform)
 
     @property
     def order(self) -> int:
@@ -413,7 +425,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
         sampled = self.sampler.sample(
             sample=sample_cast,
             prediction=prediction,
-            sigma_schedule=schedule[:, 1],
+            schedule=self.schedule_float,
             step=step,
             noise=noise,
             previous=tuple(self._previous),

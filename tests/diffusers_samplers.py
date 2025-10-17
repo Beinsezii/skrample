@@ -65,7 +65,7 @@ def dual_sample(
         a_output = predictor(
             a_sample, fake_model(a.scale_input(a_sample, sigma.item(), sigma_transform)), sigma.item(), sigma_transform
         )
-        sampled = a.sample(a_sample, a_output, step, schedule[:, 1].numpy(), sigma_transform, noise, prior_steps)
+        sampled = a.sample(a_sample, a_output, step, schedule.numpy().tolist(), sigma_transform, noise, prior_steps)
         a_sample = sampled.final
         prior_steps.append(sampled)
 

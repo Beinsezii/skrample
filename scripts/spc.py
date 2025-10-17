@@ -11,7 +11,7 @@ from numpy.typing import NDArray
 
 import skrample.sampling.structured as sampling
 import skrample.scheduling as scheduling
-from skrample.common import SigmaTransform, sigma_complement, sigma_polar
+from skrample.common import FloatSchedule, SigmaTransform, sigma_complement, sigma_polar
 
 parser = ArgumentParser()
 parser.add_argument("out", type=FileType("w"))
@@ -33,17 +33,17 @@ class Row:
 
 
 def sample_model(
-    sampler: sampling.StructuredSampler, schedule: NDArray[np.float64], curve: int, transform: SigmaTransform
+    sampler: sampling.StructuredSampler, schedule: FloatSchedule, curve: int, transform: SigmaTransform
 ) -> NDArray:
     previous: list[sampling.SKSamples] = []
     sample = 1.0
     sampled_values = [sample]
-    for step, sigma in enumerate(schedule):
+    for step, (timestep, sigma) in enumerate(schedule):
         result = sampler.sample(
             sample=sample,
             prediction=math.sin(sigma * curve),
             step=step,
-            sigma_schedule=schedule,
+            schedule=schedule,
             sigma_transform=transform,
             previous=tuple(previous),
             noise=random(),
@@ -65,13 +65,13 @@ schedule = scheduling.Linear(base_timesteps=10_000)
 table: list[Row] = []
 for t in [sigma_polar, sigma_complement]:
     for k in args.curves:
-        reference = sample_model(sampling.Euler(), schedule.sigmas(schedule.base_timesteps), k, t)
+        reference = sample_model(sampling.Euler(), schedule.schedule(schedule.base_timesteps), k, t)
         for h in args.steps:
             reference_aliased = np.interp(np.linspace(0, 1, h + 1), np.linspace(0, 1, len(reference)), reference)
             for pe in samplers:
                 for ce in samplers:
                     spc = sampling.SPC(predictor=pe, corrector=ce)
-                    sampled = sample_model(spc, schedule.sigmas(h), k, t)
+                    sampled = sample_model(spc, schedule.schedule(h), k, t)
                     table.append(
                         Row(
                             type(pe).__name__ + (str(pe.order) if isinstance(pe, sampling.StructuredMultistep) else ""),

@@ -115,7 +115,7 @@ class FunctionalSampler(ABC):
         if initial is None and include.start is None:  # Short circuit for common case
             sample: T = rng()
         else:
-            sigmas = scheduling.schedule_lru(self.schedule, steps)[:, 1]
+            sigmas = self.schedule.sigmas(steps)
             sample: T = self.merge_noise(
                 0 if initial is None else initial,  # type: ignore
                 rng(),
@@ -165,7 +165,7 @@ class FunctionalSinglestep(FunctionalSampler):
         rng: RNG[T] | None = None,
         callback: SampleCallback | None = None,
     ) -> T:
-        schedule: FloatSchedule = self.schedule.schedule(steps).tolist()
+        schedule: FloatSchedule = self.schedule.schedule(steps)
 
         for n in list(range(steps))[include]:
             sample = self.step(sample, model, n, schedule, rng)
@@ -355,7 +355,7 @@ class RKMoire(FunctionalAdaptive, FunctionalHigher):
         step_size: int = max(round(steps * initial), 1)
         epsilon: float = 1e-16  # lgtm
 
-        schedule: FloatSchedule = self.schedule.schedule(steps).tolist()
+        schedule: FloatSchedule = self.schedule.schedule(steps)
 
         indices: list[int] = list(range(steps))[include]
         step: int = indices[0]

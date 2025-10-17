@@ -3,9 +3,9 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, replace
 
 import numpy as np
-from numpy.typing import NDArray
 
-from skrample.common import Sample, SigmaTransform, bashforth, euler, merge_noise, safe_log, softmax, spowf
+from skrample import common
+from skrample.common import FloatSchedule, Sample, SigmaTransform, merge_noise, safe_log, softmax, spowf
 
 
 @dataclass(frozen=True)
@@ -44,18 +44,13 @@ class StructuredSampler(ABC):
         "How many prior samples the sampler needs in `previous: list[T]`"
         return 0
 
-    @staticmethod
-    def get_sigma(step: int, sigma_schedule: NDArray) -> float:
-        "Just returns zero if step > len"
-        return sigma_schedule[step].item() if step < len(sigma_schedule) else 0
-
     @abstractmethod
     def sample[T: Sample](
         self,
         sample: T,
         prediction: T,
         step: int,
-        sigma_schedule: NDArray,
+        schedule: FloatSchedule,
         sigma_transform: SigmaTransform,
         noise: T | None = None,
         previous: tuple[SKSamples[T], ...] = (),
@@ -82,7 +77,7 @@ class StructuredSampler(ABC):
         sample: T,
         prediction: T,
         step: int,
-        sigma_schedule: NDArray,
+        schedule: FloatSchedule,
         sigma_transform: SigmaTransform,
         noise: T | None = None,
         previous: tuple[SKSamples[T], ...] = (),
@@ -91,7 +86,7 @@ class StructuredSampler(ABC):
             sample=sample,
             prediction=prediction,
             step=step,
-            sigma_schedule=sigma_schedule,
+            schedule=schedule,
             sigma_transform=sigma_transform,
             noise=noise,
             previous=previous,
@@ -118,7 +113,7 @@ class StructuredMultistep(StructuredSampler):
     def require_previous(self) -> int:
         return max(min(self.order, self.max_order()), self.min_order()) - 1
 
-    def effective_order(self, step: int, schedule: NDArray, previous: tuple[SKSamples, ...]) -> int:
+    def effective_order(self, step: int, schedule: FloatSchedule, previous: tuple[SKSamples, ...]) -> int:
         "The order used in calculation given a step, schedule length, and previous sample count"
         return max(
             1,  # not min_order because previous may be < min. samplers should check effective >= min
@@ -151,15 +146,13 @@ class Euler(StructuredSampler):
         sample: T,
         prediction: T,
         step: int,
-        sigma_schedule: NDArray,
+        schedule: FloatSchedule,
         sigma_transform: SigmaTransform,
         noise: T | None = None,
         previous: tuple[SKSamples[T], ...] = (),
     ) -> SKSamples[T]:
-        sigma = self.get_sigma(step, sigma_schedule)
-        sigma_next = self.get_sigma(step + 1, sigma_schedule)
         return SKSamples(
-            final=euler(sample, prediction, sigma, sigma_next, sigma_transform),
+            final=common.euler_step(sample, prediction, step, schedule, sigma_transform),
             prediction=prediction,
             sample=sample,
         )
@@ -182,16 +175,13 @@ class DPM(StructuredMultistep, StructuredStochastic):
         sample: T,
         prediction: T,
         step: int,
-        sigma_schedule: NDArray,
+        schedule: FloatSchedule,
         sigma_transform: SigmaTransform,
         noise: T | None = None,
         previous: tuple[SKSamples[T], ...] = (),
     ) -> SKSamples[T]:
-        sigma = self.get_sigma(step, sigma_schedule)
-        sigma_next = self.get_sigma(step + 1, sigma_schedule)
-
-        sigma_u, sigma_v = sigma_transform(sigma)
-        sigma_u_next, sigma_v_next = sigma_transform(sigma_next)
+        sigma_u, sigma_v = common.get_sigma_uv(step, schedule, sigma_transform)
+        sigma_u_next, sigma_v_next = common.get_sigma_uv(step + 1, schedule, sigma_transform)
 
         lambda_ = safe_log(sigma_v) - safe_log(sigma_u)
         lambda_next = safe_log(sigma_v_next) - safe_log(sigma_u_next)
@@ -213,11 +203,8 @@ class DPM(StructuredMultistep, StructuredStochastic):
         # 1st order
         final -= (sigma_v_next * exp2) * prediction
 
-        effective_order = self.effective_order(step, sigma_schedule, previous)
-
-        if effective_order >= 2:
-            sigma_prev = self.get_sigma(step - 1, sigma_schedule)
-            sigma_u_prev, sigma_v_prev = sigma_transform(sigma_prev)
+        if (effective_order := self.effective_order(step, schedule, previous)) >= 2:
+            sigma_u_prev, sigma_v_prev = common.get_sigma_uv(step - 1, schedule, sigma_transform)
 
             lambda_prev = safe_log(sigma_v_prev) - safe_log(sigma_u_prev)
             h_prev = lambda_ - lambda_prev
@@ -228,8 +215,7 @@ class DPM(StructuredMultistep, StructuredStochastic):
             D1_0 = (1.0 / r) * (prediction - prediction_prev)
 
             if effective_order >= 3:
-                sigma_prev2 = self.get_sigma(step - 2, sigma_schedule)
-                sigma_u_prev2, sigma_v_prev2 = sigma_transform(sigma_prev2)
+                sigma_u_prev2, sigma_v_prev2 = common.get_sigma_uv(step - 2, schedule, sigma_transform)
                 lambda_prev2 = safe_log(sigma_v_prev2) - safe_log(sigma_u_prev2)
                 h_prev2 = lambda_prev - lambda_prev2
                 r_prev2 = h_prev2 / h
@@ -268,21 +254,21 @@ class Adams(StructuredMultistep, Euler):
         sample: T,
         prediction: T,
         step: int,
-        sigma_schedule: NDArray,
+        schedule: FloatSchedule,
         sigma_transform: SigmaTransform,
         noise: T | None = None,
         previous: tuple[SKSamples[T], ...] = (),
     ) -> SKSamples[T]:
-        effective_order = self.effective_order(step, sigma_schedule, previous)
+        effective_order = self.effective_order(step, schedule, previous)
 
         predictions = [prediction, *reversed([p.prediction for p in previous[-effective_order + 1 :]])]
         weighted_prediction: T = math.sumprod(
             predictions[:effective_order],  # type: ignore
-            bashforth(effective_order),
+            common.bashforth(effective_order),
         )
 
         return replace(
-            super().sample(sample, weighted_prediction, step, sigma_schedule, sigma_transform, noise, previous),
+            super().sample(sample, weighted_prediction, step, schedule, sigma_transform, noise, previous),
             prediction=prediction,
         )
 
@@ -305,23 +291,18 @@ class UniP(StructuredMultistep):
         sample: T,
         prediction: T,
         step: int,
-        sigma_schedule: NDArray,
+        schedule: FloatSchedule,
         sigma_transform: SigmaTransform,
         noise: T | None = None,
         previous: tuple[SKSamples[T], ...] = (),
         prediction_next: Sample | None = None,
     ) -> T:
         "Passing `prediction_next` is equivalent to UniC, otherwise behaves as UniP"
-        sigma = self.get_sigma(step, sigma_schedule)
 
-        sigma = self.get_sigma(step, sigma_schedule)
-        sigma_u, sigma_v = sigma_transform(sigma)
+        sigma_u, sigma_v = common.get_sigma_uv(step, schedule, sigma_transform)
+        sigma_u_next, sigma_v_next = common.get_sigma_uv(step + 1, schedule, sigma_transform)
+
         lambda_ = safe_log(sigma_v) - safe_log(sigma_u)
-
-        effective_order = self.effective_order(step, sigma_schedule, previous)
-
-        sigma_next = self.get_sigma(step + 1, sigma_schedule)
-        sigma_u_next, sigma_v_next = sigma_transform(sigma_next)
         lambda_next = safe_log(sigma_v_next) - safe_log(sigma_u_next)
         h = abs(lambda_next - lambda_)
 
@@ -336,10 +317,11 @@ class UniP(StructuredMultistep):
 
         rks: list[float] = []
         D1s: list[Sample] = []
+        effective_order = self.effective_order(step, schedule, previous)
         for n in range(1, effective_order):
             step_prev_N = step - n
             prediction_prev_N = previous[-n].prediction
-            sigma_u_prev_N, sigma_v_prev_N = sigma_transform(self.get_sigma(step_prev_N, sigma_schedule))
+            sigma_u_prev_N, sigma_v_prev_N = common.get_sigma_uv(step_prev_N, schedule, sigma_transform)
             lambda_pO = safe_log(sigma_v_prev_N) - safe_log(sigma_u_prev_N)
             rk = (lambda_pO - lambda_) / h
             if math.isfinite(rk):  # for subnormal
@@ -392,13 +374,13 @@ class UniP(StructuredMultistep):
         sample: T,
         prediction: T,
         step: int,
-        sigma_schedule: NDArray,
+        schedule: FloatSchedule,
         sigma_transform: SigmaTransform,
         noise: T | None = None,
         previous: tuple[SKSamples[T], ...] = (),
     ) -> SKSamples[T]:
         return SKSamples(  # type: ignore
-            final=self.unisolve(sample, prediction, step, sigma_schedule, sigma_transform, noise, previous),
+            final=self.unisolve(sample, prediction, step, schedule, sigma_transform, noise, previous),
             prediction=prediction,
             sample=sample,
         )
@@ -433,7 +415,7 @@ class UniPC(UniP):
         sample: T,
         prediction: T,
         step: int,
-        sigma_schedule: NDArray,
+        schedule: FloatSchedule,
         sigma_transform: SigmaTransform,
         noise: T | None = None,
         previous: tuple[SKSamples[T], ...] = (),
@@ -443,7 +425,7 @@ class UniPC(UniP):
                 previous[-1].sample,
                 previous[-1].prediction,
                 step - 1,
-                sigma_schedule,
+                schedule,
                 sigma_transform,
                 noise,
                 previous[:-1],
@@ -454,7 +436,7 @@ class UniPC(UniP):
             sample,
             prediction,
             step,
-            sigma_schedule,
+            schedule,
             sigma_transform,
             noise,
             previous,
@@ -493,7 +475,7 @@ class SPC(StructuredSampler):
         sample: T,
         prediction: T,
         step: int,
-        sigma_schedule: NDArray,
+        schedule: FloatSchedule,
         sigma_transform: SigmaTransform,
         noise: T | None = None,
         previous: tuple[SKSamples[T], ...] = (),
@@ -509,14 +491,14 @@ class SPC(StructuredSampler):
                 prior.sample,
                 prior.prediction,
                 step - 1,
-                sigma_schedule,
+                schedule,
                 sigma_transform,
                 prior.noise,
                 offset_previous[:-1],
             ).final
 
             if self.adaptive:
-                p, c = sigma_transform(self.get_sigma(step, sigma_schedule))
+                p, c = common.get_sigma_uv(step, schedule, sigma_transform)
             else:
                 p, c = 0, 0
 
@@ -534,6 +516,6 @@ class SPC(StructuredSampler):
                 sample = sample * p + corrected * c  # type: ignore
 
         return replace(
-            self.predictor.sample(sample, prediction, step, sigma_schedule, sigma_transform, noise, previous),
+            self.predictor.sample(sample, prediction, step, schedule, sigma_transform, noise, previous),
             noise=noise,  # the corrector may or may not need noise so we always store
         )

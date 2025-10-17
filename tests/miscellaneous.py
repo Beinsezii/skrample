@@ -61,14 +61,14 @@ def test_sampler_generics() -> None:
             i, o = random.random(), random.random()
             prev = [SKSamples(random.random(), random.random(), random.random()) for _ in range(9)]
 
-            scalar = sampler.sample(i, o, 4, schedule.sigmas(10), schedule.sigma_transform, previous=prev).final
+            scalar = sampler.sample(i, o, 4, schedule.schedule(10), schedule.sigma_transform, previous=prev).final
 
             # Enforce FP64 as that should be equivalent to python scalar
             ndarr = sampler.sample(
                 np.array([i], dtype=np.float64),
                 np.array([o], dtype=np.float64),
                 4,
-                schedule.sigmas(10),
+                schedule.schedule(10),
                 schedule.sigma_transform,
                 previous=prev,  # type: ignore
             ).final.item()
@@ -77,7 +77,7 @@ def test_sampler_generics() -> None:
                 torch.tensor([i], dtype=torch.float64),
                 torch.tensor([o], dtype=torch.float64),
                 4,
-                schedule.sigmas(10),
+                schedule.schedule(10),
                 schedule.sigma_transform,
                 previous=prev,  # type: ignore
             ).final.item()
@@ -117,7 +117,7 @@ def test_require_previous() -> None:
             sample,
             prediction,
             31,
-            Linear().sigmas(100),
+            Linear().schedule(100),
             sigma_complement,
             None,
             previous,
@@ -126,7 +126,7 @@ def test_require_previous() -> None:
             sample,
             prediction,
             31,
-            Linear().sigmas(100),
+            Linear().schedule(100),
             sigma_complement,
             None,
             previous[len(previous) - sampler.require_previous :],
@@ -158,7 +158,7 @@ def test_require_noise() -> None:
             sample,
             prediction,
             31,
-            Linear().sigmas(100),
+            Linear().schedule(100),
             sigma_complement,
             noise,
             previous,
@@ -167,7 +167,7 @@ def test_require_noise() -> None:
             sample,
             prediction,
             31,
-            Linear().sigmas(100),
+            Linear().schedule(100),
             sigma_complement,
             noise if sampler.require_noise else None,
             previous,
@@ -195,15 +195,15 @@ def test_functional_adapter() -> None:
                 sample_f = adapter.sample_model(sample, fake_model, steps, rng=lambda: next(rng))
 
                 rng = iter(noise)
-                schedule_np = schedule.schedule(steps)
+                float_schedule = schedule.schedule(steps)
                 sample_s = sample
                 previous: list[SKSamples[float]] = []
-                for n, (t, s) in enumerate(schedule_np.tolist()):
+                for n, (t, s) in enumerate(float_schedule):
                     results = sampler.sample(
                         sample_s,
                         fake_model(sample_s, t, s),
                         n,
-                        schedule_np[:, 1],
+                        float_schedule,
                         schedule.sigma_transform,
                         next(rng),
                         tuple(previous),

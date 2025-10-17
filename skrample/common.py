@@ -100,6 +100,12 @@ def predict_flow[T: Sample](sample: T, output: T, sigma: float, sigma_transform:
     return sample - sigma * output  # type: ignore
 
 
+def get_sigma_uv(step: int, schedule: FloatSchedule, sigma_transform: SigmaTransform) -> tuple[float, float]:
+    """Gets sigma u/v with bounds check.
+    If step >= len(schedule), the sigma is assumed to be zero."""
+    return sigma_transform(schedule[step][1] if step < len(schedule) else 0)
+
+
 def scaled_delta(sigma: float, sigma_next: float, sigma_transform: SigmaTransform) -> tuple[float, float]:
     "Returns delta (h) and scale factor to perform the euler method."
     sigma_u, sigma_v = sigma_transform(sigma)

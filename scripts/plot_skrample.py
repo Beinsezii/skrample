@@ -227,7 +227,7 @@ elif args.command == "schedules":
 
                 label = " ".join([s.capitalize() for s in label.split("_")])
 
-                data = np.concatenate([composed.schedule(args.steps), [[0, 0]]], dtype=np.float64)
+                data = np.concatenate([composed.schedule_np(args.steps), [[0, 0]]], dtype=np.float64)
 
                 timesteps = data[:, 0] / composed.base_timesteps
                 sigmas = data[:, 1] / data[:, 1].max()

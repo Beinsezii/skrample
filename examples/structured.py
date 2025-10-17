@@ -44,8 +44,9 @@ with torch.inference_mode():
 
     sample: torch.Tensor = torch.randn([1, 4, 80, 80], generator=seed).to(dtype=dtype, device=device)
     previous: list[structured.SKSamples[torch.Tensor]] = []
+    float_schedule = schedule.schedule(steps)
 
-    for n, (timestep, sigma) in enumerate(tqdm(schedule.schedule(steps))):
+    for n, (timestep, sigma) in enumerate(tqdm(float_schedule)):
         conditioned, unconditioned = model(
             sample.expand([sample.shape[0] * 2, *sample.shape[1:]]),
             timestep,
@@ -59,7 +60,7 @@ with torch.inference_mode():
             sample=sample,
             prediction=prediction,
             step=n,
-            sigma_schedule=schedule.sigmas(steps),
+            schedule=float_schedule,
             sigma_transform=schedule.sigma_transform,
             noise=torch.randn(sample.shape, generator=seed).to(dtype=sample.dtype, device=sample.device),
             previous=tuple(previous),
