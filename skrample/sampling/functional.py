@@ -83,8 +83,10 @@ def step_tableau[T: Sample](
 class FunctionalSampler(ABC):
     schedule: scheduling.SkrampleSchedule
 
-    def merge_noise[T: Sample](self, sample: T, noise: T, sigma: float, sigma_transform: SigmaTransform) -> T:
-        return common.merge_noise(sample, noise, sigma, sigma_transform)
+    def merge_noise[T: Sample](self, sample: T, noise: T, steps: int, start: int) -> T:
+        schedule = scheduling.schedule_lru(self.schedule, steps)
+        sigma = schedule[start][1] if start < len(schedule) else 0
+        return common.merge_noise(sample, noise, sigma, self.schedule.sigma_transform)
 
     @abstractmethod
     def sample_model[T: Sample](
@@ -115,13 +117,12 @@ class FunctionalSampler(ABC):
         if initial is None and include.start is None:  # Short circuit for common case
             sample: T = rng()
         else:
-            sigmas = self.schedule.sigmas(steps)
             sample: T = self.merge_noise(
                 0 if initial is None else initial,  # type: ignore
                 rng(),
-                sigmas[include.start or 0].item(),
-                self.schedule.sigma_transform,
-            ) / self.merge_noise(0.0, 1.0, sigmas[0].item(), self.schedule.sigma_transform)
+                steps,
+                include.start or 0,
+            ) / self.merge_noise(0.0, 1.0, steps, 0)
             # Rescale sample by initial sigma. Mostly just to handle quirks with Scaled
 
         return self.sample_model(sample, model, steps, include, rng, callback)
