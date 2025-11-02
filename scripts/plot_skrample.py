@@ -58,9 +58,9 @@ def colors(hue_steps: int) -> Generator[list[float]]:
                 yield oklch_to_srgb(np.array([lighness_actual, chroma_actual, hue], dtype=np.float64))
 
 
-TRANSFORMS: dict[str, SigmaTransform] = {
-    "polar": sigma_polar,
-    "complement": sigma_complement,
+TRANSFORMS: dict[str, tuple[float, SigmaTransform]] = {
+    "polar": (14.6, sigma_polar),
+    "complement": (1.0, sigma_complement),
 }
 SAMPLERS: dict[str, structured.StructuredSampler | functional.FunctionalSampler] = {
     "euler": structured.Euler(),
@@ -159,7 +159,15 @@ if args.command == "samplers":
     plt.ylabel("Sample")
     plt.title("Skrample Samplers")
 
-    schedule = scheduling.Linear(base_timesteps=10_000, custom_transform=TRANSFORMS[args.transform])
+    schedule = scheduling.Hyper(
+        scheduling.Linear(
+            sigma_start=TRANSFORMS[args.transform][0],
+            base_timesteps=10_000,
+            custom_transform=TRANSFORMS[args.transform][1],
+        ),
+        -2,
+        False,
+    )
 
     def sample_model(
         sampler: structured.StructuredSampler | functional.FunctionalSampler, steps: int
@@ -171,12 +179,12 @@ if args.command == "samplers":
 
         sample = 1.0
         sampled_values = [sample]
-        sigmas = [0.0]
+        timesteps = [0.0]
 
         def callback(x: float, n: int, t: float, s: float) -> None:
-            nonlocal sampled_values, sigmas
+            nonlocal sampled_values, timesteps
             sampled_values.append(x)
-            sigmas.insert(-1, s)
+            timesteps.insert(-1, t / schedule.base_timesteps)
 
         if isinstance(sampler, functional.RKMoire) and args.adjust:
             adjusted = schedule.base_timesteps
@@ -187,13 +195,13 @@ if args.command == "samplers":
 
         sampler.sample_model(
             sample=sample,
-            model=lambda sample, timestep, sigma: sample + math.sin(sigma * args.curve),
+            model=lambda x, t, s: x + math.sin(t / schedule.base_timesteps * args.curve) * (s + 1),
             steps=adjusted,
             rng=random,
             callback=callback,
         )
 
-        return sigmas, sampled_values
+        return timesteps, sampled_values
 
     plt.plot(*sample_model(structured.Euler(), schedule.base_timesteps), label="Reference", color=next(COLORS))
 
