@@ -9,7 +9,7 @@ from numpy.typing import NDArray
 
 
 def schedule_to_ramp(schedule: NDArray[np.float64]) -> NDArray[np.float64]:
-    return np.concatenate([[0], np.flip(schedule[:, 1])])
+    return np.concatenate([schedule[:, 1], [0]])
 
 
 @dataclass(frozen=True)
@@ -241,10 +241,10 @@ class Brownian(TensorNoiseCommon[BrownianProps]):
         self._step: int = 0
 
         # Basic sanitization to normalize 0->1
+        if self.ramp[0] > self.ramp[-1]:
+            self.ramp = -self.ramp
         self.ramp -= self.ramp.min()
         self.ramp /= self.ramp.max()
-        if self.ramp[0] > self.ramp[-1]:
-            self.ramp = np.flip(self.ramp)
 
     def generate(self) -> torch.Tensor:
         if self._step + 1 >= len(self.ramp):
