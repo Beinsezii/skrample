@@ -212,13 +212,8 @@ class Pyramid(TensorNoiseCommon[PyramidProps]):
         return noise / noise.std()  # Scaled back to roughly unit variance
 
 
-@dataclass(frozen=True)
-class BrownianProps(TensorNoiseProps):
-    reverse: bool = False
-
-
 @dataclass
-class Brownian(TensorNoiseCommon[BrownianProps]):
+class Brownian(TensorNoiseCommon[None]):
     """Uses torchsde.BrownianInterval to generate noise along a fixed timestep.
     generate() will raise StopIteration at the end of the ramp."""
 
@@ -250,14 +245,8 @@ class Brownian(TensorNoiseCommon[BrownianProps]):
         if self._step + 1 >= len(self.ramp):
             raise StopIteration
 
-        if self.props.reverse:
-            # - 2 because you still get the next sequentiall
-            step = len(self.ramp) - self._step - 2
-        else:
-            step = self._step
-
-        sigma = self.ramp[step]
-        sigma_next = self.ramp[step + 1]
+        sigma = self.ramp[self._step]
+        sigma_next = self.ramp[self._step + 1]
         self._step += 1
 
         return self._tree(sigma, sigma_next) / abs(sigma_next - sigma) ** 0.5
@@ -267,7 +256,7 @@ class Brownian(TensorNoiseCommon[BrownianProps]):
         cls,
         shape: tuple[int, ...],
         seed: torch.Generator,
-        props: BrownianProps = BrownianProps(),
+        props: None = None,
         dtype: torch.dtype = torch.float32,
         ramp: NDArray[np.float64] = np.linspace(0, 1, 1000, dtype=np.float64),
     ) -> Self:
