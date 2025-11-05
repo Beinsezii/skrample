@@ -38,6 +38,41 @@ def fractional_step(
     return result
 
 
+def step_tableau_derive[T: Sample](
+    tableau: tableaux.Tableau | tableaux.ExtendedTableau,
+    sample: T,
+    model: SampleableModel[T],
+    step: int,
+    schedule: FloatSchedule,
+    step_size: int = 1,
+    epsilon: float = 1e-8,
+) -> tuple[T, ...]:
+    nodes, weights = tableau[0], tableau[1:]
+
+    derivatives: list[T] = []
+    S0 = schedule[step][1]
+    S1 = schedule[step + step_size][1] if step + step_size < len(schedule) else 0
+    H = S1 - S0
+
+    fractions = fractional_step(schedule, step, tuple(f[0] * step_size for f in nodes))
+
+    for frac_sc, icoeffs in zip(fractions, (t[1] for t in nodes), strict=True):
+        Sn = frac_sc[1]
+        if icoeffs:
+            X: T = sample + math.sumprod(derivatives, icoeffs) / math.fsum(icoeffs) * (Sn - S0)  # type: ignore
+        else:
+            X = sample
+
+        # Do not call model on timestep = 0 or sigma = 0
+        if any(abs(v) < epsilon for v in frac_sc):
+            derivatives.append((sample - X) / S0)  # type: ignore
+        else:
+            P: T = model(X, *frac_sc) if not any(abs(v) < epsilon for v in frac_sc) else X
+            derivatives.append((X - P) / Sn)  # type: ignore
+
+    return tuple(sample + math.sumprod(derivatives, w) * H for w in weights)  # type: ignore
+
+
 def step_tableau[T: Sample](
     tableau: tableaux.Tableau | tableaux.ExtendedTableau,
     sample: T,
@@ -48,6 +83,15 @@ def step_tableau[T: Sample](
     step_size: int = 1,
     epsilon: float = 1e-8,
 ) -> tuple[T, ...]:
+    if transform is common.sigma_complement:
+        return step_tableau_derive(tableau, sample, model, step, schedule, step_size, epsilon)
+    elif transform is common.sigma_polar:
+        if step == 0:  # TODO (beinsezii): can't have this
+            sample = sample * schedule[step][1]  # type: ignore
+        return step_tableau_derive(
+            tableau, sample, lambda x, t, s: model(x / (s**2 + 1) ** 0.5, t, s), step, schedule, step_size, epsilon
+        )
+
     nodes, weights = tableau[0], tableau[1:]
     k_terms: list[T] = []
     fractions = fractional_step(schedule, step, tuple(f[0] * step_size for f in nodes))
