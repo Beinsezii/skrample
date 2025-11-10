@@ -156,35 +156,16 @@ def step_tableau[T: Sample](
             epsilon,
         )
 
-    nodes, weights = tableau[0], tableau[1:]
-    k_terms: list[T] = []
-    fractions = fractional_step(schedule, step, tuple(f[0] * step_size for f in nodes))
-
-    for frac_sc, icoeffs in zip(fractions, (t[1] for t in nodes), strict=True):
-        if icoeffs:
-            combined: T = common.euler(
-                sample,
-                math.sumprod(k_terms, icoeffs) / math.fsum(icoeffs),  # type: ignore
-                schedule[step][1],
-                frac_sc[1],
-                transform,
-            )
-        else:
-            combined = sample
-
-        # Do not call model on timestep = 0 or sigma = 0
-        k_terms.append(model(combined, *frac_sc) if not any(abs(v) < epsilon for v in frac_sc) else combined)
-
-    return tuple(
-        common.euler_step(
-            sample,
-            math.sumprod(k_terms, w),  # type: ignore
-            step,
-            schedule,
-            transform,
-            step_size,
-        )
-        for w in weights
+    return step_tableau_derive(
+        tableau,
+        sample,
+        model,
+        step,
+        schedule,
+        transform,
+        ((lambda x, p, s, t: p), (lambda x, p, s, t: p)),
+        step_size,
+        epsilon,
     )
 
 
