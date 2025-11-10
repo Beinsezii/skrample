@@ -43,11 +43,6 @@ def to_derivative_polar[T: Sample](sample: T, prediction: T, sigma: float, trans
     return (sample - (sigma_v * prediction)) / sigma_u  # pyright: ignore [reportReturnType]
 
 
-def from_derivative_polar[T: Sample](sample: T, derivative: T, sigma: float, transform: SigmaTransform) -> T:
-    sigma_u, sigma_v = transform(sigma)
-    return (sample - derivative * sigma_u) / sigma_v  # pyright: ignore [reportReturnType]
-
-
 def to_derivative_complement[T: Sample](sample: T, prediction: T, sigma: float, transform: SigmaTransform) -> T:
     return (sample - prediction) / sigma  # pyright: ignore [reportReturnType]
 
@@ -147,7 +142,7 @@ def step_tableau[T: Sample](
             step,
             schedule,
             transform,
-            (to_derivative_polar, from_derivative_polar),
+            (to_derivative_polar, common.predict_epsilon),
             step_size,
             epsilon,
         )

@@ -196,41 +196,42 @@ def test_unipc() -> None:
 
 def test_heun_scaled() -> None:
     margin = 1e-8
-    predictor: Predictor = EPSILON
     sigma_transform = sigma_polar
-    for steps in 2, 3, 30, 31, 200, 201:
-        df: HeunDiscreteScheduler = HeunDiscreteScheduler.from_config(SCALED_CONFIG)  # type: ignore
 
-        df.set_timesteps(steps)
+    for predictor in [(EPSILON, "epsilon"), (VELOCITY, "v_prediction")]:
+        for steps in 2, 3, 30, 31, 200, 201:
+            df: HeunDiscreteScheduler = HeunDiscreteScheduler.from_config(SCALED_CONFIG, prediction_type=predictor[1])  # type: ignore
 
-        fixed: list[tuple[float, float]] = []
-        for t in zip(df.timesteps.tolist(), df.sigmas.tolist()):
-            if t not in fixed:
-                fixed.append(t)
+            df.set_timesteps(steps)
 
-        sk = RKUltra(FixedSchedule(fixed, sigma_transform), order=2, providers=RKUltra.providers | {2: RK2.Heun})
+            fixed: list[tuple[float, float]] = []
+            for t in zip(df.timesteps.tolist(), df.sigmas.tolist()):
+                if t not in fixed:
+                    fixed.append(t)
 
-        sk_sample = torch.zeros([1, 4, 128, 128], dtype=torch.float32)
-        seed = torch.manual_seed(0)
+            sk = RKUltra(FixedSchedule(fixed, sigma_transform), order=2, providers=RKUltra.providers | {2: RK2.Heun})
 
-        df_noise = torch.randn(sk_sample.shape, generator=seed.clone_state(), dtype=sk_sample.dtype)
-        # df_sample = df.add_noise(sk_sample.clone(), df_noise, df.timesteps[0:1])
-        df_sample = df_noise * df.init_noise_sigma
-        for t in df.timesteps:
-            df_sample: torch.Tensor = df.step(
-                fake_model(df.scale_model_input(df_sample, timestep=t)),
-                sample=df_sample,
-                timestep=t,
-            )[0]
+            sk_sample = torch.zeros([1, 4, 128, 128], dtype=torch.float32)
+            seed = torch.manual_seed(0)
 
-        sk_sample = sk.generate_model(
-            sk.model_with_predictor(lambda x, t, s: fake_model(x), predictor),
-            lambda: torch.randn(sk_sample.shape, generator=seed, dtype=sk_sample.dtype),
-            steps,
-            initial=sk_sample,
-        )
+            df_noise = torch.randn(sk_sample.shape, generator=seed.clone_state(), dtype=sk_sample.dtype)
+            # df_sample = df.add_noise(sk_sample.clone(), df_noise, df.timesteps[0:1])
+            df_sample = df_noise * df.init_noise_sigma
+            for t in df.timesteps:
+                df_sample: torch.Tensor = df.step(
+                    fake_model(df.scale_model_input(df_sample, timestep=t)),
+                    sample=df_sample,
+                    timestep=t,
+                )[0]
 
-        compare_tensors(df_sample, sk_sample, message=f"{steps}", margin=margin)
+            sk_sample = sk.generate_model(
+                sk.model_with_predictor(lambda x, t, s: fake_model(x), predictor[0]),
+                lambda: torch.randn(sk_sample.shape, generator=seed, dtype=sk_sample.dtype),
+                steps,
+                initial=sk_sample,
+            )
+
+            compare_tensors(df_sample, sk_sample, message=f"{steps}", margin=margin)
 
 
 def test_heun_flow() -> None:
