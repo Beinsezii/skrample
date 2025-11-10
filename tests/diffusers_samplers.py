@@ -198,7 +198,7 @@ def test_heun_scaled() -> None:
     margin = 1e-8
     predictor: Predictor = EPSILON
     sigma_transform = sigma_polar
-    for steps in 30, 31, 200, 201:
+    for steps in 2, 3, 30, 31, 200, 201:
         df: HeunDiscreteScheduler = HeunDiscreteScheduler.from_config(SCALED_CONFIG)  # type: ignore
 
         df.set_timesteps(steps)
@@ -237,7 +237,7 @@ def test_heun_flow() -> None:
     margin = 1e-8
     predictor: Predictor = FLOW
     sigma_transform = sigma_complement
-    for steps in 30, 31, 200, 201:
+    for steps in 2, 3, 30, 31, 200, 201:
         df: FlowMatchHeunDiscreteScheduler = FlowMatchHeunDiscreteScheduler.from_config(FLOW_CONFIG)  # type: ignore
 
         df.set_timesteps(steps)
