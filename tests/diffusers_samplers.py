@@ -214,7 +214,8 @@ def test_heun_scaled() -> None:
         seed = torch.manual_seed(0)
 
         df_noise = torch.randn(sk_sample.shape, generator=seed.clone_state(), dtype=sk_sample.dtype)
-        df_sample = df.add_noise(sk_sample.clone(), df_noise, df.timesteps[0:1])
+        # df_sample = df.add_noise(sk_sample.clone(), df_noise, df.timesteps[0:1])
+        df_sample = df_noise * df.init_noise_sigma
         for t in df.timesteps:
             df_sample: torch.Tensor = df.step(
                 fake_model(df.scale_model_input(df_sample, timestep=t)),

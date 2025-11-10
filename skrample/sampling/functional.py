@@ -38,39 +38,87 @@ def fractional_step(
     return result
 
 
+def to_derivative_polar[T: Sample](sample: T, prediction: T, sigma: float, transform: SigmaTransform) -> T:
+    sigma_u, sigma_v = transform(sigma)
+    return (sample - (sigma_v * prediction)) / sigma_u  # pyright: ignore [reportReturnType]
+
+
+def from_derivative_polar[T: Sample](sample: T, derivative: T, sigma: float, transform: SigmaTransform) -> T:
+    sigma_u, sigma_v = transform(sigma)
+    return (sample - derivative * sigma_u) / sigma_v  # pyright: ignore [reportReturnType]
+
+
+def to_derivative_complement[T: Sample](sample: T, prediction: T, sigma: float, transform: SigmaTransform) -> T:
+    return (sample - prediction) / sigma  # pyright: ignore [reportReturnType]
+
+
+def from_derivative_complement[T: Sample](sample: T, derivative: T, sigma: float, transform: SigmaTransform) -> T:
+    return sample - derivative * sigma  # pyright: ignore [reportReturnType]
+
+
+type DerivativeTransform[T: Sample] = Callable[[T, T, float, SigmaTransform], T]
+
+
 def step_tableau_derive[T: Sample](
     tableau: tableaux.Tableau | tableaux.ExtendedTableau,
     sample: T,
     model: SampleableModel[T],
     step: int,
     schedule: FloatSchedule,
+    transform: SigmaTransform,
+    derivative_io: tuple[DerivativeTransform[T], DerivativeTransform[T]],
     step_size: int = 1,
     epsilon: float = 1e-8,
 ) -> tuple[T, ...]:
+    to_d, from_d = derivative_io
+
     nodes, weights = tableau[0], tableau[1:]
 
     derivatives: list[T] = []
     S0 = schedule[step][1]
     S1 = schedule[step + step_size][1] if step + step_size < len(schedule) else 0
-    H = S1 - S0
 
     fractions = fractional_step(schedule, step, tuple(f[0] * step_size for f in nodes))
 
     for frac_sc, icoeffs in zip(fractions, (t[1] for t in nodes), strict=True):
-        Sn = frac_sc[1]
+        sigma_i = frac_sc[1]
         if icoeffs:
-            X: T = sample + math.sumprod(derivatives, icoeffs) / math.fsum(icoeffs) * (Sn - S0)  # type: ignore
+            X: T = common.euler(  # pyright: ignore [reportAssignmentType]
+                sample,
+                from_d(
+                    sample,
+                    math.sumprod(derivatives, icoeffs) / math.fsum(icoeffs),  # pyright: ignore [reportArgumentType]
+                    S0,
+                    transform,
+                ),
+                S0,
+                sigma_i,
+                transform,
+            )
         else:
             X = sample
 
         # Do not call model on timestep = 0 or sigma = 0
         if any(abs(v) < epsilon for v in frac_sc):
-            derivatives.append((sample - X) / S0)  # type: ignore
+            derivatives.append(to_d(sample, X, S0, transform))
         else:
-            P: T = model(X, *frac_sc) if not any(abs(v) < epsilon for v in frac_sc) else X
-            derivatives.append((X - P) / Sn)  # type: ignore
+            derivatives.append(to_d(X, model(X, *frac_sc), sigma_i, transform))
 
-    return tuple(sample + math.sumprod(derivatives, w) * H for w in weights)  # type: ignore
+    return tuple(  # pyright: ignore [reportReturnType]
+        common.euler(
+            sample,
+            from_d(
+                sample,
+                math.sumprod(derivatives, w),  # pyright: ignore [reportArgumentType]
+                S0,
+                transform,
+            ),
+            S0,
+            S1,
+            transform,
+        )
+        for w in weights
+    )
 
 
 def step_tableau[T: Sample](
@@ -84,12 +132,28 @@ def step_tableau[T: Sample](
     epsilon: float = 1e-8,
 ) -> tuple[T, ...]:
     if transform is common.sigma_complement:
-        return step_tableau_derive(tableau, sample, model, step, schedule, step_size, epsilon)
-    elif transform is common.sigma_polar:
-        if step == 0:  # TODO (beinsezii): can't have this
-            sample = sample * schedule[step][1]  # type: ignore
         return step_tableau_derive(
-            tableau, sample, lambda x, t, s: model(x / (s**2 + 1) ** 0.5, t, s), step, schedule, step_size, epsilon
+            tableau,
+            sample,
+            model,
+            step,
+            schedule,
+            transform,
+            (to_derivative_complement, from_derivative_complement),
+            step_size,
+            epsilon,
+        )
+    elif transform is common.sigma_polar:
+        return step_tableau_derive(
+            tableau,
+            sample,
+            model,
+            step,
+            schedule,
+            transform,
+            (to_derivative_polar, from_derivative_polar),
+            step_size,
+            epsilon,
         )
 
     nodes, weights = tableau[0], tableau[1:]
