@@ -52,10 +52,6 @@ def to_derivative_complement[T: Sample](sample: T, prediction: T, sigma: float, 
     return (sample - prediction) / sigma  # pyright: ignore [reportReturnType]
 
 
-def from_derivative_complement[T: Sample](sample: T, derivative: T, sigma: float, transform: SigmaTransform) -> T:
-    return sample - derivative * sigma  # pyright: ignore [reportReturnType]
-
-
 type DerivativeTransform[T: Sample] = Callable[[T, T, float, SigmaTransform], T]
 
 
@@ -139,7 +135,7 @@ def step_tableau[T: Sample](
             step,
             schedule,
             transform,
-            (to_derivative_complement, from_derivative_complement),
+            (to_derivative_complement, common.predict_flow),
             step_size,
             epsilon,
         )
