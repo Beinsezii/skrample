@@ -1,3 +1,14 @@
+## 0.5.0
+### Fixes
+Incorrect Brownian step sizes
+
+Diffusers config parser allowing arbitrary keys
+
+sigmoid() math being backward
+
+### Breaking
+Removed BrownianNoiseProps
+
 ## 0.4.2
 ### Additions
 Unlocked Adams order
