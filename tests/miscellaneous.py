@@ -6,10 +6,11 @@ import numpy as np
 import torch
 from testing_common import compare_tensors
 
-from skrample.common import MergeStrategy, bashforth, sigma_complement, sigmoid, softmax, spowf
+from skrample.common import MergeStrategy, bashforth, predict_flow, sigma_complement, sigmoid, softmax, spowf
 from skrample.diffusers import SkrampleWrapperScheduler
 from skrample.sampling import tableaux
 from skrample.sampling.interface import StructuredFunctionalAdapter
+from skrample.sampling.models import FlowModel
 from skrample.sampling.structured import (
     DPM,
     SPC,
@@ -192,7 +193,7 @@ def test_functional_adapter() -> None:
                 noise = [random.random() for _ in range(steps)]
 
                 rng = iter(noise)
-                sample_f = adapter.sample_model(sample, fake_model, steps, rng=lambda: next(rng))
+                sample_f = adapter.sample_model(sample, fake_model, FlowModel, steps, rng=lambda: next(rng))
 
                 rng = iter(noise)
                 float_schedule = schedule.schedule(steps)
@@ -201,7 +202,7 @@ def test_functional_adapter() -> None:
                 for n, (t, s) in enumerate(float_schedule):
                     results = sampler.sample(
                         sample_s,
-                        fake_model(sample_s, t, s),
+                        predict_flow(sample_s, fake_model(sample_s, t, s), s, schedule.sigma_transform),
                         n,
                         float_schedule,
                         schedule.sigma_transform,
