@@ -1,8 +1,9 @@
 import enum
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from functools import lru_cache
 from itertools import repeat
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -22,6 +23,15 @@ type SigmaTransform = Callable[[float], tuple[float, float]]
 
 type Predictor[S: Sample] = Callable[[S, S, float, SigmaTransform], S]
 "sample, output, sigma, sigma_transform"
+
+type DictOrProxy[T, U] = MappingProxyType[T, U] | dict[T, U]  # Mapping does not implement __or__
+"Simple union type for a possibly immutable dictionary"
+
+type FloatSchedule = Sequence[tuple[float, float]]
+"Sequence of timestep, sigma"
+
+type RNG[T: Sample] = Callable[[], T]
+"Distribution should match model, typically normal"
 
 
 @enum.unique
@@ -90,6 +100,49 @@ def predict_flow[T: Sample](sample: T, output: T, sigma: float, sigma_transform:
     return sample - sigma * output  # type: ignore
 
 
+def get_sigma_uv(step: int, schedule: FloatSchedule, sigma_transform: SigmaTransform) -> tuple[float, float]:
+    """Gets sigma u/v with bounds check.
+    If step >= len(schedule), the sigma is assumed to be zero."""
+    return sigma_transform(schedule[step][1] if step < len(schedule) else 0)
+
+
+def scaled_delta(sigma: float, sigma_next: float, sigma_transform: SigmaTransform) -> tuple[float, float]:
+    "Returns delta (h) and scale factor to perform the euler method."
+    sigma_u, sigma_v = sigma_transform(sigma)
+    sigma_u_next, sigma_v_next = sigma_transform(sigma_next)
+
+    scale = sigma_u_next / sigma_u
+    delta = sigma_v_next - sigma_v * scale  # aka `h` or `dt`
+    return delta, scale
+
+
+def euler[T: Sample](sample: T, prediction: T, sigma: float, sigma_next: float, sigma_transform: SigmaTransform) -> T:
+    "Perform the euler method using scaled_delta"
+    # Returns delta, scale so prediction is first
+    return math.sumprod((prediction, sample), scaled_delta(sigma, sigma_next, sigma_transform))  # type: ignore
+
+
+def scaled_delta_step(
+    step: int, schedule: FloatSchedule, sigma_transform: SigmaTransform, step_size: int = 1
+) -> tuple[float, float]:
+    """Returns delta (h) and scale factor to perform the euler method.
+    If step + step_size > len(schedule), assumes the next timestep and sigma are zero"""
+    step_next = step + step_size
+    return scaled_delta(schedule[step][1], schedule[step_next][1] if step_next < len(schedule) else 0, sigma_transform)
+
+
+def euler_step[T: Sample](
+    sample: T, prediction: T, step: int, schedule: FloatSchedule, sigma_transform: SigmaTransform, step_size: int = 1
+) -> T:
+    "Perform the euler method using scaled_delta_step"
+    return math.sumprod((prediction, sample), scaled_delta_step(step, schedule, sigma_transform, step_size))  # type: ignore
+
+
+def merge_noise[T: Sample](sample: T, noise: T, sigma: float, sigma_transform: SigmaTransform) -> T:
+    sigma_u, sigma_v = sigma_transform(sigma)
+    return sample * sigma_v + noise * sigma_u  # type: ignore
+
+
 def safe_log(x: float) -> float:
     "Returns inf rather than throw an err"
     try:
@@ -126,6 +179,14 @@ def spowf[T: Sample](x: T, f: float) -> T:
     """Computes x^f in absolute then re-applies the sign to stabilize chaotic inputs.
     More computationally expensive than plain `math.pow`"""
     return abs(x) ** f * (-1 * (x < 0) | 1)  # type: ignore
+
+
+def mean(x: Sample) -> float:
+    "For an array this returns mean().item(). For a float this returns x"
+    if isinstance(x, float | int):
+        return x
+    else:
+        return x.mean().item()
 
 
 @lru_cache

@@ -24,13 +24,13 @@ def compare_schedules(
             b.set_timesteps(num_inference_steps=steps)
 
         compare_tensors(
-            torch.from_numpy(a.timesteps(steps)),
+            torch.from_numpy(a.timesteps_np(steps)),
             b.timesteps,
             f"TIMESTEPS @ {steps}",
             margin=ts_margin,
         )
         compare_tensors(
-            torch.from_numpy(a.sigmas(steps)),
+            torch.from_numpy(a.sigmas_np(steps)),
             b.sigmas[:-1],
             f"SIGMAS @ {steps}",
             margin=sig_margin,

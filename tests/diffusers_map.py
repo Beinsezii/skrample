@@ -14,7 +14,7 @@ from skrample.common import predict_epsilon as EPSILON
 from skrample.common import predict_flow as FLOW
 from skrample.common import predict_velocity as VELOCITY
 from skrample.diffusers import SkrampleWrapperScheduler
-from skrample.sampling import DPM, Adams, Euler, UniPC
+from skrample.sampling.structured import DPM, Adams, Euler, UniPC
 from skrample.scheduling import Beta, Exponential, FlowShift, Karras, Linear, Scaled
 
 

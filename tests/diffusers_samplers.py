@@ -1,22 +1,46 @@
+import dataclasses
 from inspect import signature
 
+import numpy as np
 import torch
 from diffusers.schedulers.scheduling_dpmsolver_multistep import DPMSolverMultistepScheduler
 from diffusers.schedulers.scheduling_euler_ancestral_discrete import EulerAncestralDiscreteScheduler
 from diffusers.schedulers.scheduling_euler_discrete import EulerDiscreteScheduler
 from diffusers.schedulers.scheduling_flow_match_euler_discrete import FlowMatchEulerDiscreteScheduler
+from diffusers.schedulers.scheduling_flow_match_heun_discrete import FlowMatchHeunDiscreteScheduler
+from diffusers.schedulers.scheduling_heun_discrete import HeunDiscreteScheduler
 from diffusers.schedulers.scheduling_unipc_multistep import UniPCMultistepScheduler
 from testing_common import FLOW_CONFIG, SCALED_CONFIG, compare_tensors
 
-from skrample.common import Predictor, sigma_complement, sigma_polar
+from skrample.common import FloatSchedule, Predictor, SigmaTransform, sigma_complement, sigma_polar
 from skrample.common import predict_epsilon as EPSILON
 from skrample.common import predict_flow as FLOW
 from skrample.common import predict_velocity as VELOCITY
-from skrample.sampling import DPM, Euler, SkrampleSampler, SKSamples, UniPC
+from skrample.sampling.functional import RKUltra
+from skrample.sampling.structured import DPM, Euler, SKSamples, StructuredSampler, UniPC
+from skrample.sampling.tableaux import RK2
+from skrample.scheduling import SkrampleSchedule
 
 DiffusersScheduler = (
-    EulerDiscreteScheduler | DPMSolverMultistepScheduler | FlowMatchEulerDiscreteScheduler | UniPCMultistepScheduler
+    EulerDiscreteScheduler
+    | DPMSolverMultistepScheduler
+    | FlowMatchEulerDiscreteScheduler
+    | FlowMatchHeunDiscreteScheduler
+    | UniPCMultistepScheduler
 )
+
+
+@dataclasses.dataclass(frozen=True)
+class FixedSchedule(SkrampleSchedule):
+    fixed_schedule: FloatSchedule
+    transform: SigmaTransform
+
+    def schedule_np(self, steps: int) -> np.typing.NDArray[np.float64]:
+        return np.array(self.fixed_schedule, dtype=np.float64)
+
+    @property
+    def sigma_transform(self) -> SigmaTransform:
+        return self.transform
 
 
 def fake_model(t: torch.Tensor) -> torch.Tensor:
@@ -25,7 +49,7 @@ def fake_model(t: torch.Tensor) -> torch.Tensor:
 
 
 def dual_sample(
-    a: SkrampleSampler,
+    a: StructuredSampler,
     b: DiffusersScheduler,
     predictor: Predictor,
     steps: range,
@@ -65,7 +89,7 @@ def dual_sample(
         a_output = predictor(
             a_sample, fake_model(a.scale_input(a_sample, sigma.item(), sigma_transform)), sigma.item(), sigma_transform
         )
-        sampled = a.sample(a_sample, a_output, step, schedule[:, 1].numpy(), sigma_transform, noise, prior_steps)
+        sampled = a.sample(a_sample, a_output, step, schedule.numpy().tolist(), sigma_transform, noise, prior_steps)
         a_sample = sampled.final
         prior_steps.append(sampled)
 
@@ -83,7 +107,7 @@ def dual_sample(
 
 
 def compare_samplers(
-    a: SkrampleSampler,
+    a: StructuredSampler,
     b: DiffusersScheduler,
     p: Predictor = EPSILON,
     mu: float | None = None,
@@ -168,3 +192,77 @@ def test_unipc() -> None:
                 predictor[0],
                 message=f"{predictor[0].__name__} o{order}",
             )
+
+
+def test_heun_scaled() -> None:
+    margin = 1e-8
+    sigma_transform = sigma_polar
+
+    for predictor in [(EPSILON, "epsilon"), (VELOCITY, "v_prediction")]:
+        for steps in 2, 3, 30, 31, 200, 201:
+            df: HeunDiscreteScheduler = HeunDiscreteScheduler.from_config(SCALED_CONFIG, prediction_type=predictor[1])  # type: ignore
+
+            df.set_timesteps(steps)
+
+            fixed: list[tuple[float, float]] = []
+            for t in zip(df.timesteps.tolist(), df.sigmas.tolist()):
+                if t not in fixed:
+                    fixed.append(t)
+
+            sk = RKUltra(FixedSchedule(fixed, sigma_transform), order=2, providers=RKUltra.providers | {2: RK2.Heun})
+
+            sk_sample = torch.zeros([1, 4, 128, 128], dtype=torch.float32)
+            seed = torch.manual_seed(0)
+
+            df_noise = torch.randn(sk_sample.shape, generator=seed.clone_state(), dtype=sk_sample.dtype)
+            # df_sample = df.add_noise(sk_sample.clone(), df_noise, df.timesteps[0:1])
+            df_sample = df_noise * df.init_noise_sigma
+            for t in df.timesteps:
+                df_sample: torch.Tensor = df.step(
+                    fake_model(df.scale_model_input(df_sample, timestep=t)),
+                    sample=df_sample,
+                    timestep=t,
+                )[0]
+
+            sk_sample = sk.generate_model(
+                sk.model_with_predictor(lambda x, t, s: fake_model(x), predictor[0]),
+                lambda: torch.randn(sk_sample.shape, generator=seed, dtype=sk_sample.dtype),
+                steps,
+                initial=sk_sample,
+            )
+
+            compare_tensors(df_sample, sk_sample, message=f"{steps}", margin=margin)
+
+
+def test_heun_flow() -> None:
+    margin = 1e-8
+    predictor: Predictor = FLOW
+    sigma_transform = sigma_complement
+    for steps in 2, 3, 30, 31, 200, 201:
+        df: FlowMatchHeunDiscreteScheduler = FlowMatchHeunDiscreteScheduler.from_config(FLOW_CONFIG)  # type: ignore
+
+        df.set_timesteps(steps)
+
+        fixed: list[tuple[float, float]] = []
+        for t in zip(df.timesteps.tolist(), df.sigmas.tolist()):
+            if t not in fixed:
+                fixed.append(t)
+
+        sk = RKUltra(FixedSchedule(fixed, sigma_transform), order=2, providers=RKUltra.providers | {2: RK2.Heun})
+
+        sk_sample = torch.zeros([1, 4, 128, 128], dtype=torch.float32)
+        seed = torch.manual_seed(0)
+
+        df_noise = torch.randn(sk_sample.shape, generator=seed.clone_state(), dtype=sk_sample.dtype)
+        df_sample = df.scale_noise(sk_sample.clone(), df.timesteps[0], df_noise)  # type: ignore
+        for t in df.timesteps:
+            df_sample: torch.Tensor = df.step(fake_model(df_sample), sample=df_sample, timestep=t)[0]  # type: ignore
+
+        sk_sample = sk.generate_model(
+            sk.model_with_predictor(lambda x, t, s: fake_model(x), predictor),
+            lambda: torch.randn(sk_sample.shape, generator=seed, dtype=sk_sample.dtype),
+            steps,
+            initial=sk_sample,
+        )
+
+        compare_tensors(df_sample, sk_sample, message=f"{steps}", margin=margin)

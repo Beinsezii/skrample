@@ -8,7 +8,7 @@ from tqdm import tqdm
 from transformers.models.clip import CLIPTextModel, CLIPTokenizer
 
 import skrample.common
-import skrample.sampling as sampling
+import skrample.sampling.structured as structured
 import skrample.scheduling as scheduling
 
 with torch.inference_mode():
@@ -20,7 +20,7 @@ with torch.inference_mode():
     cfg: float = 3
 
     schedule: scheduling.SkrampleSchedule = scheduling.Karras(scheduling.Scaled())
-    sampler: sampling.SkrampleSampler = sampling.DPM(order=2, add_noise=True)
+    sampler: structured.StructuredSampler = structured.DPM(order=2, add_noise=True)
     predictor: skrample.common.Predictor = skrample.common.predict_epsilon
 
     tokenizer: CLIPTokenizer = CLIPTokenizer.from_pretrained(url, subfolder="tokenizer")
@@ -43,9 +43,10 @@ with torch.inference_mode():
     ).last_hidden_state
 
     sample: torch.Tensor = torch.randn([1, 4, 80, 80], generator=seed).to(dtype=dtype, device=device)
-    previous: list[sampling.SKSamples[torch.Tensor]] = []
+    previous: list[structured.SKSamples[torch.Tensor]] = []
+    float_schedule = schedule.schedule(steps)
 
-    for n, (timestep, sigma) in enumerate(tqdm(schedule.schedule(steps))):
+    for n, (timestep, sigma) in enumerate(tqdm(float_schedule)):
         conditioned, unconditioned = model(
             sample.expand([sample.shape[0] * 2, *sample.shape[1:]]),
             timestep,
@@ -59,7 +60,7 @@ with torch.inference_mode():
             sample=sample,
             prediction=prediction,
             step=n,
-            sigma_schedule=schedule.sigmas(steps),
+            schedule=float_schedule,
             sigma_transform=schedule.sigma_transform,
             noise=torch.randn(sample.shape, generator=seed).to(dtype=sample.dtype, device=sample.device),
             previous=tuple(previous),
@@ -71,4 +72,4 @@ with torch.inference_mode():
     image: torch.Tensor = image_encoder.decode(sample / image_encoder.config.scaling_factor).sample[0]  # type: ignore
     Image.fromarray(
         ((image + 1) * (255 / 2)).clamp(0, 255).permute(1, 2, 0).to(device="cpu", dtype=torch.uint8).numpy()
-    ).save("raw.png")
+    ).save("structured.png")
