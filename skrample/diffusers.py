@@ -38,6 +38,8 @@ DIFFUSERS_CLASS_MAP: dict[str, tuple[type[SkrampleSampler], dict[str, Any]]] = {
 }
 
 DIFFUSERS_KEY_MAP: dict[str, str] = {
+    # scheduling.FlowShift
+    "shift": "shift",
     # DPM and other non-FlowMatch schedulers
     "flow_shift": "shift",
     # sampling.HighOrderSampler
@@ -111,15 +113,11 @@ def parse_diffusers_config(
     if not isinstance(config, dict):
         config = dict(config.config)
 
-    remapped = (
-        dict(config)  # ensure not ordered/frozen
-        | {DIFFUSERS_KEY_MAP[k]: v for k, v in config.items() if k in DIFFUSERS_KEY_MAP}
-        | {
-            DIFFUSERS_VALUE_MAP[(k, v)][0]: DIFFUSERS_VALUE_MAP[(k, v)][1]
-            for k, v in config.items()
-            if isinstance(v, Hashable) and (k, v) in DIFFUSERS_VALUE_MAP
-        }
-    )
+    remapped = {DIFFUSERS_KEY_MAP[k]: v for k, v in config.items() if k in DIFFUSERS_KEY_MAP} | {
+        DIFFUSERS_VALUE_MAP[(k, v)][0]: DIFFUSERS_VALUE_MAP[(k, v)][1]
+        for k, v in config.items()
+        if isinstance(v, Hashable) and (k, v) in DIFFUSERS_VALUE_MAP
+    }
 
     if "skrample_predictor" in remapped:
         predictor: Predictor = remapped.pop("skrample_predictor")
