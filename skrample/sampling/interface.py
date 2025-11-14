@@ -31,7 +31,7 @@ class StructuredFunctionalAdapter(functional.FunctionalSampler):
             timestep, sigma = schedule[n]
 
             output = model(self.sampler.scale_input(sample, sigma, self.schedule.sigma_transform), timestep, sigma)
-            prediction = model_transform.predict(sample, output, sigma, self.schedule.sigma_transform)
+            prediction = model_transform.to_x(sample, output, sigma, self.schedule.sigma_transform)
 
             sksamples = self.sampler.sample(
                 sample,

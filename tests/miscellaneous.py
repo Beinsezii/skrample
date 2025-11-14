@@ -6,11 +6,21 @@ import numpy as np
 import torch
 from testing_common import compare_tensors
 
-from skrample.common import MergeStrategy, bashforth, predict_flow, sigma_complement, sigmoid, softmax, spowf
+from skrample.common import (
+    MergeStrategy,
+    SigmaTransform,
+    bashforth,
+    predict_flow,
+    sigma_complement,
+    sigma_polar,
+    sigmoid,
+    softmax,
+    spowf,
+)
 from skrample.diffusers import SkrampleWrapperScheduler
 from skrample.sampling import tableaux
 from skrample.sampling.interface import StructuredFunctionalAdapter
-from skrample.sampling.models import FlowModel
+from skrample.sampling.models import EpsilonModel, FlowModel, ModelTransform, VelocityModel, XModel
 from skrample.sampling.structured import (
     DPM,
     SPC,
@@ -50,6 +60,24 @@ def test_sigmas_to_timesteps() -> None:
         timesteps = schedule.timesteps_np(123)
         timesteps_inv = schedule.sigmas_to_timesteps(schedule.sigmas_np(123))
         compare_tensors(torch.tensor(timesteps), torch.tensor(timesteps_inv), margin=0)  # shocked this rounds good
+
+
+def test_model_transforms() -> None:
+    model_transform: ModelTransform
+    sigma_transform: SigmaTransform
+    for model_transform in [EpsilonModel, FlowModel, VelocityModel, XModel]:
+        for sigma_transform in sigma_complement, sigma_polar:
+            sample = 0.8
+            output = 0.3
+            sigma = 0.2
+
+            x = model_transform.to_x(sample, output, sigma, sigma_transform)
+            o = model_transform.from_x(sample, x, sigma, sigma_transform)
+            assert abs(output - o) < 1e-12, f"{output=} {o=} {model_transform=} {sigma_transform=}"
+
+            z = model_transform.to_z(sample, sigma, sigma_transform)
+            s = model_transform.from_z(z, sigma, sigma_transform)
+            assert abs(sample - s) < 1e-12, f"{sample=} {s=} {model_transform=} {sigma_transform=}"
 
 
 def test_sampler_generics() -> None:
