@@ -4,7 +4,8 @@ from skrample.common import Sample, SigmaTransform, divf, predict_epsilon, predi
 
 
 class DiffusionModel:
-    "Implements euler method forward and backward through novel method described in https://diffusionflow.github.io/"
+    """Implements euler method forward and backward through novel method described in https://diffusionflow.github.io/
+    Base data type is X̂, or sample prediction"""
 
     @classmethod
     def to_x[T: Sample](cls, sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
@@ -19,17 +20,23 @@ class DiffusionModel:
     @classmethod
     def to_z[T: Sample](cls, sample: T, sigma: float, sigma_transform: SigmaTransform) -> T:
         "zₜ -> z̃ₜ"
-        return sample
+        sigma_t, _alpha_t = sigma_transform(sigma)
+        z_t = sample / sigma_t
+        return z_t  # pyright: ignore [reportReturnType]
 
     @classmethod
     def from_z[T: Sample](cls, z: T, sigma: float, sigma_transform: SigmaTransform) -> T:
         "z̃ₜ -> zₜ"
-        return z
+        sigma_t, _alpha_t = sigma_transform(sigma)
+        z_t = z * sigma_t
+        return z_t  # pyright: ignore [reportReturnType]
 
     @classmethod
     def to_eta(cls, sigma: float, sigma_transform: SigmaTransform) -> float:
         "σₜ -> ηₜ"
-        return sigma
+        sigma_t, alpha_t = sigma_transform(sigma)
+        eta_t = divf(alpha_t, sigma_t)
+        return eta_t
 
     @classmethod
     def to_h(cls, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform) -> float:
@@ -63,6 +70,10 @@ class DiffusionModel:
             z_t = cls.to_z(sample, sigma_from, sigma_transform)
             z_s = cls.to_z(result, sigma_to, sigma_transform)
             return (z_s - z_t) / h  # pyright: ignore [reportReturnType]
+
+
+class XModel(DiffusionModel):
+    "Equivalent to DiffusionModel, for type checking"
 
 
 class EpsilonModel(DiffusionModel):
@@ -155,28 +166,6 @@ class VelocityModel(EpsilonModel):
         output = super().to_x(sample, output, sigma_from, sigma_transform)
         output = cls.from_x(sample, output, sigma_from, sigma_transform)
         return output
-
-
-class XModel(DiffusionModel):
-    "Direct data prediction"
-
-    @classmethod
-    def to_z[T: Sample](cls, sample: T, sigma: float, sigma_transform: SigmaTransform) -> T:
-        sigma_t, _alpha_t = sigma_transform(sigma)
-        z_t = sample / sigma_t
-        return z_t  # pyright: ignore [reportReturnType]
-
-    @classmethod
-    def from_z[T: Sample](cls, z: T, sigma: float, sigma_transform: SigmaTransform) -> T:
-        sigma_t, _alpha_t = sigma_transform(sigma)
-        z_t = z * sigma_t
-        return z_t  # pyright: ignore [reportReturnType]
-
-    @classmethod
-    def to_eta(cls, sigma: float, sigma_transform: SigmaTransform) -> float:
-        sigma_t, alpha_t = sigma_transform(sigma)
-        eta_t = divf(alpha_t, sigma_t)
-        return eta_t
 
 
 type ModelTransform = DiffusionModel | type[DiffusionModel]
