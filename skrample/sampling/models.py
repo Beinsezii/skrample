@@ -1,6 +1,6 @@
 import math
 
-from skrample.common import Sample, SigmaTransform, divf, predict_epsilon, predict_flow, predict_velocity
+from skrample.common import Sample, SigmaTransform, divf, predict_epsilon
 
 
 class DiffusionModel:
@@ -137,36 +137,33 @@ class FlowModel(DiffusionModel):
         return sigma_t / (alpha_t + sigma_t)
 
 
-class VelocityModel(EpsilonModel):
-    """Typically used with the linear noise schedule.
-    Simply converts output to Epsilon during forward/backward"""
+class VelocityModel(DiffusionModel):
+    "Typically used with the variance-preserving (VP) noise schedule"
 
     @classmethod
     def to_x[T: Sample](cls, sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
-        return predict_velocity(sample, output, sigma, sigma_transform)
+        sigma_t, alpha_t = sigma_transform(sigma)
+        return (alpha_t * sample - sigma_t * output) / (alpha_t**2 + sigma_t**2)  # pyright: ignore [reportReturnType]
 
     @classmethod
     def from_x[T: Sample](cls, sample: T, x: T, sigma: float, sigma_transform: SigmaTransform) -> T:
         sigma_t, alpha_t = sigma_transform(sigma)
-        output = (alpha_t * sample - x) / sigma_t
-        return output  # pyright: ignore [reportReturnType]
+        return (alpha_t * sample - x * (alpha_t**2 + sigma_t**2)) / sigma_t  # pyright: ignore [reportReturnType]
 
     @classmethod
-    def forward[T: Sample](
-        cls, sample: T, output: T, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform
-    ) -> T:
-        output = cls.to_x(sample, output, sigma_from, sigma_transform)
-        output = super().from_x(sample, output, sigma_from, sigma_transform)
-        return super().forward(sample, output, sigma_from, sigma_to, sigma_transform)
+    def to_z[T: Sample](cls, sample: T, sigma: float, sigma_transform: SigmaTransform) -> T:
+        sigma_t, alpha_t = sigma_transform(sigma)
+        return sample / math.sqrt(alpha_t**2 + sigma_t**2)  # pyright: ignore [reportReturnType]
 
     @classmethod
-    def backward[T: Sample](
-        cls, sample: T, result: T, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform
-    ) -> T:
-        output: T = super().backward(sample, result, sigma_from, sigma_to, sigma_transform)
-        output = super().to_x(sample, output, sigma_from, sigma_transform)
-        output = cls.from_x(sample, output, sigma_from, sigma_transform)
-        return output
+    def from_z[T: Sample](cls, z: T, sigma: float, sigma_transform: SigmaTransform) -> T:
+        sigma_t, alpha_t = sigma_transform(sigma)
+        return z * math.sqrt(alpha_t**2 + sigma_t**2)  # pyright: ignore [reportReturnType]
+
+    @classmethod
+    def to_eta(cls, sigma: float, sigma_transform: SigmaTransform) -> float:
+        sigma_t, alpha_t = sigma_transform(sigma)
+        return math.atan2(sigma_t, alpha_t)
 
 
 type ModelTransform = DiffusionModel | type[DiffusionModel]
