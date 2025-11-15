@@ -17,6 +17,7 @@ from skrample.common import predict_epsilon as EPSILON
 from skrample.common import predict_flow as FLOW
 from skrample.common import predict_velocity as VELOCITY
 from skrample.sampling.functional import RKUltra
+from skrample.sampling.models import EpsilonModel, FlowModel
 from skrample.sampling.structured import DPM, Euler, SKSamples, StructuredSampler, UniPC
 from skrample.sampling.tableaux import RK2
 from skrample.scheduling import SkrampleSchedule
@@ -198,7 +199,10 @@ def test_heun_scaled() -> None:
     margin = 1e-8
     sigma_transform = sigma_polar
 
-    for predictor in [(EPSILON, "epsilon"), (VELOCITY, "v_prediction")]:
+    for predictor in [
+        (EpsilonModel, "epsilon"),
+        # (EpsilonModel, "v_prediction"), # They do Heun on epsilon-hat not v-hat which we don't support yet.
+    ]:
         for steps in 2, 3, 30, 31, 200, 201:
             df: HeunDiscreteScheduler = HeunDiscreteScheduler.from_config(SCALED_CONFIG, prediction_type=predictor[1])  # type: ignore
 
@@ -225,18 +229,18 @@ def test_heun_scaled() -> None:
                 )[0]
 
             sk_sample = sk.generate_model(
-                sk.model_with_predictor(lambda x, t, s: fake_model(x), predictor[0]),
+                lambda x, t, s: fake_model(x),
+                predictor[0],
                 lambda: torch.randn(sk_sample.shape, generator=seed, dtype=sk_sample.dtype),
                 steps,
                 initial=sk_sample,
             )
 
-            compare_tensors(df_sample, sk_sample, message=f"{steps}", margin=margin)
+            compare_tensors(df_sample, sk_sample, message=f"{steps} {predictor[1]}", margin=margin)
 
 
 def test_heun_flow() -> None:
     margin = 1e-8
-    predictor: Predictor = FLOW
     sigma_transform = sigma_complement
     for steps in 2, 3, 30, 31, 200, 201:
         df: FlowMatchHeunDiscreteScheduler = FlowMatchHeunDiscreteScheduler.from_config(FLOW_CONFIG)  # type: ignore
@@ -259,7 +263,8 @@ def test_heun_flow() -> None:
             df_sample: torch.Tensor = df.step(fake_model(df_sample), sample=df_sample, timestep=t)[0]  # type: ignore
 
         sk_sample = sk.generate_model(
-            sk.model_with_predictor(lambda x, t, s: fake_model(x), predictor),
+            lambda x, t, s: fake_model(x),
+            FlowModel,
             lambda: torch.randn(sk_sample.shape, generator=seed, dtype=sk_sample.dtype),
             steps,
             initial=sk_sample,

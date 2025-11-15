@@ -143,6 +143,16 @@ def merge_noise[T: Sample](sample: T, noise: T, sigma: float, sigma_transform: S
     return sample * sigma_v + noise * sigma_u  # type: ignore
 
 
+def divf(lhs: float, rhs: float) -> float:
+    "Float division with infinity"
+    if rhs != 0:
+        return lhs / rhs
+    elif lhs == 0:
+        raise ZeroDivisionError
+    else:
+        return math.copysign(math.inf, lhs)
+
+
 def safe_log(x: float) -> float:
     "Returns inf rather than throw an err"
     try:
