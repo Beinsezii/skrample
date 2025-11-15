@@ -113,12 +113,13 @@ class FlowModel(DiffusionModel):
 
     @classmethod
     def to_x[T: Sample](cls, sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
-        return predict_flow(sample, output, sigma, sigma_transform)
+        sigma_t, alpha_t = sigma_transform(sigma)
+        return (sample - sigma_t * output) / (alpha_t + sigma_t)  # pyright: ignore [reportReturnType]
 
     @classmethod
     def from_x[T: Sample](cls, sample: T, x: T, sigma: float, sigma_transform: SigmaTransform) -> T:
-        output = (sample - x) / sigma
-        return output  # pyright: ignore [reportReturnType]
+        sigma_t, alpha_t = sigma_transform(sigma)
+        return (sample - (alpha_t + sigma_t) * x) / sigma_t  # pyright: ignore [reportReturnType]
 
     @classmethod
     def to_z[T: Sample](cls, sample: T, sigma: float, sigma_transform: SigmaTransform) -> T:
