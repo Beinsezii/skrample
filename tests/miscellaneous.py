@@ -1,15 +1,29 @@
+import itertools
 import math
 import random
 from dataclasses import replace
 
 import numpy as np
+import pytest
 import torch
 from testing_common import compare_tensors
 
-from skrample.common import MergeStrategy, bashforth, sigma_complement, sigmoid, softmax, spowf
+from skrample.common import (
+    MergeStrategy,
+    SigmaTransform,
+    bashforth,
+    euler,
+    predict_flow,
+    sigma_complement,
+    sigma_polar,
+    sigmoid,
+    softmax,
+    spowf,
+)
 from skrample.diffusers import SkrampleWrapperScheduler
 from skrample.sampling import tableaux
 from skrample.sampling.interface import StructuredFunctionalAdapter
+from skrample.sampling.models import EpsilonModel, FlowModel, ModelTransform, VelocityModel, XModel
 from skrample.sampling.structured import (
     DPM,
     SPC,
@@ -49,6 +63,28 @@ def test_sigmas_to_timesteps() -> None:
         timesteps = schedule.timesteps_np(123)
         timesteps_inv = schedule.sigmas_to_timesteps(schedule.sigmas_np(123))
         compare_tensors(torch.tensor(timesteps), torch.tensor(timesteps_inv), margin=0)  # shocked this rounds good
+
+
+@pytest.mark.parametrize(
+    ("model_transform", "sigma_transform"),
+    itertools.product([EpsilonModel, FlowModel, VelocityModel, XModel], [sigma_complement, sigma_polar]),
+)
+def test_model_transforms(model_transform: ModelTransform, sigma_transform: SigmaTransform) -> None:
+    sample = 0.8
+    output = 0.3
+    sigma = 0.2
+
+    x = model_transform.to_x(sample, output, sigma, sigma_transform)
+    o = model_transform.from_x(sample, x, sigma, sigma_transform)
+    assert abs(output - o) < 1e-12
+
+    sigma_next = 0.05
+    for sigma_next in 0.05, 0:  # extra 0 to validate X̂
+        snr = euler(
+            sample, model_transform.to_x(sample, output, sigma, sigma_transform), sigma, sigma_next, sigma_transform
+        )
+        df = model_transform.forward(sample, output, sigma, sigma_next, sigma_transform)
+        assert abs(snr - df) < 1e-12
 
 
 def test_sampler_generics() -> None:
@@ -192,7 +228,7 @@ def test_functional_adapter() -> None:
                 noise = [random.random() for _ in range(steps)]
 
                 rng = iter(noise)
-                sample_f = adapter.sample_model(sample, fake_model, steps, rng=lambda: next(rng))
+                sample_f = adapter.sample_model(sample, fake_model, FlowModel, steps, rng=lambda: next(rng))
 
                 rng = iter(noise)
                 float_schedule = schedule.schedule(steps)
@@ -201,7 +237,7 @@ def test_functional_adapter() -> None:
                 for n, (t, s) in enumerate(float_schedule):
                     results = sampler.sample(
                         sample_s,
-                        fake_model(sample_s, t, s),
+                        predict_flow(sample_s, fake_model(sample_s, t, s), s, schedule.sigma_transform),
                         n,
                         float_schedule,
                         schedule.sigma_transform,

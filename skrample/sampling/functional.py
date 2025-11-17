@@ -11,7 +11,8 @@ import numpy as np
 from skrample import common, scheduling
 from skrample.common import RNG, DictOrProxy, FloatSchedule, Predictor, Sample, SigmaTransform
 
-from . import tableaux
+from . import models, tableaux
+from .models import ModelTransform
 
 type SampleCallback[T: Sample] = Callable[[T, int, float, float], Any]
 "Return is ignored"
@@ -38,32 +39,23 @@ def fractional_step(
     return result
 
 
-def to_derivative_polar[T: Sample](sample: T, prediction: T, sigma: float, transform: SigmaTransform) -> T:
-    sigma_u, sigma_v = transform(sigma)
-    return (sample - (sigma_v * prediction)) / sigma_u  # pyright: ignore [reportReturnType]
-
-
-def to_derivative_complement[T: Sample](sample: T, prediction: T, sigma: float, transform: SigmaTransform) -> T:
-    return (sample - prediction) / sigma  # pyright: ignore [reportReturnType]
-
-
-type DerivativeTransform[T: Sample] = Callable[[T, T, float, SigmaTransform], T]
-
-
-def step_tableau_derive[T: Sample](
+def step_tableau[T: Sample](
     tableau: tableaux.Tableau | tableaux.ExtendedTableau,
     sample: T,
     model: SampleableModel[T],
+    model_transform: ModelTransform,
     step: int,
     schedule: FloatSchedule,
-    transform: SigmaTransform,
-    derivative_io: tuple[DerivativeTransform[T], DerivativeTransform[T]],
+    sigma_transform: SigmaTransform,
+    derivative_transform: models.ModelTransform | None = models.DiffusionModel,
     step_size: int = 1,
     epsilon: float = 1e-8,
 ) -> tuple[T, ...]:
-    to_d, from_d = derivative_io
-
     nodes, weights = tableau[0], tableau[1:]
+
+    if len(nodes) > 1 and derivative_transform:
+        model = models.ModelConvert(model_transform, derivative_transform).wrap_model_call(model, sigma_transform)
+        model_transform = derivative_transform
 
     derivatives: list[T] = []
     S0 = schedule[step][1]
@@ -74,89 +66,31 @@ def step_tableau_derive[T: Sample](
     for frac_sc, icoeffs in zip(fractions, (t[1] for t in nodes), strict=True):
         sigma_i = frac_sc[1]
         if icoeffs:
-            X: T = common.euler(  # pyright: ignore [reportAssignmentType]
+            X: T = model_transform.forward(  # pyright: ignore [reportAssignmentType]
                 sample,
-                from_d(
-                    sample,
-                    math.sumprod(derivatives, icoeffs) / math.fsum(icoeffs),  # pyright: ignore [reportArgumentType]
-                    S0,
-                    transform,
-                ),
+                math.sumprod(derivatives, icoeffs) / math.fsum(icoeffs),  # pyright: ignore [reportArgumentType]
                 S0,
                 sigma_i,
-                transform,
+                sigma_transform,
             )
         else:
             X = sample
 
         # Do not call model on timestep = 0 or sigma = 0
         if any(abs(v) < epsilon for v in frac_sc):
-            derivatives.append(to_d(sample, X, S0, transform))
+            derivatives.append(model_transform.backward(sample, X, S0, S1, sigma_transform))
         else:
-            derivatives.append(to_d(X, model(X, *frac_sc), sigma_i, transform))
+            derivatives.append(model(X, *frac_sc))
 
     return tuple(  # pyright: ignore [reportReturnType]
-        common.euler(
+        model_transform.forward(
             sample,
-            from_d(
-                sample,
-                math.sumprod(derivatives, w),  # pyright: ignore [reportArgumentType]
-                S0,
-                transform,
-            ),
+            math.sumprod(derivatives, w),  # pyright: ignore [reportArgumentType]
             S0,
             S1,
-            transform,
+            sigma_transform,
         )
         for w in weights
-    )
-
-
-def step_tableau[T: Sample](
-    tableau: tableaux.Tableau | tableaux.ExtendedTableau,
-    sample: T,
-    model: SampleableModel[T],
-    step: int,
-    schedule: FloatSchedule,
-    transform: SigmaTransform,
-    step_size: int = 1,
-    epsilon: float = 1e-8,
-) -> tuple[T, ...]:
-    if transform is common.sigma_complement:
-        return step_tableau_derive(
-            tableau,
-            sample,
-            model,
-            step,
-            schedule,
-            transform,
-            (to_derivative_complement, common.predict_flow),
-            step_size,
-            epsilon,
-        )
-    elif transform is common.sigma_polar:
-        return step_tableau_derive(
-            tableau,
-            sample,
-            model,
-            step,
-            schedule,
-            transform,
-            (to_derivative_polar, common.predict_epsilon),
-            step_size,
-            epsilon,
-        )
-
-    return step_tableau_derive(
-        tableau,
-        sample,
-        model,
-        step,
-        schedule,
-        transform,
-        ((lambda x, p, s, t: p), (lambda x, p, s, t: p)),
-        step_size,
-        epsilon,
     )
 
 
@@ -183,6 +117,7 @@ class FunctionalSampler(ABC):
         self,
         sample: T,
         model: SampleableModel[T],
+        model_transform: ModelTransform,
         steps: int,
         include: slice = slice(None),
         rng: RNG[T] | None = None,
@@ -195,6 +130,7 @@ class FunctionalSampler(ABC):
     def generate_model[T: Sample](
         self,
         model: SampleableModel[T],
+        model_transform: ModelTransform,
         rng: RNG[T],
         steps: int,
         include: slice = slice(None),
@@ -215,7 +151,7 @@ class FunctionalSampler(ABC):
             ) / self.merge_noise(0.0, 1.0, steps, 0)
             # Rescale sample by initial sigma. Mostly just to handle quirks with Scaled
 
-        return self.sample_model(sample, model, steps, include, rng, callback)
+        return self.sample_model(sample, model, model_transform, steps, include, rng, callback)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -236,12 +172,19 @@ class FunctionalHigher(FunctionalSampler):
 
 
 @dataclasses.dataclass(frozen=True)
+class FunctionalDerivative(FunctionalHigher):
+    derivative_transform: models.ModelTransform | None = models.DiffusionModel
+    "Transform model to this space when computing higher order samples."
+
+
+@dataclasses.dataclass(frozen=True)
 class FunctionalSinglestep(FunctionalSampler):
     @abstractmethod
     def step[T: Sample](
         self,
         sample: T,
         model: SampleableModel[T],
+        model_transform: ModelTransform,
         step: int,
         schedule: FloatSchedule,
         rng: RNG[T] | None = None,
@@ -251,6 +194,7 @@ class FunctionalSinglestep(FunctionalSampler):
         self,
         sample: T,
         model: SampleableModel[T],
+        model_transform: ModelTransform,
         steps: int,
         include: slice = slice(None),
         rng: RNG[T] | None = None,
@@ -259,7 +203,7 @@ class FunctionalSinglestep(FunctionalSampler):
         schedule: FloatSchedule = self.schedule.schedule(steps)
 
         for n in list(range(steps))[include]:
-            sample = self.step(sample, model, n, schedule, rng)
+            sample = self.step(sample, model, model_transform, n, schedule, rng)
 
             if callback:
                 callback(sample, n, *schedule[n] if n < len(schedule) else (0, 0))
@@ -283,7 +227,7 @@ class FunctionalAdaptive(FunctionalSampler):
 
 
 @dataclasses.dataclass(frozen=True)
-class RKUltra(FunctionalHigher, FunctionalSinglestep):
+class RKUltra(FunctionalDerivative, FunctionalSinglestep):
     "Implements almost every single method from https://en.wikipedia.org/wiki/List_of_Runge–Kutta_methods"  # noqa: RUF002
 
     order: int = 2
@@ -291,7 +235,7 @@ class RKUltra(FunctionalHigher, FunctionalSinglestep):
     providers: DictOrProxy[int, tableaux.TableauProvider[tableaux.Tableau | tableaux.ExtendedTableau]] = (
         MappingProxyType(
             {
-                2: tableaux.RK2.Ralston,
+                2: tableaux.RK2.Heun,
                 3: tableaux.RK3.Ralston,
                 4: tableaux.RK4.Ralston,
                 5: tableaux.RK5.Nystrom,
@@ -327,11 +271,21 @@ class RKUltra(FunctionalHigher, FunctionalSinglestep):
         self,
         sample: T,
         model: SampleableModel[T],
+        model_transform: ModelTransform,
         step: int,
         schedule: FloatSchedule,
         rng: RNG[T] | None = None,
     ) -> T:
-        return step_tableau(self.tableau(), sample, model, step, schedule, self.schedule.sigma_transform)[0]
+        return step_tableau(
+            self.tableau(),
+            sample,
+            model,
+            model_transform,
+            step,
+            schedule,
+            self.schedule.sigma_transform,
+            derivative_transform=self.derivative_transform,
+        )[0]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -355,28 +309,28 @@ class FastHeun(FunctionalAdaptive, FunctionalSinglestep, FunctionalHigher):
         self,
         sample: T,
         model: SampleableModel[T],
+        model_transform: ModelTransform,
         step: int,
         schedule: FloatSchedule,
         rng: RNG[T] | None = None,
     ) -> T:
-        dt, scale = common.scaled_delta_step(step, schedule, self.schedule.sigma_transform)
-
         k1 = model(sample, *schedule[step])
-        result: T = sample * scale + k1 * dt  # type: ignore
+        sigma_from = schedule[step][1]
+        sigma_to = schedule[step + 1][1] if step + 1 < len(schedule) else 0
+        result: T = model_transform.forward(sample, k1, sigma_from, sigma_to, self.schedule.sigma_transform)
 
         # Multiplying by step size here is kind of an asspull, but so is this whole solver so...
-        if (
-            step + 1 < len(schedule)
-            and self.evaluator(sample, result) / max(self.evaluator(0, result), 1e-16) > self.threshold * dt
-        ):
-            k2 = model(result, *schedule[step + 1])
-            result: T = sample * scale + (k1 + k2) / 2 * dt  # type: ignore
+        if step + 1 < len(schedule) and self.evaluator(sample, result) / max(
+            self.evaluator(0, result), 1e-16
+        ) > self.threshold * abs(sigma_from - sigma_to):
+            k2: T = (k1 + model(result, *schedule[step + 1])) / 2  # pyright: ignore [reportAssignmentType]
+            result: T = model_transform.forward(sample, k2, sigma_from, sigma_to, self.schedule.sigma_transform)
 
         return result
 
 
 @dataclasses.dataclass(frozen=True)
-class RKMoire(FunctionalAdaptive, FunctionalHigher):
+class RKMoire(FunctionalAdaptive, FunctionalDerivative):
     order: int = 2
 
     providers: DictOrProxy[int, tableaux.TableauProvider[tableaux.ExtendedTableau]] = MappingProxyType(
@@ -388,7 +342,7 @@ class RKMoire(FunctionalAdaptive, FunctionalHigher):
     """Providers for a given order, starting from 2.
     Falls back to RKE2.Heun"""
 
-    threshold: float = 1e-3
+    threshold: float = 1e-4
 
     initial: float = 1 / 50
     "Percent of schedule to take as an initial step."
@@ -428,6 +382,7 @@ class RKMoire(FunctionalAdaptive, FunctionalHigher):
         self,
         sample: T,
         model: SampleableModel[T],
+        model_transform: ModelTransform,
         steps: int,
         include: slice = slice(None),
         rng: RNG[T] | None = None,
@@ -455,19 +410,28 @@ class RKMoire(FunctionalAdaptive, FunctionalHigher):
 
             if step_next < len(schedule):
                 sample_high, sample_low = step_tableau(
-                    tab, sample, model, step, schedule, self.schedule.sigma_transform, step_size
+                    tab,
+                    sample,
+                    model,
+                    model_transform,
+                    step,
+                    schedule,
+                    self.schedule.sigma_transform,
+                    self.derivative_transform,
+                    step_size,
                 )
 
-                delta = common.scaled_delta_step(step, schedule, self.schedule.sigma_transform, step_size)[0]
-                delta_next = common.scaled_delta_step(step_next, schedule, self.schedule.sigma_transform, step_size)[0]
-
-                # Normalize against pure error
-                error = self.evaluator(sample_low, sample_high) / max(self.evaluator(0, sample_high), epsilon)
+                sigma0 = schedule[step][1]
+                sigma1 = schedule[step_next][1]
+                sigma2 = schedule[step_next + step_size][1] if step_next + step_size < len(schedule) else 0
                 # Offset adjustment by dt2 / dt to account for non-linearity
                 # Basically if we want a 50% larger step but the next dt will already be 25% larger,
                 # we should only set a 20% larger step ie 1.5 / 1.25
-                # Really this could be iterated to contrast dt2/dt and thresh/error until they're 100% matched but eh
-                adjustment: float = (self.threshold / max(error, epsilon)) ** self.adaption / (delta_next / delta)
+                slope = abs(sigma0 - sigma1) / abs(sigma1 - sigma2)
+
+                # Normalize against pure error
+                error = self.evaluator(sample_low, sample_high) / max(self.evaluator(0, sample_high), epsilon)
+                adjustment: float = (self.threshold / max(error, epsilon)) ** self.adaption / slope
                 step_size = max(round(min(step_size * adjustment, steps * maximum)), 1)
 
                 # Only discard if it will actually decrease step size
@@ -476,7 +440,15 @@ class RKMoire(FunctionalAdaptive, FunctionalHigher):
 
             else:  # Save the extra euler call since the 2nd weight isn't used
                 sample_high = step_tableau(
-                    tab[:2], sample, model, step, schedule, self.schedule.sigma_transform, step_size
+                    tab[:2],
+                    sample,
+                    model,
+                    model_transform,
+                    step,
+                    schedule,
+                    self.schedule.sigma_transform,
+                    self.derivative_transform,
+                    step_size,
                 )[0]
 
             sample = sample_high
