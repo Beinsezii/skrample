@@ -138,32 +138,32 @@ class FlowModel(DiffusionModel):
 
 
 class VelocityModel(DiffusionModel):
-    "Typically used with the variance-preserving (VP) noise schedule"
+    """Typically used with the variance-preserving (VP) noise schedule.
+    Currently just converts output to X during forward and backward."""
 
     @classmethod
     def to_x[T: Sample](cls, sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
         sigma_t, alpha_t = sigma_transform(sigma)
-        return (alpha_t * sample - sigma_t * output) / (alpha_t**2 + sigma_t**2)  # pyright: ignore [reportReturnType]
+        return alpha_t * sample - sigma_t * output  # pyright: ignore [reportReturnType]
 
     @classmethod
     def from_x[T: Sample](cls, sample: T, x: T, sigma: float, sigma_transform: SigmaTransform) -> T:
         sigma_t, alpha_t = sigma_transform(sigma)
-        return (alpha_t * sample - x * (alpha_t**2 + sigma_t**2)) / sigma_t  # pyright: ignore [reportReturnType]
+        return (alpha_t * sample - x) / sigma_t  # pyright: ignore [reportReturnType]
 
     @classmethod
-    def to_z[T: Sample](cls, sample: T, sigma: float, sigma_transform: SigmaTransform) -> T:
-        sigma_t, alpha_t = sigma_transform(sigma)
-        return sample / math.sqrt(alpha_t**2 + sigma_t**2)  # pyright: ignore [reportReturnType]
+    def forward[T: Sample](
+        cls, sample: T, output: T, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform
+    ) -> T:
+        output = cls.to_x(sample, output, sigma_from, sigma_transform)
+        return DiffusionModel.forward(sample, output, sigma_from, sigma_to, sigma_transform)
 
     @classmethod
-    def from_z[T: Sample](cls, z: T, sigma: float, sigma_transform: SigmaTransform) -> T:
-        sigma_t, alpha_t = sigma_transform(sigma)
-        return z * math.sqrt(alpha_t**2 + sigma_t**2)  # pyright: ignore [reportReturnType]
-
-    @classmethod
-    def to_eta(cls, sigma: float, sigma_transform: SigmaTransform) -> float:
-        sigma_t, alpha_t = sigma_transform(sigma)
-        return math.atan2(sigma_t, alpha_t)
+    def backward[T: Sample](
+        cls, sample: T, result: T, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform
+    ) -> T:
+        output: T = DiffusionModel.backward(sample, result, sigma_from, sigma_to, sigma_transform)
+        return cls.from_x(sample, output, sigma_from, sigma_transform)
 
 
 type ModelTransform = DiffusionModel | type[DiffusionModel]
