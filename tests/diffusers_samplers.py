@@ -1,7 +1,9 @@
 import dataclasses
+import itertools
 from inspect import signature
 
 import numpy as np
+import pytest
 import torch
 from diffusers.schedulers.scheduling_dpmsolver_multistep import DPMSolverMultistepScheduler
 from diffusers.schedulers.scheduling_euler_ancestral_discrete import EulerAncestralDiscreteScheduler
@@ -17,7 +19,7 @@ from skrample.common import predict_epsilon as EPSILON
 from skrample.common import predict_flow as FLOW
 from skrample.common import predict_velocity as VELOCITY
 from skrample.sampling.functional import RKUltra
-from skrample.sampling.models import EpsilonModel, FlowModel, VelocityModel
+from skrample.sampling.models import EpsilonModel, FlowModel, ModelTransform, VelocityModel
 from skrample.sampling.structured import DPM, Euler, SKSamples, StructuredSampler, UniPC
 from skrample.sampling.tableaux import RK2
 from skrample.scheduling import SkrampleSchedule
@@ -195,89 +197,83 @@ def test_unipc() -> None:
             )
 
 
-def test_heun_scaled() -> None:
-    margin = 1e-8
-    sigma_transform = sigma_polar
-
-    for predictor in [
-        (EpsilonModel, "epsilon"),
-        (VelocityModel, "v_prediction"),
-    ]:
-        for steps in 2, 3, 30, 31, 200, 201:
-            df: HeunDiscreteScheduler = HeunDiscreteScheduler.from_config(SCALED_CONFIG, prediction_type=predictor[1])  # type: ignore
-
-            df.set_timesteps(steps)
-
-            fixed: list[tuple[float, float]] = []
-            for t in zip(df.timesteps.tolist(), df.sigmas.tolist()):
-                if t not in fixed:
-                    fixed.append(t)
-
-            sk = RKUltra(
-                FixedSchedule(fixed, sigma_transform),
-                order=2,
-                providers=RKUltra.providers | {2: RK2.Heun},
-                derivative_transform=EpsilonModel,
-            )
-
-            sk_sample = torch.zeros([1, 4, 128, 128], dtype=torch.float32)
-            seed = torch.manual_seed(0)
-
-            df_noise = torch.randn(sk_sample.shape, generator=seed.clone_state(), dtype=sk_sample.dtype)
-            # df_sample = df.add_noise(sk_sample.clone(), df_noise, df.timesteps[0:1])
-            df_sample = df_noise * df.init_noise_sigma
-            for t in df.timesteps:
-                df_sample: torch.Tensor = df.step(
-                    fake_model(df.scale_model_input(df_sample, timestep=t)),
-                    sample=df_sample,
-                    timestep=t,
-                )[0]
-
-            sk_sample = sk.generate_model(
-                lambda x, t, s: fake_model(x),
-                predictor[0],
-                lambda: torch.randn(sk_sample.shape, generator=seed, dtype=sk_sample.dtype),
-                steps,
-                initial=sk_sample,
-            )
-
-            compare_tensors(df_sample, sk_sample, message=f"{steps} {predictor[1]}", margin=margin)
-
-
-def test_heun_flow() -> None:
-    margin = 1e-8
-    sigma_transform = sigma_complement
-    for steps in 2, 3, 30, 31, 200, 201:
-        df: FlowMatchHeunDiscreteScheduler = FlowMatchHeunDiscreteScheduler.from_config(FLOW_CONFIG)  # type: ignore
-
-        df.set_timesteps(steps)
-
-        fixed: list[tuple[float, float]] = []
-        for t in zip(df.timesteps.tolist(), df.sigmas.tolist()):
-            if t not in fixed:
-                fixed.append(t)
-
-        sk = RKUltra(
-            FixedSchedule(fixed, sigma_transform),
-            order=2,
-            providers=RKUltra.providers | {2: RK2.Heun},
-            derivative_transform=None,
+@pytest.mark.parametrize(
+    ("model_transform", "derivative_transform", "sigma_transform", "diffusers_scheduler", "steps"),
+    (
+        (mt, dt, st, ds, s)
+        for (mt, dt, st, ds), s in itertools.product(
+            (
+                (
+                    EpsilonModel(),
+                    EpsilonModel(),
+                    sigma_polar,
+                    HeunDiscreteScheduler.from_config(SCALED_CONFIG, prediction_type="epsilon"),
+                ),
+                (
+                    VelocityModel(),
+                    EpsilonModel(),
+                    sigma_polar,
+                    HeunDiscreteScheduler.from_config(SCALED_CONFIG, prediction_type="v_prediction"),
+                ),
+                (
+                    FlowModel(),
+                    FlowModel(),
+                    sigma_complement,
+                    FlowMatchHeunDiscreteScheduler.from_config(FLOW_CONFIG),
+                ),
+            ),
+            (2, 3, 30, 31, 200, 201),
         )
+    ),
+)
+def test_heun(
+    model_transform: ModelTransform,
+    derivative_transform: ModelTransform,
+    sigma_transform: SigmaTransform,
+    diffusers_scheduler: HeunDiscreteScheduler | FlowMatchHeunDiscreteScheduler,
+    steps: int,
+) -> None:
+    diffusers_scheduler.set_timesteps(steps)
 
-        sk_sample = torch.zeros([1, 4, 128, 128], dtype=torch.float32)
-        seed = torch.manual_seed(0)
+    fixed: list[tuple[float, float]] = []
+    for t in zip(diffusers_scheduler.timesteps.tolist(), diffusers_scheduler.sigmas.tolist()):
+        if t not in fixed:
+            fixed.append(t)
 
-        df_noise = torch.randn(sk_sample.shape, generator=seed.clone_state(), dtype=sk_sample.dtype)
-        df_sample = df.scale_noise(sk_sample.clone(), df.timesteps[0], df_noise)  # type: ignore
-        for t in df.timesteps:
-            df_sample: torch.Tensor = df.step(fake_model(df_sample), sample=df_sample, timestep=t)[0]  # type: ignore
+    skrample_sampler = RKUltra(
+        FixedSchedule(fixed, sigma_transform),
+        order=2,
+        providers=RKUltra.providers | {2: RK2.Heun},
+        derivative_transform=derivative_transform,
+    )
 
-        sk_sample = sk.generate_model(
-            lambda x, t, s: fake_model(x),
-            FlowModel,
-            lambda: torch.randn(sk_sample.shape, generator=seed, dtype=sk_sample.dtype),
-            steps,
-            initial=sk_sample,
-        )
+    sk_sample = torch.zeros([1, 4, 128, 128], dtype=torch.float32)
+    seed = torch.manual_seed(0)
 
-        compare_tensors(df_sample, sk_sample, message=f"{steps}", margin=margin)
+    df_noise = torch.randn(sk_sample.shape, generator=seed.clone_state(), dtype=sk_sample.dtype)
+    # df_sample = df.add_noise(sk_sample.clone(), df_noise, df.timesteps[0:1])
+
+    df_sample = df_noise.clone()
+    if isinstance(diffusers_scheduler, HeunDiscreteScheduler):
+        df_sample *= diffusers_scheduler.init_noise_sigma
+
+    for t in diffusers_scheduler.timesteps:
+        model_input: torch.Tensor = df_sample
+        if isinstance(diffusers_scheduler, HeunDiscreteScheduler):
+            model_input = diffusers_scheduler.scale_model_input(df_sample, timestep=t)
+
+        df_sample: torch.Tensor = diffusers_scheduler.step(
+            fake_model(model_input),  # pyright: ignore [reportArgumentType]
+            sample=df_sample,  # pyright: ignore [reportArgumentType]
+            timestep=t,  # pyright: ignore [reportArgumentType]
+        )[0]
+
+    sk_sample = skrample_sampler.generate_model(
+        lambda x, t, s: fake_model(x),
+        model_transform,
+        lambda: torch.randn(sk_sample.shape, generator=seed, dtype=sk_sample.dtype),
+        steps,
+        initial=sk_sample,
+    )
+
+    compare_tensors(df_sample, sk_sample, margin=1e-8)

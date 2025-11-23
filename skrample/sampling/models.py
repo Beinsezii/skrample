@@ -1,3 +1,4 @@
+import abc
 import dataclasses
 import math
 from collections.abc import Callable
@@ -5,136 +6,183 @@ from functools import wraps
 
 from skrample.common import Sample, SigmaTransform
 
-type ModelTransform = type[DiffusionModel]
+
+@dataclasses.dataclass(frozen=True)
+class ModelTransform(abc.ABC):
+    """Common framework for diffusion model sampling."""
+
+    @abc.abstractmethod
+    def to_x[T: Sample](self, sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
+        "output -> X̂"
+
+    @abc.abstractmethod
+    def from_x[T: Sample](self, sample: T, x: T, sigma: float, sigma_transform: SigmaTransform) -> T:
+        "X̂ -> output"
+
+    @abc.abstractmethod
+    def gamma(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform) -> float:
+        "σₜ, σₛ -> Γ"
+
+    @abc.abstractmethod
+    def delta(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform) -> float:
+        "σₜ, σₛ -> Δ"
+
+    def forward[T: Sample](
+        self, sample: T, output: T, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform
+    ) -> T:
+        "sample * Γ + output * Δ"
+        gamma = self.gamma(sigma_from, sigma_to, sigma_transform)
+        delta = self.delta(sigma_from, sigma_to, sigma_transform)
+        return math.sumprod((sample, output), (gamma, delta))  # pyright: ignore [reportReturnType, reportArgumentType]
+
+    def backward[T: Sample](
+        self, sample: T, result: T, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform
+    ) -> T:
+        "(output - sample * Γ) / Δ"
+        gamma = self.gamma(sigma_from, sigma_to, sigma_transform)
+        delta = self.delta(sigma_from, sigma_to, sigma_transform)
+        return (result - sample * gamma) / delta  # pyright: ignore [reportReturnType]
 
 
-class DiffusionModel(type):
-    """Common framework for diffusion model sampling.
-    Intermediate format is X̂ or sample prediction"""
+@dataclasses.dataclass(frozen=True)
+class DiffusionModel(ModelTransform):
+    """X-Prediction
+    Predicts the clean image"""
 
-    @classmethod
-    def to_x[T: Sample](cls, sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
+    def to_x[T: Sample](self, sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
         "output -> X̂"
         return output
 
-    @classmethod
-    def from_x[T: Sample](cls, sample: T, x: T, sigma: float, sigma_transform: SigmaTransform) -> T:
+    def from_x[T: Sample](self, sample: T, x: T, sigma: float, sigma_transform: SigmaTransform) -> T:
         "X̂ -> output"
         return x
 
-    @classmethod
-    def gamma(cls, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform) -> float:
+    def gamma(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform) -> float:
         "σₜ, σₛ -> Γ"
         sigma_t, _alpha_t = sigma_transform(sigma_from)
         sigma_s, _alpha_s = sigma_transform(sigma_to)
         return sigma_s / sigma_t
 
-    @classmethod
-    def delta(cls, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform) -> float:
+    def delta(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform) -> float:
         "σₜ, σₛ -> Δ"
         sigma_t, alpha_t = sigma_transform(sigma_from)
         sigma_s, alpha_s = sigma_transform(sigma_to)
         return alpha_s - (alpha_t * sigma_s) / sigma_t
 
-    @classmethod
-    def forward[T: Sample](
-        cls, sample: T, output: T, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform
-    ) -> T:
-        "sample * Γ + output * Δ"
-        gamma = cls.gamma(sigma_from, sigma_to, sigma_transform)
-        delta = cls.delta(sigma_from, sigma_to, sigma_transform)
-        return math.sumprod((sample, output), (gamma, delta))  # pyright: ignore [reportReturnType, reportArgumentType]
 
-    @classmethod
-    def backward[T: Sample](
-        cls, sample: T, result: T, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform
-    ) -> T:
-        "(output - sample * Γ) / Δ"
-        gamma = cls.gamma(sigma_from, sigma_to, sigma_transform)
-        delta = cls.delta(sigma_from, sigma_to, sigma_transform)
-        return (result - sample * gamma) / delta  # pyright: ignore [reportReturnType]
+@dataclasses.dataclass(frozen=True)
+class EpsilonModel(ModelTransform):
+    """Ε-Prediction
+    Predicts the added noise"""  # noqa: RUF002
 
-
-class XModel(DiffusionModel):
-    "Equivalent to DiffusionModel, for type checking"
-
-
-class EpsilonModel(DiffusionModel):
-    "Ε-Prediction"  # noqa: RUF002
-
-    @classmethod
-    def to_x[T: Sample](cls, sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
+    def to_x[T: Sample](self, sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
         sigma_t, alpha_t = sigma_transform(sigma)
         return (sample - sigma_t * output) / alpha_t  # pyright: ignore [reportReturnType]
 
-    @classmethod
-    def from_x[T: Sample](cls, sample: T, x: T, sigma: float, sigma_transform: SigmaTransform) -> T:
+    def from_x[T: Sample](self, sample: T, x: T, sigma: float, sigma_transform: SigmaTransform) -> T:
         sigma_t, alpha_t = sigma_transform(sigma)
         return (sample - alpha_t * x) / sigma_t  # pyright: ignore [reportReturnType]
 
-    @classmethod
-    def gamma(cls, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform) -> float:
+    def gamma(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform) -> float:
         _sigma_t, alpha_t = sigma_transform(sigma_from)
         _sigma_s, alpha_s = sigma_transform(sigma_to)
         return alpha_s / alpha_t
 
-    @classmethod
-    def delta(cls, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform) -> float:
+    def delta(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform) -> float:
         sigma_t, alpha_t = sigma_transform(sigma_from)
         sigma_s, alpha_s = sigma_transform(sigma_to)
         return sigma_s - (alpha_s * sigma_t) / alpha_t
 
 
-class FlowModel(DiffusionModel):
+@dataclasses.dataclass(frozen=True)
+class FlowModel(ModelTransform):
     "U-Prediction"
 
-    @classmethod
-    def to_x[T: Sample](cls, sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
+    def to_x[T: Sample](self, sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
         sigma_t, alpha_t = sigma_transform(sigma)
         return (sample - sigma_t * output) / (alpha_t + sigma_t)  # pyright: ignore [reportReturnType]
 
-    @classmethod
-    def from_x[T: Sample](cls, sample: T, x: T, sigma: float, sigma_transform: SigmaTransform) -> T:
+    def from_x[T: Sample](self, sample: T, x: T, sigma: float, sigma_transform: SigmaTransform) -> T:
         sigma_t, alpha_t = sigma_transform(sigma)
         return (sample - (alpha_t + sigma_t) * x) / sigma_t  # pyright: ignore [reportReturnType]
 
-    @classmethod
-    def gamma(cls, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform) -> float:
+    def gamma(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform) -> float:
         sigma_t, alpha_t = sigma_transform(sigma_from)
         sigma_s, alpha_s = sigma_transform(sigma_to)
         return (sigma_s + alpha_s) / (sigma_t + alpha_t)
 
-    @classmethod
-    def delta(cls, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform) -> float:
+    def delta(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform) -> float:
         sigma_t, alpha_t = sigma_transform(sigma_from)
         sigma_s, alpha_s = sigma_transform(sigma_to)
         return (alpha_t * sigma_s - alpha_s * sigma_t) / (alpha_t + sigma_t)
 
 
-class VelocityModel(DiffusionModel):
+@dataclasses.dataclass(frozen=True)
+class VelocityModel(ModelTransform):
     "V-Prediction"
 
-    @classmethod
-    def to_x[T: Sample](cls, sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
+    def to_x[T: Sample](self, sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
         sigma_t, alpha_t = sigma_transform(sigma)
         return alpha_t * sample - sigma_t * output  # pyright: ignore [reportReturnType]
 
-    @classmethod
-    def from_x[T: Sample](cls, sample: T, x: T, sigma: float, sigma_transform: SigmaTransform) -> T:
+    def from_x[T: Sample](self, sample: T, x: T, sigma: float, sigma_transform: SigmaTransform) -> T:
         sigma_t, alpha_t = sigma_transform(sigma)
         return (alpha_t * sample - x) / sigma_t  # pyright: ignore [reportReturnType]
 
-    @classmethod
-    def gamma(cls, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform) -> float:
+    def gamma(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform) -> float:
         sigma_t, alpha_t = sigma_transform(sigma_from)
         sigma_s, alpha_s = sigma_transform(sigma_to)
         return (sigma_s / sigma_t) * (1 - alpha_t * alpha_t) + alpha_s * alpha_t
 
-    @classmethod
-    def delta(cls, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform) -> float:
+    def delta(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform) -> float:
         sigma_t, alpha_t = sigma_transform(sigma_from)
         sigma_s, alpha_s = sigma_transform(sigma_to)
         return alpha_t * sigma_s - alpha_s * sigma_t
+
+
+@dataclasses.dataclass(frozen=True)
+class FakeModel(ModelTransform):
+    "Marker for transforms that are only used for alternative sampling of other models."
+
+
+@dataclasses.dataclass(frozen=True)
+class ScaleX(FakeModel):
+    "X / Sample prediction with sampling bias"
+
+    bias: float = 3
+    """Bias for sample prediction.
+    Higher values create a stronger image."""
+
+    def x_scale(self, sigma_t: float, alpha_t: float) -> float:
+        # Remap -∞ → 0 → ∞ » 0 → 1 → log(∞)
+        if self.bias < 0:
+            # -∞ → 0⁻ » 0⁺ → 1⁻
+            factor = 1 / math.log(math.e - self.bias)
+        else:
+            # 0 → ∞ » 1 → log(∞)
+            factor = math.log(math.e + self.bias)
+
+        # Rescale sigma_t to average bias scale on VP and NV schedules
+        sigma_mean = sigma_t / (sigma_t + alpha_t)
+        return factor**sigma_mean
+
+    def to_x[T: Sample](self, sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
+        sigma_t, alpha_t = sigma_transform(sigma)
+        return output * self.x_scale(sigma_t, alpha_t)  # pyright: ignore [reportReturnType]
+
+    def from_x[T: Sample](self, sample: T, x: T, sigma: float, sigma_transform: SigmaTransform) -> T:
+        sigma_t, alpha_t = sigma_transform(sigma)
+        return x / self.x_scale(sigma_t, alpha_t)  # pyright: ignore [reportReturnType]
+
+    def gamma(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform) -> float:
+        sigma_t, _alpha_t = sigma_transform(sigma_from)
+        sigma_s, _alpha_s = sigma_transform(sigma_to)
+        return sigma_s / sigma_t
+
+    def delta(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform) -> float:
+        sigma_t, alpha_t = sigma_transform(sigma_from)
+        sigma_s, alpha_s = sigma_transform(sigma_to)
+        return (alpha_s - alpha_t * sigma_s / sigma_t) * self.x_scale(sigma_t, alpha_t)
 
 
 @dataclasses.dataclass(frozen=True)

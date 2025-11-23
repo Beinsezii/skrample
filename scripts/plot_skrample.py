@@ -59,8 +59,8 @@ def colors(hue_steps: int) -> Generator[list[float]]:
 
 
 TRANSFORMS: dict[str, tuple[float, SigmaTransform, models.ModelTransform]] = {
-    "polar": (1.0, sigma_polar, models.EpsilonModel),
-    "complement": (1.0, sigma_complement, models.FlowModel),
+    "polar": (1.0, sigma_polar, models.EpsilonModel()),
+    "complement": (1.0, sigma_complement, models.FlowModel()),
 }
 SAMPLERS: dict[str, structured.StructuredSampler | functional.FunctionalSampler] = {
     "euler": structured.Euler(),

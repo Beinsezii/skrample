@@ -69,7 +69,7 @@ class FunctionalDenoise(FluxDenoiseStep):
         block_state["latents"] = sampler.sample_model(
             sample=block_state["latents"],
             model=call_model,
-            model_transform=models.FlowModel,
+            model_transform=models.FlowModel(),
             steps=block_state["num_inference_steps"],
             callback=sample_callback,
         )

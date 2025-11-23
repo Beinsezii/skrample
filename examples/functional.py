@@ -65,7 +65,7 @@ with torch.inference_mode():
     bar = tqdm(total=steps)
     sample = sampler.generate_model(
         model=call_model,
-        model_transform=models.EpsilonModel,
+        model_transform=models.EpsilonModel(),
         steps=steps,
         rng=lambda: rng.generate().to(dtype=dtype, device=device),
         callback=lambda x, n, t, s: bar.update(n + 1 - bar.n),

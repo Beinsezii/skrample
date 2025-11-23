@@ -58,14 +58,19 @@ with torch.inference_mode():
     time_embeds = text_embeds.new([[4096, 4096, 0, 0, 4096, 4096]]).repeat(2, 1)
 
     configs: tuple[tuple[models.ModelTransform, Predictor, str, str], ...] = (
-        (models.EpsilonModel, predict_epsilon, base, ""),
-        (models.VelocityModel, predict_velocity, "terminusresearch/terminus-xl-velocity-v2", ""),
-        (models.XModel, predict_sample, "ByteDance/SDXL-Lightning", "sdxl_lightning_1step_unet_x0.safetensors"),
+        (models.EpsilonModel(), predict_epsilon, base, ""),
+        (models.VelocityModel(), predict_velocity, "terminusresearch/terminus-xl-velocity-v2", ""),
+        (
+            models.DiffusionModel(),
+            predict_sample,
+            "ByteDance/SDXL-Lightning",
+            "sdxl_lightning_1step_unet_x0.safetensors",
+        ),
     )
 
     for transform, predictor, url, weights in configs:
-        model_steps = 1 if transform is models.XModel else steps
-        model_cfg = 1 if transform is models.XModel else cfg
+        model_steps = 1 if isinstance(transform, models.DiffusionModel) else steps
+        model_cfg = 1 if isinstance(transform, models.DiffusionModel) else cfg
 
         if weights:
             model: UNet2DConditionModel = UNet2DConditionModel.from_config(  # type: ignore
@@ -121,6 +126,6 @@ with torch.inference_mode():
         ).sample[0]  # type: ignore
         Image.fromarray(
             ((image + 1) * (255 / 2)).clamp(0, 255).permute(1, 2, 0).to(device="cpu", dtype=torch.uint8).numpy()
-        ).save(f"{transform.__name__}.png")
+        ).save(f"{type(transform).__name__}.png")
 
         model = model.to(device="meta")  # pyright: ignore [reportCallIssue]

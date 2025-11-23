@@ -1,6 +1,7 @@
 import itertools
 import math
 import random
+from collections.abc import Sequence
 from dataclasses import replace
 
 import numpy as np
@@ -23,7 +24,7 @@ from skrample.common import (
 from skrample.diffusers import SkrampleWrapperScheduler
 from skrample.sampling import tableaux
 from skrample.sampling.interface import StructuredFunctionalAdapter
-from skrample.sampling.models import EpsilonModel, FlowModel, ModelTransform, VelocityModel, XModel
+from skrample.sampling.models import DiffusionModel, EpsilonModel, FlowModel, ModelTransform, VelocityModel
 from skrample.sampling.structured import (
     DPM,
     SPC,
@@ -35,9 +36,9 @@ from skrample.sampling.structured import (
     StructuredStochastic,
     UniPC,
 )
-from skrample.scheduling import Beta, FlowShift, Karras, Linear, Scaled, SigmoidCDF
+from skrample.scheduling import Beta, FlowShift, Karras, Linear, Scaled, ScheduleCommon, ScheduleModifier, SigmoidCDF
 
-ALL_SAMPLERS = [
+ALL_STRUCTURED: Sequence[type[StructuredSampler]] = [
     Adams,
     DPM,
     Euler,
@@ -45,16 +46,28 @@ ALL_SAMPLERS = [
     UniPC,
 ]
 
-ALL_SCHEDULES = [
+ALL_SCHEDULES: Sequence[type[ScheduleCommon]] = [
     Linear,
     Scaled,
     SigmoidCDF,
 ]
 
-ALL_MODIFIERS = [
+ALL_MODIFIERS: Sequence[type[ScheduleModifier]] = [
     Beta,
     FlowShift,
     Karras,
+]
+
+ALL_MODELS: Sequence[type[ModelTransform]] = [
+    DiffusionModel,
+    EpsilonModel,
+    FlowModel,
+    VelocityModel,
+]
+
+ALL_TRANSFROMS: Sequence[SigmaTransform] = [
+    sigma_complement,
+    sigma_polar,
 ]
 
 
@@ -66,10 +79,11 @@ def test_sigmas_to_timesteps() -> None:
 
 
 @pytest.mark.parametrize(
-    ("model_transform", "sigma_transform"),
-    itertools.product([EpsilonModel, FlowModel, VelocityModel, XModel], [sigma_complement, sigma_polar]),
+    ("model_type", "sigma_transform"),
+    itertools.product(ALL_MODELS, ALL_TRANSFROMS),
 )
-def test_model_transforms(model_transform: ModelTransform, sigma_transform: SigmaTransform) -> None:
+def test_model_transforms(model_type: type[ModelTransform], sigma_transform: SigmaTransform) -> None:
+    model_transform = model_type()
     sample = 0.8
     output = 0.3
     sigma = 0.2
@@ -90,8 +104,8 @@ def test_model_transforms(model_transform: ModelTransform, sigma_transform: Sigm
 def test_sampler_generics() -> None:
     eps = 1e-12
     for sampler in [
-        *(cls() for cls in ALL_SAMPLERS),
-        *(cls(order=cls.max_order()) for cls in ALL_SAMPLERS if issubclass(cls, StructuredMultistep)),
+        *(cls() for cls in ALL_STRUCTURED),
+        *(cls(order=cls.max_order()) for cls in ALL_STRUCTURED if issubclass(cls, StructuredMultistep)),
     ]:
         for schedule in Scaled(), FlowShift(Linear()):
             i, o = random.random(), random.random()
@@ -133,7 +147,7 @@ def test_mu_set() -> None:
 
 def test_require_previous() -> None:
     samplers: list[StructuredSampler] = []
-    for cls in ALL_SAMPLERS:
+    for cls in ALL_STRUCTURED:
         if issubclass(cls, StructuredMultistep):
             samplers.extend([cls(order=o + 1) for o in range(cls.min_order(), cls.max_order())])
         else:
@@ -173,7 +187,7 @@ def test_require_previous() -> None:
 
 def test_require_noise() -> None:
     samplers: list[StructuredSampler] = []
-    for cls in ALL_SAMPLERS:
+    for cls in ALL_STRUCTURED:
         if issubclass(cls, StructuredStochastic):
             samplers.extend([cls(add_noise=n) for n in (False, True)])
         else:
@@ -228,7 +242,7 @@ def test_functional_adapter() -> None:
                 noise = [random.random() for _ in range(steps)]
 
                 rng = iter(noise)
-                sample_f = adapter.sample_model(sample, fake_model, FlowModel, steps, rng=lambda: next(rng))
+                sample_f = adapter.sample_model(sample, fake_model, FlowModel(), steps, rng=lambda: next(rng))
 
                 rng = iter(noise)
                 float_schedule = schedule.schedule(steps)
