@@ -29,6 +29,7 @@ from skrample.sampling.models import (
     FlowModel,
     ModelConvert,
     ModelTransform,
+    ScaleX,
     VelocityModel,
 )
 from skrample.sampling.structured import (
@@ -69,6 +70,10 @@ ALL_MODELS: Sequence[type[ModelTransform]] = [
     EpsilonModel,
     FlowModel,
     VelocityModel,
+]
+
+ALL_FAKE_MODELS: Sequence[type[ModelTransform]] = [
+    ScaleX,
 ]
 
 ALL_TRANSFROMS: Sequence[SigmaTransform] = [
@@ -112,7 +117,7 @@ def test_model_transforms(model_type: type[ModelTransform], sigma_transform: Sig
 
 @pytest.mark.parametrize(
     ("model_from", "model_to", "sigma_transform", "sigma_to"),
-    itertools.product(ALL_MODELS, ALL_MODELS, ALL_TRANSFROMS, (0.05, 0.0)),
+    itertools.product(ALL_MODELS, ALL_MODELS + ALL_FAKE_MODELS, ALL_TRANSFROMS, (0.05, 0.0)),
 )
 def test_model_convert(
     model_from: type[ModelTransform],
