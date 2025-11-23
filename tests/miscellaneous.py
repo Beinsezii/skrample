@@ -99,6 +99,9 @@ def test_model_transforms(model_type: type[ModelTransform], sigma_transform: Sig
         df = model_transform.forward(sample, output, sigma, sigma_next, sigma_transform)
         assert abs(snr - df) < 1e-12
 
+        ob = model_transform.backward(sample, df, sigma, sigma_next, sigma_transform)
+        assert abs(o - ob) < 1e-12
+
 
 def test_sampler_generics() -> None:
     eps = 1e-12
