@@ -8,7 +8,7 @@ from skrample.common import Sample, SigmaTransform
 
 
 @dataclasses.dataclass(frozen=True)
-class ModelTransform(abc.ABC):
+class DiffusionModel(abc.ABC):
     """Common framework for diffusion model sampling."""
 
     @abc.abstractmethod
@@ -45,7 +45,7 @@ class ModelTransform(abc.ABC):
 
 
 @dataclasses.dataclass(frozen=True)
-class DiffusionModel(ModelTransform):
+class DataModel(DiffusionModel):
     """X-Prediction
     Predicts the clean image.
     Usually for single step models."""
@@ -72,7 +72,7 @@ class DiffusionModel(ModelTransform):
 
 
 @dataclasses.dataclass(frozen=True)
-class EpsilonModel(ModelTransform):
+class NoiseModel(DiffusionModel):
     """Ε-Prediction
     Predicts the added noise.
     If a model does not specify, this is usually what it needs."""  # noqa: RUF002
@@ -97,7 +97,7 @@ class EpsilonModel(ModelTransform):
 
 
 @dataclasses.dataclass(frozen=True)
-class FlowModel(ModelTransform):
+class FlowModel(DiffusionModel):
     """U-Prediction.
     Flow matching models use this, notably FLUX.1 and SD3"""
 
@@ -121,7 +121,7 @@ class FlowModel(ModelTransform):
 
 
 @dataclasses.dataclass(frozen=True)
-class VelocityModel(ModelTransform):
+class VelocityModel(DiffusionModel):
     """V-Prediction.
     Rare, models will usually explicitly say they require velocity/vpred/zero terminal SNR"""
 
@@ -145,7 +145,7 @@ class VelocityModel(ModelTransform):
 
 
 @dataclasses.dataclass(frozen=True)
-class FakeModel(ModelTransform):
+class FakeModel(DiffusionModel):
     "Marker for transforms that are only used for alternative sampling of other models."
 
 
@@ -191,8 +191,8 @@ class ScaleX(FakeModel):
 
 @dataclasses.dataclass(frozen=True)
 class ModelConvert:
-    transform_from: ModelTransform
-    transform_to: ModelTransform
+    transform_from: DiffusionModel
+    transform_to: DiffusionModel
 
     def output_to[T: Sample](self, sample: T, output_from: T, sigma: float, sigma_transform: SigmaTransform) -> T:
         if self.transform_to is self.transform_from:

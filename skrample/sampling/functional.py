@@ -41,11 +41,11 @@ def step_tableau[T: Sample](
     tableau: tableaux.Tableau | tableaux.ExtendedTableau,
     sample: T,
     model: SampleableModel[T],
-    model_transform: models.ModelTransform,
+    model_transform: models.DiffusionModel,
     step: int,
     schedule: FloatSchedule,
     sigma_transform: SigmaTransform,
-    derivative_transform: models.ModelTransform | None = None,
+    derivative_transform: models.DiffusionModel | None = None,
     step_size: int = 1,
     epsilon: float = 1e-8,
 ) -> tuple[T, ...]:
@@ -106,7 +106,7 @@ class FunctionalSampler(ABC):
         self,
         sample: T,
         model: SampleableModel[T],
-        model_transform: models.ModelTransform,
+        model_transform: models.DiffusionModel,
         steps: int,
         include: slice = slice(None),
         rng: RNG[T] | None = None,
@@ -119,7 +119,7 @@ class FunctionalSampler(ABC):
     def generate_model[T: Sample](
         self,
         model: SampleableModel[T],
-        model_transform: models.ModelTransform,
+        model_transform: models.DiffusionModel,
         rng: RNG[T],
         steps: int,
         include: slice = slice(None),
@@ -162,7 +162,7 @@ class FunctionalHigher(FunctionalSampler):
 
 @dataclasses.dataclass(frozen=True)
 class FunctionalDerivative(FunctionalHigher):
-    derivative_transform: models.ModelTransform | None = models.DiffusionModel()  # noqa: RUF009 # is immutable
+    derivative_transform: models.DiffusionModel | None = models.DataModel()  # noqa: RUF009 # is immutable
     "Transform model to this space when computing higher order samples."
 
 
@@ -173,7 +173,7 @@ class FunctionalSinglestep(FunctionalSampler):
         self,
         sample: T,
         model: SampleableModel[T],
-        model_transform: models.ModelTransform,
+        model_transform: models.DiffusionModel,
         step: int,
         schedule: FloatSchedule,
         rng: RNG[T] | None = None,
@@ -183,7 +183,7 @@ class FunctionalSinglestep(FunctionalSampler):
         self,
         sample: T,
         model: SampleableModel[T],
-        model_transform: models.ModelTransform,
+        model_transform: models.DiffusionModel,
         steps: int,
         include: slice = slice(None),
         rng: RNG[T] | None = None,
@@ -260,7 +260,7 @@ class RKUltra(FunctionalDerivative, FunctionalSinglestep):
         self,
         sample: T,
         model: SampleableModel[T],
-        model_transform: models.ModelTransform,
+        model_transform: models.DiffusionModel,
         step: int,
         schedule: FloatSchedule,
         rng: RNG[T] | None = None,
@@ -298,7 +298,7 @@ class FastHeun(FunctionalAdaptive, FunctionalSinglestep, FunctionalHigher):
         self,
         sample: T,
         model: SampleableModel[T],
-        model_transform: models.ModelTransform,
+        model_transform: models.DiffusionModel,
         step: int,
         schedule: FloatSchedule,
         rng: RNG[T] | None = None,
@@ -371,7 +371,7 @@ class RKMoire(FunctionalAdaptive, FunctionalDerivative):
         self,
         sample: T,
         model: SampleableModel[T],
-        model_transform: models.ModelTransform,
+        model_transform: models.DiffusionModel,
         steps: int,
         include: slice = slice(None),
         rng: RNG[T] | None = None,

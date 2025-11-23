@@ -24,11 +24,11 @@ from skrample.diffusers import SkrampleWrapperScheduler
 from skrample.sampling import tableaux
 from skrample.sampling.interface import StructuredFunctionalAdapter
 from skrample.sampling.models import (
+    DataModel,
     DiffusionModel,
-    EpsilonModel,
     FlowModel,
     ModelConvert,
-    ModelTransform,
+    NoiseModel,
     ScaleX,
     VelocityModel,
 )
@@ -65,14 +65,14 @@ ALL_MODIFIERS: Sequence[type[ScheduleModifier]] = [
     Karras,
 ]
 
-ALL_MODELS: Sequence[type[ModelTransform]] = [
-    DiffusionModel,
-    EpsilonModel,
+ALL_MODELS: Sequence[type[DiffusionModel]] = [
+    DataModel,
+    NoiseModel,
     FlowModel,
     VelocityModel,
 ]
 
-ALL_FAKE_MODELS: Sequence[type[ModelTransform]] = [
+ALL_FAKE_MODELS: Sequence[type[DiffusionModel]] = [
     ScaleX,
 ]
 
@@ -93,7 +93,7 @@ def test_sigmas_to_timesteps() -> None:
     ("model_type", "sigma_transform"),
     itertools.product(ALL_MODELS, ALL_TRANSFROMS),
 )
-def test_model_transforms(model_type: type[ModelTransform], sigma_transform: SigmaTransform) -> None:
+def test_model_transforms(model_type: type[DiffusionModel], sigma_transform: SigmaTransform) -> None:
     model_transform = model_type()
     sample = 0.8
     output = 0.3
@@ -120,8 +120,8 @@ def test_model_transforms(model_type: type[ModelTransform], sigma_transform: Sig
     itertools.product(ALL_MODELS, ALL_MODELS + ALL_FAKE_MODELS, ALL_TRANSFROMS, (0.05, 0.0)),
 )
 def test_model_convert(
-    model_from: type[ModelTransform],
-    model_to: type[ModelTransform],
+    model_from: type[DiffusionModel],
+    model_to: type[DiffusionModel],
     sigma_transform: SigmaTransform,
     sigma_to: float,
 ) -> None:

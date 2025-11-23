@@ -58,8 +58,8 @@ def colors(hue_steps: int) -> Generator[list[float]]:
                 yield oklch_to_srgb(np.array([lighness_actual, chroma_actual, hue], dtype=np.float64))
 
 
-TRANSFORMS: dict[str, tuple[float, SigmaTransform, models.ModelTransform]] = {
-    "polar": (1.0, sigma_polar, models.EpsilonModel()),
+TRANSFORMS: dict[str, tuple[float, SigmaTransform, models.DiffusionModel]] = {
+    "polar": (1.0, sigma_polar, models.NoiseModel()),
     "complement": (1.0, sigma_complement, models.FlowModel()),
 }
 SAMPLERS: dict[str, structured.StructuredSampler | functional.FunctionalSampler] = {

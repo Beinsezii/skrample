@@ -19,7 +19,7 @@ from skrample.pytorch.noise import (
     TensorNoiseProps,
     schedule_to_ramp,
 )
-from skrample.sampling.models import DiffusionModel, EpsilonModel, FlowModel, ModelTransform, VelocityModel
+from skrample.sampling.models import DataModel, DiffusionModel, FlowModel, NoiseModel, VelocityModel
 from skrample.sampling.structured import SKSamples, StructuredSampler
 from skrample.scheduling import ScheduleCommon, ScheduleModifier, SkrampleSchedule
 
@@ -67,9 +67,9 @@ DIFFUSERS_VALUE_MAP: dict[tuple[str, Any], tuple[str, Any]] = {
     ("algorithm_type", "sde-dpmsolver"): ("add_noise", True),
     ("algorithm_type", "sde-dpmsolver++"): ("add_noise", True),
     # Complex types
-    ("prediction_type", "epsilon"): ("skrample_predictor", EpsilonModel()),
+    ("prediction_type", "epsilon"): ("skrample_predictor", NoiseModel()),
     ("prediction_type", "flow"): ("skrample_predictor", FlowModel()),
-    ("prediction_type", "sample"): ("skrample_predictor", DiffusionModel()),
+    ("prediction_type", "sample"): ("skrample_predictor", DataModel()),
     ("prediction_type", "v_prediction"): ("skrample_predictor", VelocityModel()),
     ("use_beta_sigmas", True): ("skrample_modifier", scheduling.Beta),
     ("use_exponential_sigmas", True): ("skrample_modifier", scheduling.Exponential),
@@ -100,7 +100,7 @@ class ParsedDiffusersConfig:
     schedule: type[SkrampleSchedule]
     schedule_props: dict[str, Any]
     schedule_modifiers: list[tuple[type[ScheduleModifier], dict[str, Any]]]
-    model: ModelTransform
+    model: DiffusionModel
 
 
 def parse_diffusers_config(
@@ -122,11 +122,11 @@ def parse_diffusers_config(
     }
 
     if "skrample_predictor" in remapped:
-        model: ModelTransform = remapped.pop("skrample_predictor")
+        model: DiffusionModel = remapped.pop("skrample_predictor")
     elif "shift" in remapped:  # should only be flow
         model = FlowModel()
     else:
-        model = EpsilonModel()
+        model = NoiseModel()
 
     if not sampler:
         sampler, sampler_props = DIFFUSERS_CLASS_MAP.get(diffusers_class, (sampling.DPM, {}))
@@ -184,7 +184,7 @@ def attr_dict[T: Any](**kwargs: T) -> OrderedDict[str, T]:
 def as_diffusers_config(
     sampler: StructuredSampler,
     schedule: SkrampleSchedule,
-    model: ModelTransform,
+    model: DiffusionModel,
 ) -> dict[str, Any]:
     "Converts skrample classes back into a diffusers-readable config. Not comprehensive"
     skrample_config = dataclasses.asdict(sampler)
@@ -216,7 +216,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
 
     sampler: StructuredSampler
     schedule: SkrampleSchedule
-    model: ModelTransform = EpsilonModel()  # noqa: RUF009 # is immutable
+    model: DiffusionModel = NoiseModel()  # noqa: RUF009 # is immutable
     noise_type: type[TensorNoiseCommon[T]] = Random  # type: ignore  # Unsure why?
     noise_props: T | None = None
     compute_scale: torch.dtype | None = torch.float32
@@ -242,7 +242,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
         sampler: type[StructuredSampler] | None = None,
         schedule: type[SkrampleSchedule] | None = None,
         schedule_modifiers: list[tuple[type[ScheduleModifier], dict[str, Any]]] = [],
-        model: ModelTransform | None = None,
+        model: DiffusionModel | None = None,
         noise_type: type[TensorNoiseCommon[N]] = Random,
         compute_scale: torch.dtype | None = torch.float32,
         sampler_props: dict[str, Any] = {},

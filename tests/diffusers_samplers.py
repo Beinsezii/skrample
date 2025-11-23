@@ -16,7 +16,7 @@ from testing_common import FLOW_CONFIG, SCALED_CONFIG, compare_tensors
 
 from skrample.common import FloatSchedule, SigmaTransform, sigma_complement, sigma_polar
 from skrample.sampling.functional import RKUltra
-from skrample.sampling.models import EpsilonModel, FlowModel, ModelTransform, VelocityModel
+from skrample.sampling.models import DiffusionModel, FlowModel, NoiseModel, VelocityModel
 from skrample.sampling.structured import DPM, Euler, SKSamples, StructuredSampler, UniPC
 from skrample.sampling.tableaux import RK2
 from skrample.scheduling import SkrampleSchedule
@@ -29,7 +29,7 @@ DiffusersScheduler = (
     | UniPCMultistepScheduler
 )
 
-EPSILON = EpsilonModel()
+EPSILON = NoiseModel()
 FLOW = FlowModel()
 VELOCITY = VelocityModel()
 
@@ -55,7 +55,7 @@ def fake_model(t: torch.Tensor) -> torch.Tensor:
 def dual_sample(
     a: StructuredSampler,
     b: DiffusersScheduler,
-    model_transform: ModelTransform,
+    model_transform: DiffusionModel,
     steps: range,
     mu: float | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -113,7 +113,7 @@ def dual_sample(
 def compare_samplers(
     a: StructuredSampler,
     b: DiffusersScheduler,
-    t: ModelTransform = EPSILON,
+    t: DiffusionModel = EPSILON,
     mu: float | None = None,
     margin: float = 1e-8,
     message: str = "",
@@ -207,14 +207,14 @@ def test_unipc() -> None:
         for (mt, dt, st, ds), s in itertools.product(
             (
                 (
-                    EpsilonModel(),
-                    EpsilonModel(),
+                    NoiseModel(),
+                    NoiseModel(),
                     sigma_polar,
                     HeunDiscreteScheduler.from_config(SCALED_CONFIG, prediction_type="epsilon"),
                 ),
                 (
                     VelocityModel(),
-                    EpsilonModel(),
+                    NoiseModel(),
                     sigma_polar,
                     HeunDiscreteScheduler.from_config(SCALED_CONFIG, prediction_type="v_prediction"),
                 ),
@@ -230,8 +230,8 @@ def test_unipc() -> None:
     ),
 )
 def test_heun(
-    model_transform: ModelTransform,
-    derivative_transform: ModelTransform,
+    model_transform: DiffusionModel,
+    derivative_transform: DiffusionModel,
     sigma_transform: SigmaTransform,
     diffusers_scheduler: HeunDiscreteScheduler | FlowMatchHeunDiscreteScheduler,
     steps: int,

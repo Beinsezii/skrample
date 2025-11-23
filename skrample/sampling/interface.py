@@ -18,7 +18,7 @@ class StructuredFunctionalAdapter(functional.FunctionalSampler):
         self,
         sample: T,
         model: functional.SampleableModel[T],
-        model_transform: models.ModelTransform,
+        model_transform: models.DiffusionModel,
         steps: int,
         include: slice = slice(None),
         rng: RNG[T] | None = None,
