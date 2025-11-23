@@ -153,12 +153,14 @@ def divf(lhs: float, rhs: float) -> float:
         return math.copysign(math.inf, lhs)
 
 
-def safe_log(x: float) -> float:
-    "Returns inf rather than throw an err"
-    try:
+def ln(x: float) -> float:
+    "Natural logarithm with infinity"
+    if x > 0:
         return math.log(x)
-    except ValueError:
-        return math.inf
+    elif x < 0:
+        raise ValueError
+    else:
+        return -math.inf
 
 
 def normalize(regular_array: NDArray[np.float64], start: float, end: float = 0) -> NDArray[np.float64]:
