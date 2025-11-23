@@ -14,7 +14,6 @@ from skrample.common import (
     SigmaTransform,
     bashforth,
     euler,
-    predict_flow,
     sigma_complement,
     sigma_polar,
     sigmoid,
@@ -242,7 +241,8 @@ def test_functional_adapter() -> None:
                 noise = [random.random() for _ in range(steps)]
 
                 rng = iter(noise)
-                sample_f = adapter.sample_model(sample, fake_model, FlowModel(), steps, rng=lambda: next(rng))
+                model_transform = FlowModel()
+                sample_f = adapter.sample_model(sample, fake_model, model_transform, steps, rng=lambda: next(rng))
 
                 rng = iter(noise)
                 float_schedule = schedule.schedule(steps)
@@ -251,7 +251,7 @@ def test_functional_adapter() -> None:
                 for n, (t, s) in enumerate(float_schedule):
                     results = sampler.sample(
                         sample_s,
-                        predict_flow(sample_s, fake_model(sample_s, t, s), s, schedule.sigma_transform),
+                        model_transform.to_x(sample_s, fake_model(sample_s, t, s), s, schedule.sigma_transform),
                         n,
                         float_schedule,
                         schedule.sigma_transform,
