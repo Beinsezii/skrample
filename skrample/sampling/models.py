@@ -47,7 +47,8 @@ class ModelTransform(abc.ABC):
 @dataclasses.dataclass(frozen=True)
 class DiffusionModel(ModelTransform):
     """X-Prediction
-    Predicts the clean image"""
+    Predicts the clean image.
+    Usually for single step models."""
 
     def to_x[T: Sample](self, sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
         "output -> X̂"
@@ -73,7 +74,8 @@ class DiffusionModel(ModelTransform):
 @dataclasses.dataclass(frozen=True)
 class EpsilonModel(ModelTransform):
     """Ε-Prediction
-    Predicts the added noise"""  # noqa: RUF002
+    Predicts the added noise.
+    If a model does not specify, this is usually what it needs."""  # noqa: RUF002
 
     def to_x[T: Sample](self, sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
         sigma_t, alpha_t = sigma_transform(sigma)
@@ -96,7 +98,8 @@ class EpsilonModel(ModelTransform):
 
 @dataclasses.dataclass(frozen=True)
 class FlowModel(ModelTransform):
-    "U-Prediction"
+    """U-Prediction.
+    Flow matching models use this, notably FLUX.1 and SD3"""
 
     def to_x[T: Sample](self, sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
         sigma_t, alpha_t = sigma_transform(sigma)
@@ -119,7 +122,8 @@ class FlowModel(ModelTransform):
 
 @dataclasses.dataclass(frozen=True)
 class VelocityModel(ModelTransform):
-    "V-Prediction"
+    """V-Prediction.
+    Rare, models will usually explicitly say they require velocity/vpred/zero terminal SNR"""
 
     def to_x[T: Sample](self, sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
         sigma_t, alpha_t = sigma_transform(sigma)

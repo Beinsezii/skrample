@@ -10,12 +10,14 @@ from diffusers.schedulers.scheduling_ipndm import IPNDMScheduler
 from diffusers.schedulers.scheduling_unipc_multistep import UniPCMultistepScheduler
 from testing_common import FLOW_CONFIG, SCALED_CONFIG
 
-from skrample.common import predict_epsilon as EPSILON
-from skrample.common import predict_flow as FLOW
-from skrample.common import predict_velocity as VELOCITY
 from skrample.diffusers import SkrampleWrapperScheduler
+from skrample.sampling.models import EpsilonModel, FlowModel, VelocityModel
 from skrample.sampling.structured import DPM, Adams, Euler, UniPC
 from skrample.scheduling import Beta, Exponential, FlowShift, Karras, Linear, Scaled
+
+EPSILON = EpsilonModel()
+FLOW = FlowModel()
+VELOCITY = VelocityModel()
 
 
 def check_wrapper(wrapper: SkrampleWrapperScheduler, scheduler: ConfigMixin, params: list[str] = []) -> None:

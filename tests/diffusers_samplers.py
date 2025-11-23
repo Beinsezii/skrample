@@ -14,10 +14,7 @@ from diffusers.schedulers.scheduling_heun_discrete import HeunDiscreteScheduler
 from diffusers.schedulers.scheduling_unipc_multistep import UniPCMultistepScheduler
 from testing_common import FLOW_CONFIG, SCALED_CONFIG, compare_tensors
 
-from skrample.common import FloatSchedule, Predictor, SigmaTransform, sigma_complement, sigma_polar
-from skrample.common import predict_epsilon as EPSILON
-from skrample.common import predict_flow as FLOW
-from skrample.common import predict_velocity as VELOCITY
+from skrample.common import FloatSchedule, SigmaTransform, sigma_complement, sigma_polar
 from skrample.sampling.functional import RKUltra
 from skrample.sampling.models import EpsilonModel, FlowModel, ModelTransform, VelocityModel
 from skrample.sampling.structured import DPM, Euler, SKSamples, StructuredSampler, UniPC
@@ -31,6 +28,10 @@ DiffusersScheduler = (
     | FlowMatchHeunDiscreteScheduler
     | UniPCMultistepScheduler
 )
+
+EPSILON = EpsilonModel()
+FLOW = FlowModel()
+VELOCITY = VelocityModel()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -54,7 +55,7 @@ def fake_model(t: torch.Tensor) -> torch.Tensor:
 def dual_sample(
     a: StructuredSampler,
     b: DiffusersScheduler,
-    predictor: Predictor,
+    model_transform: ModelTransform,
     steps: range,
     mu: float | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -75,10 +76,10 @@ def dual_sample(
 
     if isinstance(b, FlowMatchEulerDiscreteScheduler):
         b_sample = b.scale_noise(sample=b_sample, timestep=timestep.unsqueeze(0), noise=initial_noise)
-        sigma_transform = sigma_complement
     else:
         b_sample = b.add_noise(original_samples=b_sample, noise=initial_noise, timesteps=timestep.unsqueeze(0))
-        sigma_transform = sigma_polar
+
+    sigma_transform = sigma_complement if isinstance(model_transform, FlowModel) else sigma_polar
 
     a_sample = a.merge_noise(a_sample, initial_noise, sigma.item(), sigma_transform)
 
@@ -89,7 +90,7 @@ def dual_sample(
 
         timestep, sigma = schedule[step]
 
-        a_output = predictor(
+        a_output = model_transform.to_x(
             a_sample, fake_model(a.scale_input(a_sample, sigma.item(), sigma_transform)), sigma.item(), sigma_transform
         )
         sampled = a.sample(a_sample, a_output, step, schedule.numpy().tolist(), sigma_transform, noise, prior_steps)
@@ -112,14 +113,14 @@ def dual_sample(
 def compare_samplers(
     a: StructuredSampler,
     b: DiffusersScheduler,
-    p: Predictor = EPSILON,
+    t: ModelTransform = EPSILON,
     mu: float | None = None,
     margin: float = 1e-8,
     message: str = "",
 ) -> None:
     for step_range in [range(0, 2), range(0, 11), range(0, 201), range(3, 6), range(2, 23), range(31, 200)]:
         compare_tensors(
-            *dual_sample(a, b, p, step_range, mu),
+            *dual_sample(a, b, t, step_range, mu),
             message=str(step_range) + (" | " + message if message else ""),
             margin=margin,
         )
@@ -134,7 +135,7 @@ def test_euler() -> None:
                 prediction_type=predictor[1],
             ),
             predictor[0],
-            message=predictor[0].__name__,
+            message=type(predictor[0]).__name__,
         )
 
 
@@ -147,7 +148,7 @@ def test_euler_ancestral() -> None:
                 prediction_type=predictor[1],
             ),
             predictor[0],
-            message=predictor[0].__name__,
+            message=type(predictor[0]).__name__,
         )
 
 
@@ -172,9 +173,10 @@ def test_dpm() -> None:
                         final_sigmas_type="zero",
                         solver_order=order,
                         prediction_type=predictor[1],
+                        use_flow_sigmas=predictor[0] == FLOW,
                     ),
                     predictor[0],
-                    message=f"{predictor[0].__name__} o{order} s{stochastic}",
+                    message=f"{type(predictor[0]).__name__} o{order} s{stochastic}",
                 )
 
 
@@ -191,9 +193,10 @@ def test_unipc() -> None:
                     final_sigmas_type="zero",
                     solver_order=order,
                     prediction_type=predictor[1],
+                    use_flow_sigmas=predictor[0] == FLOW,
                 ),
                 predictor[0],
-                message=f"{predictor[0].__name__} o{order}",
+                message=f"{type(predictor[0]).__name__} o{order}",
             )
 
 

@@ -2,14 +2,13 @@ import dataclasses
 import math
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from functools import wraps
 from types import MappingProxyType
 from typing import Any
 
 import numpy as np
 
 from skrample import common, scheduling
-from skrample.common import RNG, DictOrProxy, FloatSchedule, Predictor, Sample, SigmaTransform
+from skrample.common import RNG, DictOrProxy, FloatSchedule, Sample, SigmaTransform
 
 from . import models, tableaux
 
@@ -96,15 +95,6 @@ def step_tableau[T: Sample](
 @dataclasses.dataclass(frozen=True)
 class FunctionalSampler(ABC):
     schedule: scheduling.SkrampleSchedule
-
-    def model_with_predictor(self, model: SampleableModel, predictor: Predictor) -> SampleableModel:
-        "Wraps the output of `model` with `predictor` using schedule.sigma_transform"
-
-        @wraps(model)
-        def model_with_predictor[T: Sample](x: T, t: float, s: float) -> T:
-            return predictor(x, model(x, t, s), s, self.schedule.sigma_transform)
-
-        return model_with_predictor
 
     def merge_noise[T: Sample](self, sample: T, noise: T, steps: int, start: int) -> T:
         sigmas = self.schedule.sigmas(steps)

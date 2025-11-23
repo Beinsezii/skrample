@@ -21,8 +21,6 @@ else:
 type SigmaTransform = Callable[[float], tuple[float, float]]
 "Transforms a single noise sigma into a pair"
 
-type Predictor[S: Sample] = Callable[[S, S, float, SigmaTransform], S]
-"sample, output, sigma, sigma_transform"
 
 type DictOrProxy[T, U] = MappingProxyType[T, U] | dict[T, U]  # Mapping does not implement __or__
 "Simple union type for a possibly immutable dictionary"
@@ -74,30 +72,6 @@ def sigma_complement(sigma: float) -> tuple[float, float]:
 def sigma_polar(sigma: float) -> tuple[float, float]:
     theta = math.atan(sigma)
     return math.sin(theta), math.cos(theta)
-
-
-def predict_epsilon[T: Sample](sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
-    "If a model does not specify, this is usually what it needs."
-    sigma_u, sigma_v = sigma_transform(sigma)
-    return (sample - sigma_u * output) / sigma_v  # type: ignore
-
-
-def predict_sample[T: Sample](sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
-    "No prediction. Only for single step afaik."
-    return output
-
-
-def predict_velocity[T: Sample](sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
-    "Rare, models will usually explicitly say they require velocity/vpred/zero terminal SNR"
-    sigma_u, sigma_v = sigma_transform(sigma)
-    return sigma_v * sample - sigma_u * output  # type: ignore
-
-
-def predict_flow[T: Sample](sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
-    "Flow matching models use this, notably FLUX.1 and SD3"
-    # TODO(beinsezii): this might need to be u * output. Don't trust diffusers
-    # Our tests will fail if we do so, leaving here for now.
-    return sample - sigma * output  # type: ignore
 
 
 def get_sigma_uv(step: int, schedule: FloatSchedule, sigma_transform: SigmaTransform) -> tuple[float, float]:
