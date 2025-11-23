@@ -23,7 +23,14 @@ from skrample.common import (
 from skrample.diffusers import SkrampleWrapperScheduler
 from skrample.sampling import tableaux
 from skrample.sampling.interface import StructuredFunctionalAdapter
-from skrample.sampling.models import DiffusionModel, EpsilonModel, FlowModel, ModelTransform, VelocityModel
+from skrample.sampling.models import (
+    DiffusionModel,
+    EpsilonModel,
+    FlowModel,
+    ModelConvert,
+    ModelTransform,
+    VelocityModel,
+)
 from skrample.sampling.structured import (
     DPM,
     SPC,
@@ -101,6 +108,42 @@ def test_model_transforms(model_type: type[ModelTransform], sigma_transform: Sig
 
         ob = model_transform.backward(sample, df, sigma, sigma_next, sigma_transform)
         assert abs(o - ob) < 1e-12
+
+
+@pytest.mark.parametrize(
+    ("model_from", "model_to", "sigma_transform", "sigma_to"),
+    itertools.product(ALL_MODELS, ALL_MODELS, ALL_TRANSFROMS, (0.05, 0.0)),
+)
+def test_model_convert(
+    model_from: type[ModelTransform],
+    model_to: type[ModelTransform],
+    sigma_transform: SigmaTransform,
+    sigma_to: float,
+) -> None:
+    convert = ModelConvert(model_from(), model_to())
+    sample = 0.8
+    output = 0.3
+    sigma_from = 0.2
+
+    def model(x: float, t: float, s: float) -> float:
+        return output
+
+    x_from = convert.transform_from.forward(
+        sample,
+        model(sample, sigma_from, sigma_from),
+        sigma_from,
+        sigma_to,
+        sigma_transform,
+    )
+    x_to = convert.transform_to.forward(
+        sample,
+        convert.wrap_model_call(model, sigma_transform)(sample, sigma_from, sigma_from),
+        sigma_from,
+        sigma_to,
+        sigma_transform,
+    )
+
+    assert abs(x_from - x_to) < 1e-12
 
 
 def test_sampler_generics() -> None:
