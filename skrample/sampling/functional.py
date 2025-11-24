@@ -51,7 +51,7 @@ def step_tableau[T: Sample](
 ) -> tuple[T, ...]:
     nodes, weights = tableau[0], tableau[1:]
 
-    if len(nodes) > 1 and derivative_transform:
+    if derivative_transform:
         model = models.ModelConvert(model_transform, derivative_transform).wrap_model_call(model, sigma_transform)
         model_transform = derivative_transform
 
