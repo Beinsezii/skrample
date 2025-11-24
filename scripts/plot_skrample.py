@@ -14,7 +14,7 @@ from numpy.typing import NDArray
 
 import skrample.scheduling as scheduling
 from skrample.common import SigmaTransform, sigma_complement, sigma_polar, spowf
-from skrample.sampling import functional, structured
+from skrample.sampling import functional, models, structured
 from skrample.sampling.interface import StructuredFunctionalAdapter
 
 OKLAB_XYZ_M1 = np.array(
@@ -58,9 +58,9 @@ def colors(hue_steps: int) -> Generator[list[float]]:
                 yield oklch_to_srgb(np.array([lighness_actual, chroma_actual, hue], dtype=np.float64))
 
 
-TRANSFORMS: dict[str, tuple[float, SigmaTransform]] = {
-    "polar": (14.6, sigma_polar),
-    "complement": (1.0, sigma_complement),
+TRANSFORMS: dict[str, tuple[float, SigmaTransform, models.DiffusionModel]] = {
+    "polar": (1.0, sigma_polar, models.NoiseModel()),
+    "complement": (1.0, sigma_complement, models.FlowModel()),
 }
 SAMPLERS: dict[str, structured.StructuredSampler | functional.FunctionalSampler] = {
     "euler": structured.Euler(),
@@ -195,7 +195,8 @@ if args.command == "samplers":
 
         sampler.sample_model(
             sample=sample,
-            model=lambda x, t, s: x + math.sin(t / schedule.base_timesteps * args.curve) * (s + 1),
+            model=lambda x, t, s: x - math.sin(t / schedule.base_timesteps * args.curve),
+            model_transform=TRANSFORMS[args.transform][2],
             steps=adjusted,
             rng=random,
             callback=callback,

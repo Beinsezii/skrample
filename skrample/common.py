@@ -21,8 +21,6 @@ else:
 type SigmaTransform = Callable[[float], tuple[float, float]]
 "Transforms a single noise sigma into a pair"
 
-type Predictor[S: Sample] = Callable[[S, S, float, SigmaTransform], S]
-"sample, output, sigma, sigma_transform"
 
 type DictOrProxy[T, U] = MappingProxyType[T, U] | dict[T, U]  # Mapping does not implement __or__
 "Simple union type for a possibly immutable dictionary"
@@ -76,30 +74,6 @@ def sigma_polar(sigma: float) -> tuple[float, float]:
     return math.sin(theta), math.cos(theta)
 
 
-def predict_epsilon[T: Sample](sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
-    "If a model does not specify, this is usually what it needs."
-    sigma_u, sigma_v = sigma_transform(sigma)
-    return (sample - sigma_u * output) / sigma_v  # type: ignore
-
-
-def predict_sample[T: Sample](sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
-    "No prediction. Only for single step afaik."
-    return output
-
-
-def predict_velocity[T: Sample](sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
-    "Rare, models will usually explicitly say they require velocity/vpred/zero terminal SNR"
-    sigma_u, sigma_v = sigma_transform(sigma)
-    return sigma_v * sample - sigma_u * output  # type: ignore
-
-
-def predict_flow[T: Sample](sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
-    "Flow matching models use this, notably FLUX.1 and SD3"
-    # TODO(beinsezii): this might need to be u * output. Don't trust diffusers
-    # Our tests will fail if we do so, leaving here for now.
-    return sample - sigma * output  # type: ignore
-
-
 def get_sigma_uv(step: int, schedule: FloatSchedule, sigma_transform: SigmaTransform) -> tuple[float, float]:
     """Gets sigma u/v with bounds check.
     If step >= len(schedule), the sigma is assumed to be zero."""
@@ -143,12 +117,24 @@ def merge_noise[T: Sample](sample: T, noise: T, sigma: float, sigma_transform: S
     return sample * sigma_v + noise * sigma_u  # type: ignore
 
 
-def safe_log(x: float) -> float:
-    "Returns inf rather than throw an err"
-    try:
+def divf(lhs: float, rhs: float) -> float:
+    "Float division with infinity"
+    if rhs != 0:
+        return lhs / rhs
+    elif lhs == 0:
+        raise ZeroDivisionError
+    else:
+        return math.copysign(math.inf, lhs)
+
+
+def ln(x: float) -> float:
+    "Natural logarithm with infinity"
+    if x > 0:
         return math.log(x)
-    except ValueError:
-        return math.inf
+    elif x < 0:
+        raise ValueError
+    else:
+        return -math.inf
 
 
 def normalize(regular_array: NDArray[np.float64], start: float, end: float = 0) -> NDArray[np.float64]:

@@ -1,7 +1,8 @@
 import dataclasses
 
 from skrample.common import RNG, FloatSchedule, Sample
-from skrample.sampling import functional, structured
+
+from . import functional, models, structured
 
 
 @dataclasses.dataclass(frozen=True)
@@ -17,6 +18,7 @@ class StructuredFunctionalAdapter(functional.FunctionalSampler):
         self,
         sample: T,
         model: functional.SampleableModel[T],
+        model_transform: models.DiffusionModel,
         steps: int,
         include: slice = slice(None),
         rng: RNG[T] | None = None,
@@ -28,7 +30,8 @@ class StructuredFunctionalAdapter(functional.FunctionalSampler):
         for n in list(range(len(schedule)))[include]:
             timestep, sigma = schedule[n]
 
-            prediction = model(self.sampler.scale_input(sample, sigma, self.schedule.sigma_transform), timestep, sigma)
+            output = model(self.sampler.scale_input(sample, sigma, self.schedule.sigma_transform), timestep, sigma)
+            prediction = model_transform.to_x(sample, output, sigma, self.schedule.sigma_transform)
 
             sksamples = self.sampler.sample(
                 sample,

@@ -11,9 +11,8 @@ from diffusers.modular_pipelines.modular_pipeline import ModularPipelineBlocks, 
 from tqdm import tqdm
 
 import skrample.scheduling as scheduling
-from skrample.common import predict_flow
 from skrample.diffusers import SkrampleWrapperScheduler
-from skrample.sampling import functional, structured
+from skrample.sampling import functional, models, structured
 from skrample.sampling.interface import StructuredFunctionalAdapter
 
 model_id = "black-forest-labs/FLUX.1-dev"
@@ -22,7 +21,7 @@ blocks = SequentialPipelineBlocks.from_blocks_dict(TEXT2IMAGE_BLOCKS)
 
 schedule = scheduling.FlowShift(scheduling.Linear(), shift=2)
 wrapper = SkrampleWrapperScheduler(
-    sampler=structured.Euler(), schedule=schedule, predictor=predict_flow, allow_dynamic=False
+    sampler=structured.Euler(), schedule=schedule, model=models.FlowModel(), allow_dynamic=False
 )
 
 # Equivalent to structured example
@@ -68,7 +67,8 @@ class FunctionalDenoise(FluxDenoiseStep):
 
         block_state["latents"] = sampler.sample_model(
             sample=block_state["latents"],
-            model=sampler.model_with_predictor(call_model, wrapper.predictor),
+            model=call_model,
+            model_transform=models.FlowModel(),
             steps=block_state["num_inference_steps"],
             callback=sample_callback,
         )

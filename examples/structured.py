@@ -7,9 +7,9 @@ from PIL import Image
 from tqdm import tqdm
 from transformers.models.clip import CLIPTextModel, CLIPTokenizer
 
-import skrample.common
 import skrample.sampling.structured as structured
 import skrample.scheduling as scheduling
+from skrample.sampling import models
 
 with torch.inference_mode():
     device: torch.device = torch.device("cuda")
@@ -21,7 +21,7 @@ with torch.inference_mode():
 
     schedule: scheduling.SkrampleSchedule = scheduling.Karras(scheduling.Scaled())
     sampler: structured.StructuredSampler = structured.DPM(order=2, add_noise=True)
-    predictor: skrample.common.Predictor = skrample.common.predict_epsilon
+    transform: models.DiffusionModel = models.NoiseModel()
 
     tokenizer: CLIPTokenizer = CLIPTokenizer.from_pretrained(url, subfolder="tokenizer")
     text_encoder: CLIPTextModel = CLIPTextModel.from_pretrained(
@@ -54,7 +54,7 @@ with torch.inference_mode():
         ).sample.chunk(2)
         model_output: torch.Tensor = conditioned + (cfg - 1) * (conditioned - unconditioned)
 
-        prediction = predictor(sample, model_output, sigma, schedule.sigma_transform)
+        prediction = transform.to_x(sample, model_output, sigma, schedule.sigma_transform)
 
         sampler_output = sampler.sample(
             sample=sample,

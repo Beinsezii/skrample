@@ -1,15 +1,37 @@
+import itertools
 import math
 import random
+from collections.abc import Sequence
 from dataclasses import replace
 
 import numpy as np
+import pytest
 import torch
 from testing_common import compare_tensors
 
-from skrample.common import MergeStrategy, bashforth, sigma_complement, sigmoid, softmax, spowf
+from skrample.common import (
+    MergeStrategy,
+    SigmaTransform,
+    bashforth,
+    euler,
+    sigma_complement,
+    sigma_polar,
+    sigmoid,
+    softmax,
+    spowf,
+)
 from skrample.diffusers import SkrampleWrapperScheduler
 from skrample.sampling import tableaux
 from skrample.sampling.interface import StructuredFunctionalAdapter
+from skrample.sampling.models import (
+    DataModel,
+    DiffusionModel,
+    FlowModel,
+    ModelConvert,
+    NoiseModel,
+    ScaleX,
+    VelocityModel,
+)
 from skrample.sampling.structured import (
     DPM,
     SPC,
@@ -21,9 +43,9 @@ from skrample.sampling.structured import (
     StructuredStochastic,
     UniPC,
 )
-from skrample.scheduling import Beta, FlowShift, Karras, Linear, Scaled, SigmoidCDF
+from skrample.scheduling import Beta, FlowShift, Karras, Linear, Scaled, ScheduleCommon, ScheduleModifier, SigmoidCDF
 
-ALL_SAMPLERS = [
+ALL_STRUCTURED: Sequence[type[StructuredSampler]] = [
     Adams,
     DPM,
     Euler,
@@ -31,16 +53,32 @@ ALL_SAMPLERS = [
     UniPC,
 ]
 
-ALL_SCHEDULES = [
+ALL_SCHEDULES: Sequence[type[ScheduleCommon]] = [
     Linear,
     Scaled,
     SigmoidCDF,
 ]
 
-ALL_MODIFIERS = [
+ALL_MODIFIERS: Sequence[type[ScheduleModifier]] = [
     Beta,
     FlowShift,
     Karras,
+]
+
+ALL_MODELS: Sequence[type[DiffusionModel]] = [
+    DataModel,
+    NoiseModel,
+    FlowModel,
+    VelocityModel,
+]
+
+ALL_FAKE_MODELS: Sequence[type[DiffusionModel]] = [
+    ScaleX,
+]
+
+ALL_TRANSFROMS: Sequence[SigmaTransform] = [
+    sigma_complement,
+    sigma_polar,
 ]
 
 
@@ -51,11 +89,73 @@ def test_sigmas_to_timesteps() -> None:
         compare_tensors(torch.tensor(timesteps), torch.tensor(timesteps_inv), margin=0)  # shocked this rounds good
 
 
+@pytest.mark.parametrize(
+    ("model_type", "sigma_transform"),
+    itertools.product(ALL_MODELS, ALL_TRANSFROMS),
+)
+def test_model_transforms(model_type: type[DiffusionModel], sigma_transform: SigmaTransform) -> None:
+    model_transform = model_type()
+    sample = 0.8
+    output = 0.3
+    sigma = 0.2
+
+    x = model_transform.to_x(sample, output, sigma, sigma_transform)
+    o = model_transform.from_x(sample, x, sigma, sigma_transform)
+    assert abs(output - o) < 1e-12
+
+    sigma_next = 0.05
+    for sigma_next in 0.05, 0:  # extra 0 to validate X̂
+        snr = euler(
+            sample, model_transform.to_x(sample, output, sigma, sigma_transform), sigma, sigma_next, sigma_transform
+        )
+        df = model_transform.forward(sample, output, sigma, sigma_next, sigma_transform)
+        assert abs(snr - df) < 1e-12
+
+        ob = model_transform.backward(sample, df, sigma, sigma_next, sigma_transform)
+        assert abs(o - ob) < 1e-12
+
+
+@pytest.mark.parametrize(
+    ("model_from", "model_to", "sigma_transform", "sigma_to"),
+    itertools.product(ALL_MODELS, ALL_MODELS + ALL_FAKE_MODELS, ALL_TRANSFROMS, (0.05, 0.0)),
+)
+def test_model_convert(
+    model_from: type[DiffusionModel],
+    model_to: type[DiffusionModel],
+    sigma_transform: SigmaTransform,
+    sigma_to: float,
+) -> None:
+    convert = ModelConvert(model_from(), model_to())
+    sample = 0.8
+    output = 0.3
+    sigma_from = 0.2
+
+    def model(x: float, t: float, s: float) -> float:
+        return output
+
+    x_from = convert.transform_from.forward(
+        sample,
+        model(sample, sigma_from, sigma_from),
+        sigma_from,
+        sigma_to,
+        sigma_transform,
+    )
+    x_to = convert.transform_to.forward(
+        sample,
+        convert.wrap_model_call(model, sigma_transform)(sample, sigma_from, sigma_from),
+        sigma_from,
+        sigma_to,
+        sigma_transform,
+    )
+
+    assert abs(x_from - x_to) < 1e-12
+
+
 def test_sampler_generics() -> None:
     eps = 1e-12
     for sampler in [
-        *(cls() for cls in ALL_SAMPLERS),
-        *(cls(order=cls.max_order()) for cls in ALL_SAMPLERS if issubclass(cls, StructuredMultistep)),
+        *(cls() for cls in ALL_STRUCTURED),
+        *(cls(order=cls.max_order()) for cls in ALL_STRUCTURED if issubclass(cls, StructuredMultistep)),
     ]:
         for schedule in Scaled(), FlowShift(Linear()):
             i, o = random.random(), random.random()
@@ -97,7 +197,7 @@ def test_mu_set() -> None:
 
 def test_require_previous() -> None:
     samplers: list[StructuredSampler] = []
-    for cls in ALL_SAMPLERS:
+    for cls in ALL_STRUCTURED:
         if issubclass(cls, StructuredMultistep):
             samplers.extend([cls(order=o + 1) for o in range(cls.min_order(), cls.max_order())])
         else:
@@ -137,7 +237,7 @@ def test_require_previous() -> None:
 
 def test_require_noise() -> None:
     samplers: list[StructuredSampler] = []
-    for cls in ALL_SAMPLERS:
+    for cls in ALL_STRUCTURED:
         if issubclass(cls, StructuredStochastic):
             samplers.extend([cls(add_noise=n) for n in (False, True)])
         else:
@@ -192,7 +292,8 @@ def test_functional_adapter() -> None:
                 noise = [random.random() for _ in range(steps)]
 
                 rng = iter(noise)
-                sample_f = adapter.sample_model(sample, fake_model, steps, rng=lambda: next(rng))
+                model_transform = FlowModel()
+                sample_f = adapter.sample_model(sample, fake_model, model_transform, steps, rng=lambda: next(rng))
 
                 rng = iter(noise)
                 float_schedule = schedule.schedule(steps)
@@ -201,7 +302,7 @@ def test_functional_adapter() -> None:
                 for n, (t, s) in enumerate(float_schedule):
                     results = sampler.sample(
                         sample_s,
-                        fake_model(sample_s, t, s),
+                        model_transform.to_x(sample_s, fake_model(sample_s, t, s), s, schedule.sigma_transform),
                         n,
                         float_schedule,
                         schedule.sigma_transform,

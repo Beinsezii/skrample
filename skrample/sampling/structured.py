@@ -5,7 +5,7 @@ from dataclasses import dataclass, replace
 import numpy as np
 
 from skrample import common
-from skrample.common import FloatSchedule, Sample, SigmaTransform, merge_noise, safe_log, softmax, spowf
+from skrample.common import FloatSchedule, Sample, SigmaTransform, divf, ln, merge_noise, softmax, spowf
 
 
 @dataclass(frozen=True)
@@ -183,8 +183,8 @@ class DPM(StructuredMultistep, StructuredStochastic):
         sigma_u, sigma_v = common.get_sigma_uv(step, schedule, sigma_transform)
         sigma_u_next, sigma_v_next = common.get_sigma_uv(step + 1, schedule, sigma_transform)
 
-        lambda_ = safe_log(sigma_v) - safe_log(sigma_u)
-        lambda_next = safe_log(sigma_v_next) - safe_log(sigma_u_next)
+        lambda_ = ln(divf(sigma_v, sigma_u))
+        lambda_next = ln(divf(sigma_v_next, sigma_u_next))
         h = abs(lambda_next - lambda_)
 
         if noise is not None and self.add_noise:
@@ -206,7 +206,7 @@ class DPM(StructuredMultistep, StructuredStochastic):
         if (effective_order := self.effective_order(step, schedule, previous)) >= 2:
             sigma_u_prev, sigma_v_prev = common.get_sigma_uv(step - 1, schedule, sigma_transform)
 
-            lambda_prev = safe_log(sigma_v_prev) - safe_log(sigma_u_prev)
+            lambda_prev = ln(divf(sigma_v_prev, sigma_u_prev))
             h_prev = lambda_ - lambda_prev
             r = h_prev / h  # math people and their var names...
 
@@ -216,7 +216,7 @@ class DPM(StructuredMultistep, StructuredStochastic):
 
             if effective_order >= 3:
                 sigma_u_prev2, sigma_v_prev2 = common.get_sigma_uv(step - 2, schedule, sigma_transform)
-                lambda_prev2 = safe_log(sigma_v_prev2) - safe_log(sigma_u_prev2)
+                lambda_prev2 = ln(divf(sigma_v_prev2, sigma_u_prev2))
                 h_prev2 = lambda_prev - lambda_prev2
                 r_prev2 = h_prev2 / h
 
@@ -302,8 +302,8 @@ class UniP(StructuredMultistep):
         sigma_u, sigma_v = common.get_sigma_uv(step, schedule, sigma_transform)
         sigma_u_next, sigma_v_next = common.get_sigma_uv(step + 1, schedule, sigma_transform)
 
-        lambda_ = safe_log(sigma_v) - safe_log(sigma_u)
-        lambda_next = safe_log(sigma_v_next) - safe_log(sigma_u_next)
+        lambda_ = ln(divf(sigma_v, sigma_u))
+        lambda_next = ln(divf(sigma_v_next, sigma_u_next))
         h = abs(lambda_next - lambda_)
 
         # hh = -h if self.predict_x0 else h
@@ -322,7 +322,7 @@ class UniP(StructuredMultistep):
             step_prev_N = step - n
             prediction_prev_N = previous[-n].prediction
             sigma_u_prev_N, sigma_v_prev_N = common.get_sigma_uv(step_prev_N, schedule, sigma_transform)
-            lambda_pO = safe_log(sigma_v_prev_N) - safe_log(sigma_u_prev_N)
+            lambda_pO = ln(divf(sigma_v_prev_N, sigma_u_prev_N))
             rk = (lambda_pO - lambda_) / h
             if math.isfinite(rk):  # for subnormal
                 rks.append(rk)

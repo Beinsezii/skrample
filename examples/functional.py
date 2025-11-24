@@ -7,10 +7,9 @@ from PIL import Image
 from tqdm import tqdm
 from transformers.models.clip import CLIPTextModel, CLIPTokenizer
 
-import skrample.common
 import skrample.pytorch.noise as noise
 import skrample.scheduling as scheduling
-from skrample.sampling import functional, structured
+from skrample.sampling import functional, models, structured
 from skrample.sampling.interface import StructuredFunctionalAdapter
 
 with torch.inference_mode():
@@ -57,8 +56,7 @@ with torch.inference_mode():
             t,
             torch.cat([text_embeds, torch.zeros_like(text_embeds)]),
         ).sample.chunk(2)
-        p = conditioned + (cfg - 1) * (conditioned - unconditioned)
-        return skrample.common.predict_epsilon(x, p, s, schedule.sigma_transform)
+        return conditioned + (cfg - 1) * (conditioned - unconditioned)
 
     if isinstance(sampler, functional.FunctionalHigher):
         steps = sampler.adjust_steps(steps)
@@ -67,6 +65,7 @@ with torch.inference_mode():
     bar = tqdm(total=steps)
     sample = sampler.generate_model(
         model=call_model,
+        model_transform=models.NoiseModel(),
         steps=steps,
         rng=lambda: rng.generate().to(dtype=dtype, device=device),
         callback=lambda x, n, t, s: bar.update(n + 1 - bar.n),
