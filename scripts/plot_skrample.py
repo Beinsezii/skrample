@@ -92,7 +92,6 @@ MODIFIERS: dict[str, tuple[type[scheduling.ScheduleModifier], dict[str, Any]] | 
     "exponential": (scheduling.Exponential, {}),
     "karras": (scheduling.Karras, {}),
     "flow": (scheduling.FlowShift, {}),
-    "flow_mu": (scheduling.FlowShift, {"mu": 1}),
     "hyper": (scheduling.Hyper, {}),
     "vyper": (scheduling.Hyper, {"scale": -2}),
     "hype": (scheduling.Hyper, {"tail": False}),
@@ -231,7 +230,7 @@ elif args.command == "schedules":
                 for mod_label, (mod_type, mod_props) in [  # type: ignore # Destructure
                     m for m in [(mod1, MODIFIERS[mod1]), (mod2, MODIFIERS[mod2])] if m[1]
                 ]:
-                    composed = mod_type(schedule, **mod_props)
+                    composed = mod_type(composed, **mod_props)
                     label += "_" + mod_label
 
                 label = " ".join([s.capitalize() for s in label.split("_")])
