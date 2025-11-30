@@ -1,3 +1,6 @@
+import itertools
+
+import pytest
 from diffusers.configuration_utils import ConfigMixin
 from diffusers.schedulers.scheduling_ddim import DDIMScheduler
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
@@ -11,110 +14,145 @@ from diffusers.schedulers.scheduling_unipc_multistep import UniPCMultistepSchedu
 from testing_common import FLOW_CONFIG, SCALED_CONFIG
 
 from skrample.diffusers import SkrampleWrapperScheduler
-from skrample.sampling.models import FlowModel, NoiseModel, VelocityModel
+from skrample.sampling.models import DiffusionModel, FlowModel, NoiseModel, VelocityModel
 from skrample.sampling.structured import DPM, Adams, Euler, UniPC
-from skrample.scheduling import Beta, Exponential, FlowShift, Karras, Linear, Scaled
+from skrample.scheduling import Beta, Exponential, FlowShift, Karras, Linear, Scaled, ScheduleModifier
 
 EPSILON = NoiseModel()
 FLOW = FlowModel()
 VELOCITY = VelocityModel()
 
 
-def check_wrapper(wrapper: SkrampleWrapperScheduler, scheduler: ConfigMixin, params: list[str] = []) -> None:
+def assert_wrapper(wrapper: SkrampleWrapperScheduler, scheduler: ConfigMixin) -> None:
     a, b = wrapper, SkrampleWrapperScheduler.from_diffusers_config(scheduler)
     a.fake_config = b.fake_config
-    assert a == b, " | ".join([type(scheduler).__name__] + [str(p) for p in params])
+    assert a == b
 
 
-def test_dpm() -> None:
-    for flag, mod in [
-        ("lower_order_final", None),  # dummy flag always true
-        ("use_karras_sigmas", Karras),
-        ("use_exponential_sigmas", Exponential),
-        ("use_beta_sigmas", Beta),
-    ]:
-        for algo, noise in [
-            ("dpmsolver", False),
-            ("dpmsolver++", False),
-            ("sde-dpmsolver", True),
-            ("sde-dpmsolver++", True),
-        ]:
-            for uniform, spacing in [(False, "leading"), (True, "trailing")]:
-                for skpred, dfpred in [(EPSILON, "epsilon"), (VELOCITY, "v_prediction")]:
-                    for order in range(1, 4):
-                        check_wrapper(
-                            SkrampleWrapperScheduler(
-                                DPM(add_noise=noise, order=order),
-                                mod(Scaled(uniform=uniform)) if mod else Scaled(uniform=uniform),
-                                skpred,
-                            ),
-                            DPMSolverMultistepScheduler.from_config(
-                                SCALED_CONFIG
-                                | {
-                                    "prediction_type": dfpred,
-                                    "solver_order": order,
-                                    "timestep_spacing": spacing,
-                                    "algorithm_type": algo,
-                                    "final_sigmas_type": "sigma_min",  # for non ++ to not err
-                                    flag: True,
-                                }
-                            ),
-                            [flag, algo, spacing, dfpred, f"o{order}"],
-                        )
+@pytest.mark.parametrize(
+    (
+        "modifiers",
+        "add_noise",
+        "schedule_uniform",
+        "model_transform",
+        "order",
+    ),
+    itertools.product(
+        [
+            ("lower_order_final", None),  # dummy flag always true
+            ("use_karras_sigmas", Karras),
+            ("use_exponential_sigmas", Exponential),
+            ("use_beta_sigmas", Beta),
+        ],
+        [("dpmsolver", False), ("dpmsolver++", False), ("sde-dpmsolver", True), ("sde-dpmsolver++", True)],
+        [("leading", False), ("trailing", True)],
+        [("epsilon", EPSILON), ("v_prediction", VELOCITY)],
+        range(1, 4),
+    ),
+)
+def test_dpm(
+    modifiers: tuple[str, type[ScheduleModifier] | None],
+    add_noise: tuple[str, bool],
+    schedule_uniform: tuple[str, bool],
+    model_transform: tuple[str, DiffusionModel],
+    order: int,
+) -> None:
+    flag, mod = modifiers
+    algo, noise = add_noise
+    spacing, uniform = schedule_uniform
+    dfpred, skpred = model_transform
+    assert_wrapper(
+        SkrampleWrapperScheduler(
+            DPM(add_noise=noise, order=order),
+            mod(Scaled(uniform=uniform)) if mod else Scaled(uniform=uniform),
+            skpred,
+        ),
+        DPMSolverMultistepScheduler.from_config(
+            SCALED_CONFIG
+            | {
+                "prediction_type": dfpred,
+                "solver_order": order,
+                "timestep_spacing": spacing,
+                "algorithm_type": algo,
+                "final_sigmas_type": "sigma_min",  # for non ++ to not err
+                flag: True,
+            }
+        ),
+    )
 
-    check_wrapper(
+
+def test_dpm_flow() -> None:
+    assert_wrapper(
         SkrampleWrapperScheduler(DPM(order=2), FlowShift(Linear()), FLOW),
         DPMSolverMultistepScheduler.from_config(FLOW_CONFIG),
     )
 
 
 def test_euler() -> None:
-    check_wrapper(
+    assert_wrapper(
         SkrampleWrapperScheduler(Euler(), Scaled(uniform=False)),
         EulerDiscreteScheduler.from_config(SCALED_CONFIG),
     )
-    check_wrapper(
+
+
+def test_euler_a() -> None:
+    assert_wrapper(
         SkrampleWrapperScheduler(DPM(add_noise=True), Scaled(uniform=False)),
         EulerAncestralDiscreteScheduler.from_config(SCALED_CONFIG),
     )
-    check_wrapper(
+
+
+def test_euler_flow() -> None:
+    assert_wrapper(
         SkrampleWrapperScheduler(Euler(), FlowShift(Linear()), FLOW),
         FlowMatchEulerDiscreteScheduler.from_config(FLOW_CONFIG),
     )
-    check_wrapper(
+
+
+def test_euler_beta() -> None:
+    assert_wrapper(
         SkrampleWrapperScheduler(Euler(), Beta(FlowShift(Linear())), FLOW),
         FlowMatchEulerDiscreteScheduler.from_config(FLOW_CONFIG | {"use_beta_sigmas": True}),
     )
 
 
 def test_ipndm() -> None:
-    check_wrapper(
+    assert_wrapper(
         SkrampleWrapperScheduler(Adams(order=4), Scaled(uniform=False)),
         IPNDMScheduler.from_config(SCALED_CONFIG),
     )
 
 
 def test_unipc() -> None:
-    check_wrapper(
+    assert_wrapper(
         SkrampleWrapperScheduler(UniPC(order=2), Scaled(uniform=False)),
         UniPCMultistepScheduler.from_config(SCALED_CONFIG),
     )
-    check_wrapper(
+
+
+def test_unipc_flow() -> None:
+    assert_wrapper(
         SkrampleWrapperScheduler(UniPC(order=2), FlowShift(Linear()), FLOW),
         UniPCMultistepScheduler.from_config(FLOW_CONFIG),
     )
 
 
-def test_alias() -> None:
-    check_wrapper(
+def test_dpmsde() -> None:
+    assert_wrapper(
         SkrampleWrapperScheduler(DPM(add_noise=True), Scaled(uniform=False)),
         DPMSolverSDEScheduler.from_config(SCALED_CONFIG),
     )
-    check_wrapper(
+
+
+def test_ddim() -> None:
+    assert_wrapper(
         SkrampleWrapperScheduler(Euler(), Scaled(uniform=False)),
         DDIMScheduler.from_config(SCALED_CONFIG),
     )
-    check_wrapper(
+
+
+def test_ddpm() -> None:
+    assert_wrapper(
         SkrampleWrapperScheduler(DPM(add_noise=True), Scaled(uniform=False)),
         DDPMScheduler.from_config(SCALED_CONFIG),
     )
