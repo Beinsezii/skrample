@@ -82,17 +82,14 @@ ALL_TRANSFROMS: Sequence[SigmaTransform] = [
 ]
 
 
-def test_sigmas_to_timesteps() -> None:
-    for schedule in [*(cls() for cls in ALL_SCHEDULES), Scaled(beta_scale=1)]:  # base schedules
-        timesteps = schedule.timesteps_np(123)
-        timesteps_inv = schedule.sigmas_to_timesteps(schedule.sigmas_np(123))
-        compare_tensors(torch.tensor(timesteps), torch.tensor(timesteps_inv), margin=0)  # shocked this rounds good
+@pytest.mark.parametrize("schedule", [*(cls() for cls in ALL_SCHEDULES), Scaled(beta_scale=1)])
+def test_sigmas_to_timesteps(schedule: ScheduleCommon) -> None:
+    timesteps = schedule.timesteps_np(123)
+    timesteps_inv = schedule.sigmas_to_timesteps(schedule.sigmas_np(123))
+    compare_tensors(torch.tensor(timesteps), torch.tensor(timesteps_inv), margin=0)  # shocked this rounds good
 
 
-@pytest.mark.parametrize(
-    ("model_type", "sigma_transform"),
-    itertools.product(ALL_MODELS, ALL_TRANSFROMS),
-)
+@pytest.mark.parametrize(("model_type", "sigma_transform"), itertools.product(ALL_MODELS, ALL_TRANSFROMS))
 def test_model_transforms(model_type: type[DiffusionModel], sigma_transform: SigmaTransform) -> None:
     model_transform = model_type()
     sample = 0.8
@@ -151,40 +148,45 @@ def test_model_convert(
     assert abs(x_from - x_to) < 1e-12
 
 
-def test_sampler_generics() -> None:
+@pytest.mark.parametrize(
+    ("sampler", "schedule"),
+    itertools.product(
+        [
+            *(cls() for cls in ALL_STRUCTURED),
+            *(cls(order=cls.max_order()) for cls in ALL_STRUCTURED if issubclass(cls, StructuredMultistep)),
+        ],
+        [Scaled(), FlowShift(Linear())],
+    ),
+)
+def test_sampler_generics(sampler: StructuredSampler, schedule: ScheduleCommon) -> None:
     eps = 1e-12
-    for sampler in [
-        *(cls() for cls in ALL_STRUCTURED),
-        *(cls(order=cls.max_order()) for cls in ALL_STRUCTURED if issubclass(cls, StructuredMultistep)),
-    ]:
-        for schedule in Scaled(), FlowShift(Linear()):
-            i, o = random.random(), random.random()
-            prev = [SKSamples(random.random(), random.random(), random.random()) for _ in range(9)]
+    i, o = random.random(), random.random()
+    prev = [SKSamples(random.random(), random.random(), random.random()) for _ in range(9)]
 
-            scalar = sampler.sample(i, o, 4, schedule.schedule(10), schedule.sigma_transform, previous=prev).final
+    scalar = sampler.sample(i, o, 4, schedule.schedule(10), schedule.sigma_transform, previous=tuple(prev)).final
 
-            # Enforce FP64 as that should be equivalent to python scalar
-            ndarr = sampler.sample(
-                np.array([i], dtype=np.float64),
-                np.array([o], dtype=np.float64),
-                4,
-                schedule.schedule(10),
-                schedule.sigma_transform,
-                previous=prev,  # type: ignore
-            ).final.item()
+    # Enforce FP64 as that should be equivalent to python scalar
+    ndarr = sampler.sample(
+        np.array([i], dtype=np.float64),
+        np.array([o], dtype=np.float64),
+        4,
+        schedule.schedule(10),
+        schedule.sigma_transform,
+        previous=prev,  # type: ignore
+    ).final.item()
 
-            tensor = sampler.sample(
-                torch.tensor([i], dtype=torch.float64),
-                torch.tensor([o], dtype=torch.float64),
-                4,
-                schedule.schedule(10),
-                schedule.sigma_transform,
-                previous=prev,  # type: ignore
-            ).final.item()
+    tensor = sampler.sample(
+        torch.tensor([i], dtype=torch.float64),
+        torch.tensor([o], dtype=torch.float64),
+        4,
+        schedule.schedule(10),
+        schedule.sigma_transform,
+        previous=prev,  # type: ignore
+    ).final.item()
 
-            assert abs(tensor - scalar) < eps
-            assert abs(tensor - ndarr) < eps
-            assert abs(scalar - ndarr) < eps
+    assert abs(tensor - scalar) < eps
+    assert abs(tensor - ndarr) < eps
+    assert abs(scalar - ndarr) < eps
 
 
 def test_mu_set() -> None:
@@ -195,124 +197,138 @@ def test_mu_set() -> None:
     assert a.schedule == b.schedule
 
 
-def test_require_previous() -> None:
-    samplers: list[StructuredSampler] = []
-    for cls in ALL_STRUCTURED:
-        if issubclass(cls, StructuredMultistep):
-            samplers.extend([cls(order=o + 1) for o in range(cls.min_order(), cls.max_order())])
-        else:
-            samplers.append(cls())
+@pytest.mark.parametrize(
+    ("sampler"),
+    [
+        *(
+            sampler
+            for samplers in (
+                (cls(order=o + 1) for o in range(cls.min_order(), cls.max_order()))
+                if issubclass(cls, StructuredMultistep)
+                else (cls(),)
+                for cls in ALL_STRUCTURED
+            )
+            for sampler in samplers
+        ),
+        *(UniPC(order=o1, solver=Adams(order=o2)) for o1 in range(1, 4) for o2 in range(1, 4)),
+        *(SPC(predictor=Adams(order=o1), corrector=Adams(order=o2)) for o1 in range(1, 4) for o2 in range(1, 4)),
+    ],
+)
+def test_require_previous(sampler: StructuredSampler) -> None:
+    sample = 1.5
+    prediction = 0.5
+    previous = tuple(SKSamples(n / 2, n * 2, n * 1.5) for n in range(100))
 
-    for o1 in range(1, 4):
-        for o2 in range(1, 4):
-            samplers.append(UniPC(order=o1, solver=Adams(order=o2)))
-            samplers.append(SPC(predictor=Adams(order=o1), corrector=Adams(order=o2)))
+    a = sampler.sample(
+        sample,
+        prediction,
+        31,
+        Linear().schedule(100),
+        sigma_complement,
+        None,
+        previous,
+    )
+    b = sampler.sample(
+        sample,
+        prediction,
+        31,
+        Linear().schedule(100),
+        sigma_complement,
+        None,
+        previous[len(previous) - sampler.require_previous :],
+    )
 
-    for sampler in samplers:
-        sample = 1.5
-        prediction = 0.5
-        previous = tuple(SKSamples(n / 2, n * 2, n * 1.5) for n in range(100))
-
-        a = sampler.sample(
-            sample,
-            prediction,
-            31,
-            Linear().schedule(100),
-            sigma_complement,
-            None,
-            previous,
-        )
-        b = sampler.sample(
-            sample,
-            prediction,
-            31,
-            Linear().schedule(100),
-            sigma_complement,
-            None,
-            previous[len(previous) - sampler.require_previous :],
-        )
-
-        assert a == b, (sampler, sampler.require_previous)
-
-
-def test_require_noise() -> None:
-    samplers: list[StructuredSampler] = []
-    for cls in ALL_STRUCTURED:
-        if issubclass(cls, StructuredStochastic):
-            samplers.extend([cls(add_noise=n) for n in (False, True)])
-        else:
-            samplers.append(cls())
-
-    for n1 in (False, True):
-        for n2 in (False, True):
-            samplers.append(UniPC(solver=DPM(add_noise=n2)))
-            samplers.append(SPC(predictor=DPM(add_noise=n1), corrector=DPM(add_noise=n2)))
-
-    for sampler in samplers:
-        sample = 1.5
-        prediction = 0.5
-        previous = tuple(SKSamples(n / 2, n * 2, n * 1.5) for n in range(100))
-        noise = -0.5
-
-        a = sampler.sample(
-            sample,
-            prediction,
-            31,
-            Linear().schedule(100),
-            sigma_complement,
-            noise,
-            previous,
-        )
-        b = sampler.sample(
-            sample,
-            prediction,
-            31,
-            Linear().schedule(100),
-            sigma_complement,
-            noise if sampler.require_noise else None,
-            previous,
-        )
-
-        # Don't compare stored noise since it's expected diff
-        b = replace(b, noise=a.noise)
-
-        assert a == b, (sampler, sampler.require_noise)
+    assert a == b
 
 
-def test_functional_adapter() -> None:
+@pytest.mark.parametrize(
+    ("sampler"),
+    [
+        *(
+            sampler
+            for samplers in (
+                (cls(add_noise=n) for n in (False, True)) if issubclass(cls, StructuredStochastic) else (cls(),)
+                for cls in ALL_STRUCTURED
+            )
+            for sampler in samplers
+        ),
+        *(UniPC(solver=DPM(add_noise=n1)) for n1 in (False, True)),
+        *(
+            SPC(predictor=DPM(add_noise=n1), corrector=DPM(add_noise=n2))
+            for n1 in (False, True)
+            for n2 in (False, True)
+        ),
+    ],
+)
+def test_require_noise(sampler: StructuredSampler) -> None:
+    sample = 1.5
+    prediction = 0.5
+    previous = tuple(SKSamples(n / 2, n * 2, n * 1.5) for n in range(100))
+    noise = -0.5
+
+    a = sampler.sample(
+        sample,
+        prediction,
+        31,
+        Linear().schedule(100),
+        sigma_complement,
+        noise,
+        previous,
+    )
+    b = sampler.sample(
+        sample,
+        prediction,
+        31,
+        Linear().schedule(100),
+        sigma_complement,
+        noise if sampler.require_noise else None,
+        previous,
+    )
+
+    # Don't compare stored noise since it's expected diff
+    b = replace(b, noise=a.noise)
+
+    assert a == b
+
+
+@pytest.mark.parametrize(
+    ("sampler", "schedule", "steps"),
+    itertools.product(
+        [DPM(n, o) for o in range(1, 4) for n in [False, True]],
+        (cls() for cls in ALL_SCHEDULES),
+        [1, 3, 4, 9, 512, 999],
+    ),
+)
+def test_functional_adapter(sampler: StructuredSampler, schedule: ScheduleCommon, steps: int) -> None:
     def fake_model(x: float, _: float, s: float) -> float:
         return x + math.sin(x) * s
 
-    samplers: list[StructuredSampler] = [DPM(n, o) for o in range(1, 4) for n in [False, True]]
-    for schedule in Linear(), Scaled():
-        for sampler in samplers:
-            for steps in [1, 3, 4, 9, 512, 999]:
-                sample = 1.5
-                adapter = StructuredFunctionalAdapter(schedule, sampler)
-                noise = [random.random() for _ in range(steps)]
+    sample = 1.5
+    adapter = StructuredFunctionalAdapter(schedule, sampler)
+    noise = [random.random() for _ in range(steps)]
 
-                rng = iter(noise)
-                model_transform = FlowModel()
-                sample_f = adapter.sample_model(sample, fake_model, model_transform, steps, rng=lambda: next(rng))
+    rng = iter(noise)
+    model_transform = FlowModel()
+    sample_f = adapter.sample_model(sample, fake_model, model_transform, steps, rng=lambda: next(rng))
 
-                rng = iter(noise)
-                float_schedule = schedule.schedule(steps)
-                sample_s = sample
-                previous: list[SKSamples[float]] = []
-                for n, (t, s) in enumerate(float_schedule):
-                    results = sampler.sample(
-                        sample_s,
-                        model_transform.to_x(sample_s, fake_model(sample_s, t, s), s, schedule.sigma_transform),
-                        n,
-                        float_schedule,
-                        schedule.sigma_transform,
-                        next(rng),
-                        tuple(previous),
-                    )
-                    previous.append(results)
-                    sample_s = results.final
+    rng = iter(noise)
+    float_schedule = schedule.schedule(steps)
+    sample_s = sample
+    previous: list[SKSamples[float]] = []
+    for n, (t, s) in enumerate(float_schedule):
+        results = sampler.sample(
+            sample_s,
+            model_transform.to_x(sample_s, fake_model(sample_s, t, s), s, schedule.sigma_transform),
+            n,
+            float_schedule,
+            schedule.sigma_transform,
+            next(rng),
+            tuple(previous),
+        )
+        previous.append(results)
+        sample_s = results.final
 
-                assert sample_s == sample_f, (sample_s, sample_f, sampler, schedule, steps)
+    assert sample_s == sample_f
 
 
 def test_bashforth() -> None:
@@ -322,19 +338,25 @@ def test_bashforth() -> None:
         assert np.allclose(coeffs, np.array(bashforth(n + 1)), atol=1e-12, rtol=1e-12)
 
 
-def test_tableau_providers() -> None:
-    for provider in [
-        tableaux.RK2,
-        tableaux.RK3,
-        tableaux.RK4,
-        tableaux.RKZ,
-        tableaux.RKE2,
-        tableaux.RKE3,
-        tableaux.RKE5,
-    ]:
-        for variant in provider:
-            if error := tableaux.validate_tableau(variant.tableau()):
-                raise error
+@pytest.mark.parametrize(
+    ("provider"),
+    [
+        variant
+        for provider in [
+            tableaux.RK2,
+            tableaux.RK3,
+            tableaux.RK4,
+            tableaux.RKZ,
+            tableaux.RKE2,
+            tableaux.RKE3,
+            tableaux.RKE5,
+        ]
+        for variant in provider
+    ],
+)
+def test_tableau_providers(provider: tableaux.TableauProvider) -> None:
+    if error := tableaux.validate_tableau(provider.tableau()):
+        raise error
 
 
 def flat_tableau(t: tuple[float | tuple[float | tuple[float | tuple[float, ...], ...], ...], ...]) -> tuple[float, ...]:
@@ -375,6 +397,24 @@ def test_rk3_tableau() -> None:
             tableaux.rk3_tableau(8 / 15, 2 / 3),
         )
         < 1e-15
+    )
+
+
+def test_rk4_tableau() -> None:
+    assert (
+        tableau_distance(
+            (  # Eighth
+                (
+                    (0, ()),
+                    (1 / 3, (1 / 3,)),
+                    (2 / 3, (-1 / 3, 1)),
+                    (1, (1, -1, 1)),
+                ),
+                (1 / 8, 3 / 8, 3 / 8, 1 / 8),
+            ),
+            tableaux.rk4_tableau(1 / 3, 2 / 3),
+        )
+        < 1e-12  # Something like 4x the amount of math as RK3
     )
 
 
