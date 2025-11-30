@@ -227,7 +227,7 @@ class RKUltra(FunctionalDerivative, FunctionalSinglestep):
                 2: tableaux.RK2.Heun,
                 3: tableaux.RK3.Ralston,
                 4: tableaux.RK4.Ralston,
-                5: tableaux.RK5.Nystrom,
+                5: tableaux.RKZ.Nystrom5,
             }
         )
     )

@@ -189,8 +189,8 @@ class RK4(enum.Enum):
 
 
 @enum.unique
-class RK5(enum.Enum):
-    Nystrom = (
+class RKZ(enum.Enum):
+    Nystrom5 = (
         (
             (0, ()),
             (1 / 3, (1 / 3,)),
