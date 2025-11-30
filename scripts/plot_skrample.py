@@ -1,7 +1,7 @@
 #! /usr/bin/env python
 
 import math
-from argparse import ArgumentParser
+from argparse import ArgumentParser, BooleanOptionalAction
 from collections.abc import Generator
 from dataclasses import replace
 from pathlib import Path
@@ -12,9 +12,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 from numpy.typing import NDArray
 
-import skrample.sampling as sampling
 import skrample.scheduling as scheduling
 from skrample.common import SigmaTransform, sigma_complement, sigma_polar, spowf
+from skrample.sampling import functional, models, structured
+from skrample.sampling.interface import StructuredFunctionalAdapter
 
 OKLAB_XYZ_M1 = np.array(
     [
@@ -57,21 +58,24 @@ def colors(hue_steps: int) -> Generator[list[float]]:
                 yield oklch_to_srgb(np.array([lighness_actual, chroma_actual, hue], dtype=np.float64))
 
 
-TRANSFORMS: dict[str, SigmaTransform] = {
-    "polar": sigma_polar,
-    "complement": sigma_complement,
+TRANSFORMS: dict[str, tuple[float, SigmaTransform, models.DiffusionModel]] = {
+    "polar": (1.0, sigma_polar, models.NoiseModel()),
+    "complement": (1.0, sigma_complement, models.FlowModel()),
 }
-SAMPLERS: dict[str, sampling.SkrampleSampler] = {
-    "euler": sampling.Euler(),
-    "adams": sampling.Adams(),
-    "dpm": sampling.DPM(),
-    "unip": sampling.UniP(),
-    "unipc": sampling.UniPC(),
-    "spc": sampling.SPC(),
+SAMPLERS: dict[str, structured.StructuredSampler | functional.FunctionalSampler] = {
+    "euler": structured.Euler(),
+    "adams": structured.Adams(),
+    "dpm": structured.DPM(),
+    "unip": structured.UniP(),
+    "unipc": structured.UniPC(),
+    "spc": structured.SPC(),
+    "rku": functional.RKUltra(scheduling.Linear()),
+    "rkm": functional.RKMoire(scheduling.Linear()),
+    "fheun": functional.FastHeun(scheduling.Linear()),
 }
 for k, v in list(SAMPLERS.items()):
-    if isinstance(v, sampling.HighOrderSampler):
-        for o in range(1, v.max_order() + 1):
+    if isinstance(v, structured.StructuredMultistep | functional.FunctionalHigher):
+        for o in range(v.min_order(), min(v.max_order() + 1, 9)):
             if o != v.order:
                 SAMPLERS[k + str(o)] = replace(v, order=o)
 
@@ -88,7 +92,6 @@ MODIFIERS: dict[str, tuple[type[scheduling.ScheduleModifier], dict[str, Any]] | 
     "exponential": (scheduling.Exponential, {}),
     "karras": (scheduling.Karras, {}),
     "flow": (scheduling.FlowShift, {}),
-    "flow_mu": (scheduling.FlowShift, {"mu": 1}),
     "hyper": (scheduling.Hyper, {}),
     "vyper": (scheduling.Hyper, {"scale": -2}),
     "hype": (scheduling.Hyper, {"tail": False}),
@@ -100,12 +103,13 @@ MODIFIERS: dict[str, tuple[type[scheduling.ScheduleModifier], dict[str, Any]] | 
 # Common
 parser = ArgumentParser()
 parser.add_argument("file", type=Path)
-parser.add_argument("--steps", "-s", type=int, default=20)
+parser.add_argument("--steps", "-s", type=int, default=25)
 subparsers = parser.add_subparsers(dest="command")
 
 # Samplers
 parser_sampler = subparsers.add_parser("samplers")
-parser_sampler.add_argument("--curve", "-k", type=int, default=10)
+parser_sampler.add_argument("--adjust", type=bool, default=True, action=BooleanOptionalAction)
+parser_sampler.add_argument("--curve", "-k", type=int, default=30)
 parser_sampler.add_argument("--transform", "-t", type=str, choices=list(TRANSFORMS.keys()), default="polar")
 parser_sampler.add_argument(
     "--sampler",
@@ -154,40 +158,61 @@ if args.command == "samplers":
     plt.ylabel("Sample")
     plt.title("Skrample Samplers")
 
-    schedule = scheduling.Linear(base_timesteps=10_000)
-
-    def sample_model(sampler: sampling.SkrampleSampler, schedule: NDArray[np.float64]) -> list[float]:
-        previous: list[sampling.SKSamples] = []
-        sample = 1.0
-        sampled_values = [sample]
-        for step, sigma in enumerate(schedule):
-            result = sampler.sample(
-                sample=sample,
-                prediction=math.sin(sigma * args.curve),
-                step=step,
-                sigma_schedule=schedule,
-                sigma_transform=TRANSFORMS[args.transform],
-                previous=tuple(previous),
-                noise=random(),
-            )
-            previous.append(result)
-            sample = result.final
-            sampled_values.append(sample)
-        return sampled_values
-
-    plt.plot(
-        [*schedule.sigmas(schedule.base_timesteps), 0],
-        sample_model(sampling.Euler(), schedule.sigmas(schedule.base_timesteps)),
-        label="Reference",
-        color=next(COLORS),
+    schedule = scheduling.Hyper(
+        scheduling.Linear(
+            sigma_start=TRANSFORMS[args.transform][0],
+            base_timesteps=10_000,
+            custom_transform=TRANSFORMS[args.transform][1],
+        ),
+        -2,
+        False,
     )
 
+    def sample_model(
+        sampler: structured.StructuredSampler | functional.FunctionalSampler, steps: int
+    ) -> tuple[list[float], list[float]]:
+        if isinstance(sampler, structured.StructuredSampler):
+            sampler = StructuredFunctionalAdapter(schedule, sampler)
+        else:
+            sampler = replace(sampler, schedule=schedule)
+
+        sample = 1.0
+        sampled_values = [sample]
+        timesteps = [0.0]
+
+        def callback(x: float, n: int, t: float, s: float) -> None:
+            nonlocal sampled_values, timesteps
+            sampled_values.append(x)
+            timesteps.insert(-1, t / schedule.base_timesteps)
+
+        if isinstance(sampler, functional.RKMoire) and args.adjust:
+            adjusted = schedule.base_timesteps
+        elif isinstance(sampler, functional.FunctionalHigher) and args.adjust:
+            adjusted = sampler.adjust_steps(steps)
+        else:
+            adjusted = steps
+
+        sampler.sample_model(
+            sample=sample,
+            model=lambda x, t, s: x - math.sin(t / schedule.base_timesteps * args.curve),
+            model_transform=TRANSFORMS[args.transform][2],
+            steps=adjusted,
+            rng=random,
+            callback=callback,
+        )
+
+        return timesteps, sampled_values
+
+    plt.plot(*sample_model(structured.Euler(), schedule.base_timesteps), label="Reference", color=next(COLORS))
+
     for sampler in [SAMPLERS[s] for s in args.sampler]:
-        sigmas = schedule.sigmas(args.steps)
         label = type(sampler).__name__
-        if isinstance(sampler, sampling.HighOrderSampler) and sampler.order != type(sampler).order:
+        if (
+            isinstance(sampler, structured.StructuredMultistep | functional.FunctionalHigher)
+            and sampler.order != type(sampler).order
+        ):
             label += " " + str(sampler.order)
-        plt.plot([*sigmas, 0], sample_model(sampler, sigmas), label=label, color=next(COLORS), linestyle="--")
+        plt.plot(*sample_model(sampler, args.steps), label=label, color=next(COLORS), linestyle="--")
 
 elif args.command == "schedules":
     plt.xlabel("Step")
@@ -205,12 +230,12 @@ elif args.command == "schedules":
                 for mod_label, (mod_type, mod_props) in [  # type: ignore # Destructure
                     m for m in [(mod1, MODIFIERS[mod1]), (mod2, MODIFIERS[mod2])] if m[1]
                 ]:
-                    composed = mod_type(schedule, **mod_props)
+                    composed = mod_type(composed, **mod_props)
                     label += "_" + mod_label
 
                 label = " ".join([s.capitalize() for s in label.split("_")])
 
-                data = np.concatenate([composed.schedule(args.steps), [[0, 0]]], dtype=np.float64)
+                data = np.concatenate([composed.schedule_np(args.steps), [[0, 0]]], dtype=np.float64)
 
                 timesteps = data[:, 0] / composed.base_timesteps
                 sigmas = data[:, 1] / data[:, 1].max()

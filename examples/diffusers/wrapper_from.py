@@ -4,7 +4,7 @@ import torch
 from diffusers.pipelines.flux.pipeline_flux import FluxPipeline
 
 import skrample.pytorch.noise as sknoise
-import skrample.sampling as sampling
+import skrample.sampling.structured as sampling
 from skrample.diffusers import SkrampleWrapperScheduler
 
 pipe: FluxPipeline = FluxPipeline.from_pretrained(  # type: ignore
