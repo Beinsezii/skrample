@@ -110,94 +110,111 @@ def dual_sample(
     return a_sample, b_sample
 
 
-def compare_samplers(
-    a: StructuredSampler,
-    b: DiffusersScheduler,
-    t: DiffusionModel = EPSILON,
-    mu: float | None = None,
-    margin: float = 1e-8,
-    message: str = "",
-) -> None:
-    for step_range in [range(0, 2), range(0, 11), range(0, 201), range(3, 6), range(2, 23), range(31, 200)]:
-        compare_tensors(
-            *dual_sample(a, b, t, step_range, mu),
-            message=str(step_range) + (" | " + message if message else ""),
-            margin=margin,
-        )
+STEP_RANGES = [range(0, 2), range(0, 11), range(0, 201), range(3, 6), range(2, 23), range(31, 200)]
 
 
-def test_euler() -> None:
-    for predictor in [(EPSILON, "epsilon"), (VELOCITY, "v_prediction")]:
-        compare_samplers(
+@pytest.mark.parametrize(
+    ("predictor", "steps"),
+    itertools.product([(EPSILON, "epsilon"), (VELOCITY, "v_prediction")], STEP_RANGES),
+)
+def test_euler(predictor: tuple[DiffusionModel, str], steps: range) -> None:
+    compare_tensors(
+        *dual_sample(
             Euler(),
             EulerDiscreteScheduler.from_config(
                 SCALED_CONFIG,
                 prediction_type=predictor[1],
             ),
             predictor[0],
-            message=type(predictor[0]).__name__,
+            steps,
         )
+    )
 
 
-def test_euler_ancestral() -> None:
-    for predictor in [(EPSILON, "epsilon"), (VELOCITY, "v_prediction")]:
-        compare_samplers(
+@pytest.mark.parametrize(
+    ("predictor", "steps"),
+    itertools.product([(EPSILON, "epsilon"), (VELOCITY, "v_prediction")], STEP_RANGES),
+)
+def test_euler_ancestral(predictor: tuple[DiffusionModel, str], steps: range) -> None:
+    compare_tensors(
+        *dual_sample(
             DPM(add_noise=True),
             EulerAncestralDiscreteScheduler.from_config(
                 SCALED_CONFIG,
                 prediction_type=predictor[1],
             ),
             predictor[0],
-            message=type(predictor[0]).__name__,
+            steps,
         )
-
-
-def test_euler_flow() -> None:
-    compare_samplers(
-        Euler(),
-        FlowMatchEulerDiscreteScheduler.from_config(FLOW_CONFIG),
-        FLOW,
-        mu=0.7,
     )
 
 
-def test_dpm() -> None:
-    for predictor in [(EPSILON, "epsilon"), (VELOCITY, "v_prediction"), (FLOW, "flow_prediction")]:
-        for order in range(1, 3):  # Their third order is fucked up. Turns into barf @ super high steps
-            for stochastic in [False, True]:
-                compare_samplers(
-                    DPM(order=order, add_noise=stochastic),
-                    DPMSolverMultistepScheduler.from_config(
-                        SCALED_CONFIG,
-                        algorithm_type="sde-dpmsolver++" if stochastic else "dpmsolver++",
-                        final_sigmas_type="zero",
-                        solver_order=order,
-                        prediction_type=predictor[1],
-                        use_flow_sigmas=predictor[0] == FLOW,
-                    ),
-                    predictor[0],
-                    message=f"{type(predictor[0]).__name__} o{order} s{stochastic}",
-                )
+@pytest.mark.parametrize("steps", STEP_RANGES)
+def test_euler_flow(steps: range) -> None:
+    compare_tensors(
+        *dual_sample(
+            Euler(),
+            FlowMatchEulerDiscreteScheduler.from_config(FLOW_CONFIG),
+            FLOW,
+            steps,
+            mu=0.7,
+        )
+    )
 
 
-def test_unipc() -> None:
-    for predictor in [(EPSILON, "epsilon"), (VELOCITY, "v_prediction"), (FLOW, "flow_prediction")]:
+@pytest.mark.parametrize(
+    ("predictor", "order", "stochastic", "steps"),
+    itertools.product(
+        [(EPSILON, "epsilon"), (VELOCITY, "v_prediction"), (FLOW, "flow_prediction")],
+        range(1, 3),  # Their third order is fucked up. Turns into barf @ super high steps
+        (False, True),
+        STEP_RANGES,
+    ),
+)
+def test_dpm(predictor: tuple[DiffusionModel, str], order: int, stochastic: bool, steps: range) -> None:
+    compare_tensors(
+        *dual_sample(
+            DPM(order=order, add_noise=stochastic),
+            DPMSolverMultistepScheduler.from_config(
+                SCALED_CONFIG,
+                algorithm_type="sde-dpmsolver++" if stochastic else "dpmsolver++",
+                final_sigmas_type="zero",
+                solver_order=order,
+                prediction_type=predictor[1],
+                use_flow_sigmas=predictor[0] == FLOW,
+            ),
+            predictor[0],
+            steps,
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    ("predictor", "order", "steps"),
+    itertools.product(
+        [(EPSILON, "epsilon"), (VELOCITY, "v_prediction"), (FLOW, "flow_prediction")],
         # technically it can do N order, but diffusers actually breaks down super hard with high order + steps
         # They use torch scalars for everything which accumulates error faster as steps and order increase
         # Considering Diffusers just NaNs out in like half the order as mine, I'm fine with fudging the margins
-        for order in range(1, 5):
-            compare_samplers(
-                UniPC(order=order, fast_solve=True),
-                UniPCMultistepScheduler.from_config(
-                    SCALED_CONFIG,
-                    final_sigmas_type="zero",
-                    solver_order=order,
-                    prediction_type=predictor[1],
-                    use_flow_sigmas=predictor[0] == FLOW,
-                ),
-                predictor[0],
-                message=f"{type(predictor[0]).__name__} o{order}",
-            )
+        range(1, 5),
+        STEP_RANGES,
+    ),
+)
+def test_unipc(predictor: tuple[DiffusionModel, str], order: int, steps: range) -> None:
+    compare_tensors(
+        *dual_sample(
+            UniPC(order=order, fast_solve=True),
+            UniPCMultistepScheduler.from_config(
+                SCALED_CONFIG,
+                final_sigmas_type="zero",
+                solver_order=order,
+                prediction_type=predictor[1],
+                use_flow_sigmas=predictor[0] == FLOW,
+            ),
+            predictor[0],
+            steps,
+        )
+    )
 
 
 @pytest.mark.parametrize(

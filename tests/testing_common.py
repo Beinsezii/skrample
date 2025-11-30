@@ -43,7 +43,7 @@ def compare_tensors(
     a: torch.Tensor,
     b: torch.Tensor,
     message: str | None = "",
-    margin: float = 1e-4,
+    margin: float = 1e-8,
 ) -> None:
     assert a.isfinite().all(), message
     assert b.isfinite().all(), message
