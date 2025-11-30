@@ -1,3 +1,23 @@
+## 0.6.0
+### Breaking
+Moved all previous sampling code -> sampling.structured
+
+Removed sampling.common.Predictor and functions
+
+Lots of other small improvements
+
+### Additions
+Add sampling.functional
+
+Add sampling.tableaux
+
+Add sampling.models
+
+Add functional examples
+
+### Fixes
+Small bugs with plot_skrample.py
+
 ## 0.5.0
 ### Fixes
 Incorrect Brownian step sizes
