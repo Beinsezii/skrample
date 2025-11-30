@@ -32,37 +32,73 @@ def validate_tableau(tab: Tableau | ExtendedTableau, tolerance: float = 1e-15) -
             return ValueError(f"{tolerance=}, {weight_err=}, {weight=}")
 
 
-def rk2_tableau(alpha: float) -> Tableau:
-    "Create a generic 2nd order Tableau from a given alpha value."
+def rk2_tableau(c1: float) -> Tableau:
+    "Create a generic 2nd order Tableau from a given coefficient."
     return (
         (
             (0.0, ()),
-            (alpha, (alpha,)),
+            (c1, (c1,)),
         ),
-        (1 - 1 / (2 * alpha), 1 / (2 * alpha)),
+        (1 - 1 / (2 * c1), 1 / (2 * c1)),
     )
 
 
-def rk3_tableau(alpha: float, beta: float) -> Tableau:
-    "Create a generic 3rd order Tableau from a given alpha and beta values."
+def rk3_tableau(c1: float, c2: float) -> Tableau:
+    "Create a generic 3rd order Tableau from given coefficients."
     return (
         (
             (0.0, ()),
-            (alpha, (alpha,)),
-            (
-                beta,
-                (
-                    beta / alpha * ((beta - 3 * alpha * (1 - alpha)) / (3 * alpha - 2)),
-                    -beta / alpha * ((beta - alpha) / (3 * alpha - 2)),
-                ),
-            ),
+            (c1, (c1,)),
+            (c2, (c2 / c1 * ((c2 - 3 * c1 * (1 - c1)) / (3 * c1 - 2)), -c2 / c1 * ((c2 - c1) / (3 * c1 - 2)))),
         ),
         (
-            1 - (3 * alpha + 3 * beta - 2) / (6 * alpha * beta),
-            (3 * beta - 2) / (6 * alpha * (beta - alpha)),
-            (2 - 3 * alpha) / (6 * beta * (beta - alpha)),
+            1 - (3 * c1 + 3 * c2 - 2) / (6 * c1 * c2),
+            (3 * c2 - 2) / (6 * c1 * (c2 - c1)),
+            (2 - 3 * c1) / (6 * c2 * (c2 - c1)),
         ),
     )
+
+
+def rk4_tableau(c1: float, c2: float) -> Tableau:
+    """Create a generic 4th order Tableau from 3 coefficients.
+    1/2, 1/2 (Classic) is a special case and cannot be computed using this function.
+    https://pages.hmc.edu/ruye/MachineLearning/lectures/ch5/node10.html"""
+
+    ### Automatically transcribed from website using QwenVL 235B Thinking
+
+    D = 6 * c1 * c2 - 4 * (c1 + c2) + 3
+
+    # Compute b coefficients
+    b2 = (2 * c2 - 1) / (12 * c1 * (c2 - c1) * (1 - c1))
+    b3 = (2 * c1 - 1) / (12 * c2 * (c1 - c2) * (1 - c2))
+    b4 = D / (12 * (1 - c1) * (1 - c2))
+    b1 = 1 - b2 - b3 - b4
+
+    # Compute a31 and a32
+    a32 = c2 * (c1 - c2) / (2 * c1 * (2 * c1 - 1))
+    a31 = c2 - a32
+
+    # Compute a41, a42, a43
+    num_a42 = (4 * c2**2 - 5 * c2 - c1 + 2) * (1 - c1)
+    denom_a42 = 2 * c1 * (c1 - c2) * D
+    a42 = num_a42 / denom_a42
+
+    num_a43 = (2 * c1 - 1) * (1 - c1) * (1 - c2)
+    denom_a43 = c2 * (c1 - c2) * D
+    a43 = num_a43 / denom_a43
+
+    a41 = 1 - a42 - a43
+
+    stages = (
+        (0.0, ()),
+        (c1, (c1,)),  # a21 = c1
+        (c2, (a31, a32)),
+        (1.0, (a41, a42, a43)),
+    )
+
+    b_vector = (b1, b2, b3, b4)
+
+    return (stages, b_vector)
 
 
 class TableauProvider[T: Tableau | ExtendedTableau](Protocol):
@@ -88,19 +124,28 @@ class CustomTableau[T: Tableau | ExtendedTableau](TableauProvider[T]):
 
 @dataclasses.dataclass(frozen=True)
 class RK2Custom(TableauProvider):
-    alpha: float = 1.0
+    c1: float = 1.0
 
     def tableau(self) -> Tableau:
-        return rk2_tableau(self.alpha)
+        return rk2_tableau(self.c1)
 
 
 @dataclasses.dataclass(frozen=True)
 class RK3Custom(TableauProvider):
-    alpha: float = 1 / 2
-    beta: float = 1.0
+    c1: float = 1 / 2
+    c2: float = 1.0
 
     def tableau(self) -> Tableau:
-        return rk3_tableau(self.alpha, self.beta)
+        return rk3_tableau(self.c1, self.c2)
+
+
+@dataclasses.dataclass(frozen=True)
+class RK4Custom(TableauProvider):
+    c1: float = 1 / 3
+    c2: float = 2 / 3
+
+    def tableau(self) -> Tableau:
+        return rk4_tableau(self.c1, self.c2)
 
 
 @enum.unique
@@ -136,36 +181,8 @@ class RK4(enum.Enum):
         ),
         (1 / 6, 1 / 3, 1 / 3, 1 / 6),
     )
-    Eighth = (
-        (
-            (0, ()),
-            (1 / 3, (1 / 3,)),
-            (2 / 3, (-1 / 3, 1)),
-            (1, (1, -1, 1)),
-        ),
-        (1 / 8, 3 / 8, 3 / 8, 1 / 8),
-    )
-    Ralston = (
-        (
-            (0, ()),
-            (2 / 5, (2 / 5,)),
-            ((14 - 3 * math.sqrt(5)) / 16, ((-2889 + 1428 * math.sqrt(5)) / 1024, (3785 - 1620 * math.sqrt(5)) / 1024)),
-            (
-                1,
-                (
-                    (-3365 + 2094 * math.sqrt(5)) / 6040,
-                    (-975 - 3046 * math.sqrt(5)) / 2552,
-                    (467040 + 203968 * math.sqrt(5)) / 240845,
-                ),
-            ),
-        ),
-        (
-            (263 + 24 * math.sqrt(5)) / 1812,
-            (125 - 1000 * math.sqrt(5)) / 3828,
-            (3426304 + 1661952 * math.sqrt(5)) / 5924787,
-            (30 - 4 * math.sqrt(5)) / 123,
-        ),
-    )
+    Eighth = rk4_tableau(1 / 3, 2 / 3)
+    Ralston = rk4_tableau(2 / 5, (14 - 3 * math.sqrt(5)) / 16)
 
     def tableau(self) -> Tableau:
         return self.value
