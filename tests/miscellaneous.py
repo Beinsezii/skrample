@@ -323,7 +323,15 @@ def test_bashforth() -> None:
 
 
 def test_tableau_providers() -> None:
-    for provider in [tableaux.RK2, tableaux.RK3, tableaux.RK4, tableaux.RKZ, tableaux.RKE2, tableaux.RKE5]:
+    for provider in [
+        tableaux.RK2,
+        tableaux.RK3,
+        tableaux.RK4,
+        tableaux.RKZ,
+        tableaux.RKE2,
+        tableaux.RKE3,
+        tableaux.RKE5,
+    ]:
         for variant in provider:
             if error := tableaux.validate_tableau(variant.tableau()):
                 raise error

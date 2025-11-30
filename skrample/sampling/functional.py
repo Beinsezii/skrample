@@ -227,7 +227,7 @@ class RKUltra(FunctionalDerivative, FunctionalSinglestep):
                 2: tableaux.RK2.Heun,
                 3: tableaux.RK3.Ralston,
                 4: tableaux.RK4.Ralston,
-                5: tableaux.RKZ.Nystrom5,
+                5: tableaux.RKE5.CashKarp,
             }
         )
     )
@@ -325,6 +325,7 @@ class RKMoire(FunctionalAdaptive, FunctionalDerivative):
     providers: DictOrProxy[int, tableaux.TableauProvider[tableaux.ExtendedTableau]] = MappingProxyType(
         {
             2: tableaux.RKE2.Heun,
+            3: tableaux.RKE3.BogackiShampine,
             5: tableaux.RKE5.Fehlberg,
         }
     )

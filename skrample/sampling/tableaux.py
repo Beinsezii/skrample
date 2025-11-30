@@ -150,6 +150,8 @@ class RK4Custom(TableauProvider):
 
 @enum.unique
 class RK2(enum.Enum):
+    "2nd order, 2 calls"
+
     Heun = rk2_tableau(1)
     Mid = rk2_tableau(1 / 2)
     Ralston = rk2_tableau(2 / 3)
@@ -160,6 +162,8 @@ class RK2(enum.Enum):
 
 @enum.unique
 class RK3(enum.Enum):
+    "3rd order, 3 calls"
+
     Kutta = rk3_tableau(1 / 2, 1)
     Heun = rk3_tableau(1 / 3, 2 / 3)
     Ralston = rk3_tableau(1 / 2, 3 / 4)
@@ -172,6 +176,8 @@ class RK3(enum.Enum):
 
 @enum.unique
 class RK4(enum.Enum):
+    "4th order, 4 calls"
+
     Classic = (
         (
             (0, ()),
@@ -190,6 +196,9 @@ class RK4(enum.Enum):
 
 @enum.unique
 class RKZ(enum.Enum):
+    """Tableaux provided by this method do not have clean generic forms, and require more calls than their order.
+    Since these are rare, they are all categorized into one enum"""
+
     Nystrom5 = (
         (
             (0, ()),
@@ -216,7 +225,32 @@ class RKE2(enum.Enum):
         (1 / 2, 1 / 2),
         (1, 0),
     )
-    # Fehlberg = enum.auto()
+    Fehlberg = (
+        (
+            (0, ()),
+            (1 / 2, (1 / 2,)),
+            (1, (1 / 256, 255 / 256)),
+        ),
+        (1 / 512, 255 / 256, 1 / 512),
+        (1 / 256, 255 / 256, 0),
+    )
+
+    def tableau(self) -> ExtendedTableau:
+        return self.value
+
+
+@enum.unique
+class RKE3(enum.Enum):
+    BogackiShampine = (
+        (
+            (0, ()),
+            (1 / 2, (1 / 2,)),
+            (3 / 4, (0, 3 / 4)),
+            (1, (2 / 9, 1 / 3, 4 / 9)),
+        ),
+        (2 / 9, 1 / 3, 4 / 9, 0),
+        (7 / 24, 1 / 4, 1 / 3, 1 / 8),
+    )
 
     def tableau(self) -> ExtendedTableau:
         return self.value
@@ -236,8 +270,31 @@ class RKE5(enum.Enum):
         (16 / 135, 0, 6656 / 12825, 28561 / 56430, -9 / 50, 2 / 55),
         (25 / 216, 0, 1408 / 2565, 2197 / 4104, -1 / 5, 0),
     )
-    # CashKarp = enum.auto()
-    # DormandPrince = enum.auto()
+    CashKarp = (
+        (
+            (0, ()),
+            (1 / 5, (1 / 5,)),
+            (3 / 10, (3 / 40, 9 / 40)),
+            (3 / 5, (3 / 10, -9 / 10, 6 / 5)),
+            (1, (-11 / 54, 5 / 2, -70 / 27, 35 / 27)),
+            (7 / 8, (1631 / 55296, 175 / 512, 575 / 13824, 44275 / 110592, 253 / 4096)),
+        ),
+        (37 / 378, 0, 250 / 621, 125 / 594, 0, 512 / 1771),
+        (2825 / 27648, 0, 18575 / 48384, 13525 / 55296, 277 / 14336, 1 / 4),
+    )
+    DormandPrince = (
+        (
+            (0, ()),
+            (1 / 5, (1 / 5,)),
+            (3 / 10, (3 / 40, 9 / 40)),
+            (4 / 5, (44 / 45, -56 / 15, 32 / 9)),
+            (8 / 9, (19372 / 6561, -25360 / 2187, 64448 / 6561, -212 / 729)),
+            (1, (9017 / 3168, -355 / 33, 46732 / 5247, 49 / 176, -5103 / 18656)),
+            (1, (35 / 384, 0, 500 / 1113, 125 / 192, -2187 / 6784, 11 / 84)),
+        ),
+        (35 / 384, 0, 500 / 1113, 125 / 192, -2187 / 6784, 11 / 84, 0),
+        (5179 / 57600, 0, 7571 / 16695, 393 / 640, -92097 / 339200, 187 / 2100, 1 / 40),
+    )
 
     def tableau(self) -> ExtendedTableau:
         return self.value
