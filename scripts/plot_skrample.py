@@ -82,6 +82,7 @@ for k, v in list(SAMPLERS.items()):
 SCHEDULES: dict[str, scheduling.ScheduleCommon | scheduling.ScheduleModifier] = {
     "scaled": scheduling.Scaled(uniform=False),
     "scaled_uniform": scheduling.Scaled(),
+    "scaled_uniform_1": scheduling.Scaled(beta_scale=1),
     "zsnr": scheduling.ZSNR(),
     "linear": scheduling.Linear(),
     "sigcdf": scheduling.SigmoidCDF(),
@@ -235,14 +236,16 @@ elif args.command == "schedules":
 
                 label = " ".join([s.capitalize() for s in label.split("_")])
 
-                data = np.concatenate([composed.schedule_np(args.steps), [[0, 0]]], dtype=np.float64)
+                data = composed.points(np.linspace(1, 0, args.steps + 1))
 
                 timesteps = data[:, 0] / composed.base_timesteps
                 sigmas = data[:, 1] / data[:, 1].max()
 
-                plt.plot(timesteps, label=label + " Timesteps", marker="+", color=next(COLORS))
+                marker = "+" if args.steps <= 50 else ""
+                plt.plot(timesteps, label=label + " Timesteps", marker=marker, color=next(COLORS))
                 if not np.allclose(timesteps, sigmas, atol=1e-2):
-                    plt.plot(sigmas, label=label + " Sigmas", marker="+", color=next(COLORS))
+                    plt.plot(sigmas, label=label + " Sigmas", marker=marker, color=next(COLORS))
+
 else:
     raise NotImplementedError
 
