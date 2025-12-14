@@ -1,8 +1,85 @@
+import dataclasses
 import json
 
 import numpy as np
 import torch
 from huggingface_hub import hf_hub_download
+
+from skrample.common import SigmaTransform, sigma_complement, sigma_polar
+from skrample.sampling.models import (
+    DataModel,
+    DiffusionModel,
+    FlowModel,
+    NoiseModel,
+    ScaleX,
+    VelocityModel,
+)
+from skrample.sampling.structured import (
+    DPM,
+    SPC,
+    Adams,
+    Euler,
+    StructuredSampler,
+    UniPC,
+)
+from skrample.scheduling import (
+    Beta,
+    FlowShift,
+    Karras,
+    Linear,
+    NoMod,
+    Scaled,
+    ScheduleCommon,
+    ScheduleModifier,
+    SigmoidCDF,
+)
+
+
+@dataclasses.dataclass(frozen=True)
+class ScaledB1(Scaled):  # INFO: So can pass raw types to parametrize()
+    beta_scale: float = 1
+
+
+ALL_STRUCTURED: list[type[StructuredSampler]] = [
+    Adams,
+    DPM,
+    Euler,
+    SPC,
+    UniPC,
+]
+
+
+ALL_SCHEDULES: list[type[ScheduleCommon]] = [
+    Linear,
+    Scaled,
+    ScaledB1,
+    SigmoidCDF,
+]
+
+ALL_MODIFIERS: list[type[ScheduleModifier]] = [
+    NoMod,
+    Beta,
+    FlowShift,
+    Karras,
+]
+ALL_MODIFIERS_OPTION: list[type[ScheduleModifier] | None] = [None, *ALL_MODIFIERS]
+
+ALL_MODELS: list[type[DiffusionModel]] = [
+    DataModel,
+    NoiseModel,
+    FlowModel,
+    VelocityModel,
+]
+
+ALL_FAKE_MODELS: list[type[DiffusionModel]] = [
+    ScaleX,
+]
+
+ALL_TRANSFROMS: list[SigmaTransform] = [
+    sigma_complement,
+    sigma_polar,
+]
+
 
 FLOW_CONFIG = {
     "base_image_seq_len": 256,
