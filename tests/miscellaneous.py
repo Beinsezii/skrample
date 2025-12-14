@@ -7,7 +7,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 import torch
-from testing_common import compare_tensors
+from testing_common import compare_pp
 
 from skrample.common import (
     MergeStrategy,
@@ -83,10 +83,14 @@ ALL_TRANSFROMS: Sequence[SigmaTransform] = [
 
 
 @pytest.mark.parametrize("schedule", [*(cls() for cls in ALL_SCHEDULES), Scaled(beta_scale=1)])
-def test_sigmas_to_timesteps(schedule: ScheduleCommon) -> None:
-    timesteps = schedule.timesteps_np(123)
-    timesteps_inv = schedule.sigmas_to_timesteps(schedule.sigmas_np(123))
-    compare_tensors(torch.tensor(timesteps), torch.tensor(timesteps_inv), margin=0)  # shocked this rounds good
+def test_sigmas_to_points(schedule: ScheduleCommon) -> None:
+    points = schedule.points(np.linspace(1, 0, 123))
+    points_inv = schedule.sigmas_to_points(points[:, 1])
+
+    for _ in range(0, 99):
+        points_inv = schedule.sigmas_to_points(points_inv[:, 1])
+
+    compare_pp(points, points_inv, 0.1)
 
 
 @pytest.mark.parametrize(("model_type", "sigma_transform"), itertools.product(ALL_MODELS, ALL_TRANSFROMS))

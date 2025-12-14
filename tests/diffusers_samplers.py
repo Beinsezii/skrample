@@ -19,7 +19,7 @@ from skrample.sampling.functional import RKUltra
 from skrample.sampling.models import DiffusionModel, FlowModel, NoiseModel, VelocityModel
 from skrample.sampling.structured import DPM, Euler, SKSamples, StructuredSampler, UniPC
 from skrample.sampling.tableaux import RK2
-from skrample.scheduling import SkrampleSchedule
+from skrample.scheduling import NPSchedule, NPSequence, SkrampleSchedule
 
 DiffusersScheduler = (
     EulerDiscreteScheduler
@@ -35,12 +35,17 @@ VELOCITY = VelocityModel()
 
 
 @dataclasses.dataclass(frozen=True)
-class FixedSchedule(SkrampleSchedule):
-    fixed_schedule: FloatSchedule
+class DummyScheduleExact(SkrampleSchedule):
+    fixed_schedule: FloatSchedule | NPSchedule
     transform: SigmaTransform
 
-    def schedule_np(self, steps: int) -> np.typing.NDArray[np.float64]:
-        return np.array(self.fixed_schedule, dtype=np.float64)
+    def _points(self, t: NPSequence) -> NPSchedule:
+        return np.quantile(
+            np.concatenate([np.asarray(self.fixed_schedule, dtype=np.float64), [[0, 0]]]),
+            t,
+            axis=0,
+            method="closest_observation",
+        )
 
     @property
     def sigma_transform(self) -> SigmaTransform:
@@ -255,15 +260,13 @@ def test_heun(
 ) -> None:
     diffusers_scheduler.set_timesteps(steps)
 
-    fixed: list[tuple[float, float]] = []
-    for t in zip(diffusers_scheduler.timesteps.tolist(), diffusers_scheduler.sigmas.tolist()):
-        if t not in fixed:
-            fixed.append(t)
-
     skrample_sampler = RKUltra(
-        FixedSchedule(fixed, sigma_transform),
+        DummyScheduleExact(
+            list(zip(diffusers_scheduler.timesteps.tolist(), diffusers_scheduler.sigmas.tolist())),
+            sigma_transform,
+        ),
         order=2,
-        providers=RKUltra.providers | {2: RK2.Heun},
+        providers={2: RK2.Heun},
         derivative_transform=derivative_transform,
     )
 

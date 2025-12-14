@@ -80,9 +80,7 @@ for k, v in list(SAMPLERS.items()):
                 SAMPLERS[k + str(o)] = replace(v, order=o)
 
 SCHEDULES: dict[str, scheduling.ScheduleCommon | scheduling.ScheduleModifier] = {
-    "scaled": scheduling.Scaled(uniform=False),
-    "scaled_uniform": scheduling.Scaled(),
-    "scaled_uniform_1": scheduling.Scaled(beta_scale=1),
+    "scaled": scheduling.Scaled(),
     "zsnr": scheduling.ZSNR(),
     "linear": scheduling.Linear(),
     "sigcdf": scheduling.SigmoidCDF(),

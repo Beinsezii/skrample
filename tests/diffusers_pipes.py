@@ -133,7 +133,7 @@ def fake_pipe_init[T](
 def test_sdxl_i2i() -> None:
     pipe = fake_pipe_init(StableDiffusionXLImg2ImgPipeline, "stabilityai/stable-diffusion-xl-base-1.0")
 
-    b = EulerDiscreteScheduler.from_config(pipe.scheduler.config)
+    b = EulerDiscreteScheduler.from_config(pipe.scheduler.config, timestep_spacing="trailing")
     assert isinstance(b, EulerDiscreteScheduler)
 
     compare_schedulers(
@@ -221,25 +221,4 @@ def test_wan_t2v() -> None:
             latents=torch.zeros([1, 16, 77, 32, 32]),
             num_inference_steps=25,
             prompt_embeds=torch.zeros([1, 512, 4096]),
-        )
-
-
-@pytest.mark.skip("Not implemented")
-def test_ltx_t2v() -> None:
-    if LTXPipeline is not None:
-        pipe = fake_pipe_init(LTXPipeline, "Lightricks/LTX-Video-0.9.5")
-
-        b = FlowMatchEulerDiscreteScheduler.from_config(pipe.scheduler.config)
-        assert isinstance(b, FlowMatchEulerDiscreteScheduler)
-
-        compare_schedulers(
-            pipe,
-            SkrampleWrapperScheduler.from_diffusers_config(b),
-            b,
-            # 0,
-            height=256,
-            width=256,
-            guidance_scale=1,
-            prompt="",
-            num_inference_steps=25,
         )

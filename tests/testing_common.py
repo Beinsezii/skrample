@@ -1,5 +1,6 @@
 import json
 
+import numpy as np
 import torch
 from huggingface_hub import hf_hub_download
 
@@ -26,7 +27,7 @@ SCALED_CONFIG = {
     "set_alpha_to_one": False,
     "skip_prk_steps": True,
     "steps_offset": 1,
-    "timestep_spacing": "leading",
+    "timestep_spacing": "trailing",
     "trained_betas": None,
     "use_karras_sigmas": False,
 }
@@ -49,3 +50,23 @@ def compare_tensors(
     assert b.isfinite().all(), message
     delta = (a - b).abs().square().mean().item()
     assert delta <= margin, f"{delta} <= {margin}" + (" | " + message if message is not None else "")
+
+
+def compare_pp[T: np.typing.NDArray[np.floating]](a: T, b: T, tolerance: float = 0.5) -> None:
+    """Compare arrays `a` and `b`
+    `tolerance` is applied as a percentage (0..=100) of the `b` tensor.
+    Similar to allclose() but with more debugging information."""
+    assert np.isfinite(a).all()
+    assert np.isfinite(b).all()
+    deviation = abs(a - b)
+    relative_tolerance = (tolerance / 100) * abs(b)
+
+    def message() -> str:
+        error_percent = np.nan_to_num(deviation / abs(b), nan=0, posinf=None, neginf=None) * 100
+        return (
+            f"\tMIN {round(error_percent.min().item(), 2)}%\t"
+            f"MEAN {round(error_percent.mean().item(), 2)}%\t"
+            f"MAX {round(error_percent.max().item(), 2)}%"
+        )
+
+    assert (deviation <= relative_tolerance).all(), message()
