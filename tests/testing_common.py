@@ -24,6 +24,7 @@ from skrample.sampling.structured import (
 )
 from skrample.scheduling import (
     Beta,
+    Exponential,
     FlowShift,
     Karras,
     Linear,
@@ -61,6 +62,7 @@ ALL_MODIFIERS: list[type[ScheduleModifier]] = [
     Beta,
     FlowShift,
     Karras,
+    Exponential,
 ]
 ALL_MODIFIERS_OPTION: list[type[ScheduleModifier] | None] = [None, *ALL_MODIFIERS]
 

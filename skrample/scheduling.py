@@ -389,9 +389,11 @@ class Karras(ScheduleModifier):
     def _points(self, t: NPSequence) -> NPSchedule:
         sigma_min, sigma_max = self.base.points([1 / self.steps, 1.0])[:, 1].tolist()
 
+        t = np.concatenate([[1, 0], t])
+
         sigmas = ((sigma_min ** (1.0 / self.rho)) * (1 - t) + (sigma_max ** (1.0 / self.rho)) * t) ** self.rho
 
-        sigmas = regularize(normalize(sigmas, sigma_max, sigma_min), sigma_max)
+        sigmas = normalize(sigmas[2:], sigmas[0], sigmas[1]) * sigma_max
 
         return self.base._sigmas_to_points(sigmas)
 
@@ -409,10 +411,11 @@ class Exponential(ScheduleModifier):
     def _points(self, t: NPSequence) -> NPSchedule:
         sigma_min, sigma_max = self.base.points([1 / self.steps, 1.0])[:, 1].tolist()
 
-        t = t**self.rho
+        t = np.concatenate([[1, 0], t]) ** self.rho
+
         sigmas = np.exp(np.log(sigma_min) * (1 - t) + np.log(sigma_max) * t)
 
-        sigmas = regularize(normalize(sigmas, sigma_max, sigma_min), sigma_max)
+        sigmas = normalize(sigmas[2:], sigmas[0], sigmas[1]) * sigma_max
 
         return self.base._sigmas_to_points(sigmas)
 
