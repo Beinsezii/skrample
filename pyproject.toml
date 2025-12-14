@@ -5,7 +5,7 @@ description = "Composable sampling functions for diffusion models"
 readme = "README.md"
 authors = [{ name = "Beinsezii", email = "beinsezii@gmail.com" }]
 requires-python = ">=3.12"
-dependencies = ["numpy>=2.1"]
+dependencies = ["numpy>=2.2"]
 license = "Apache-2.0"
 
 [build-system]
