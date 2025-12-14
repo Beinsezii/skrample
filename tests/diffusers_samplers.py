@@ -21,6 +21,9 @@ from skrample.sampling.structured import DPM, Euler, SKSamples, StructuredSample
 from skrample.sampling.tableaux import RK2
 from skrample.scheduling import NPSchedule, NPSequence, SkrampleSchedule
 
+# TODO (beinsezii): no idea why this is touchy???
+SCALED_CONFIG = SCALED_CONFIG | {"timestep_spacing": "leading"}
+
 DiffusersScheduler = (
     EulerDiscreteScheduler
     | DPMSolverMultistepScheduler
