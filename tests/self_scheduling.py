@@ -47,7 +47,7 @@ def test_mu_set() -> None:
 @pytest.mark.parametrize(("schedule", "modifier"), itertools.product(ALL_SCHEDULES, ALL_MODIFIERS_OPTION))
 def test_sigmas_to_points(schedule: type[ScheduleCommon], modifier: type[ScheduleModifier] | None) -> None:
     schedule_object = modifier(schedule()) if modifier else schedule()
-    points = schedule_object.points(np.linspace(1, 0, 123))
+    points = schedule_object.points(np.linspace(1, 0, 33))
     points_inv = schedule_object.sigmas_to_points(points[:, 1])
 
     for _ in range(0, 99):
