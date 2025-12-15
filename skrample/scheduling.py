@@ -369,12 +369,6 @@ class FlowShift(ScheduleModifier):
         t[mask] = self.shift / (self.shift + (1 / t[mask] - 1))
         return self.base._points(t)
 
-        sigmas = self.base._points(t)[:, 1]
-        start = self.base.point(1)[1]
-        mask = sigmas > 0
-        sigmas[mask] = self.shift / (self.shift + (start / sigmas[mask] - 1)) * start
-        return self.base._sigmas_to_points(sigmas)
-
 
 @dataclass(frozen=True)
 class Karras(ScheduleModifier):
@@ -451,35 +445,14 @@ class Hyper(ScheduleModifier):
     tail: bool = True
     "Include the trailing end to make an S curve"
 
-    use_noise: bool = False
-    """Use noise scale instead of time scale.
-    Does not affect Linaer() and derivatives where these are equivalent"""
+    def _points(self, t: NPSequence) -> NPSchedule:
+        if abs(self.scale) <= 1e-8:
+            return self.base._points(t)
 
-    def points_time(self, t: NPSequence) -> NPSchedule:
-        points = regularize(t, self.scale, -self.scale * self.tail)  # 1..0 -> scale..-scale
+        points = regularize(np.concatenate([[1], t]), self.scale, -self.scale * self.tail)  # 1..0 -> scale..-scale
         # WARN(beinsezii): sqrt(2) is more or less a magic number afaict
         points = np.sinh(points) if self.scale < 0 else np.tanh(points / math.sqrt(2))
         # don't use -1 because no endcaps
-        points = normalize(points, points[0], -points[0] * self.tail)  # hyper..-hyper -> 1..0
+        points = normalize(points[1:], points[0], -points[0] * self.tail)  # hyper..-hyper -> 1..0
 
-        return self.base.points(points)
-
-    def points_noise(self, t: NPSequence) -> NPSchedule:
-        sigmas = self.base._points(t)[:, 1]
-        start = self.base.point(1)[1]
-
-        sigmas = normalize(sigmas, start)  # Base -> 1..0
-        sigmas = regularize(sigmas, self.scale, -self.scale * self.tail)  # 1..0 -> scale..-scale
-        # WARN(beinsezii): sqrt(2) is more or less a magic number afaict
-        sigmas = np.sinh(sigmas) if self.scale < 0 else np.tanh(sigmas / math.sqrt(2))
-        # don't use -1 because no endcaps
-        sigmas = normalize(sigmas, sigmas[0], -sigmas[0] * self.tail)  # hyper..-hyper -> 1..0
-        sigmas = regularize(sigmas, start)  # 1..0 -> Base
-
-        return self._sigmas_to_points(sigmas)
-
-    def _points(self, t: NPSequence) -> NPSchedule:
-        if self.use_noise:
-            return self.points_noise(t)
-        else:
-            return self.points_time(t)
+        return self.base._points(points)

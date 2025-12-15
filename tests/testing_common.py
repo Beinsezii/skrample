@@ -20,12 +20,14 @@ from skrample.sampling.structured import (
     Adams,
     Euler,
     StructuredSampler,
+    UniP,
     UniPC,
 )
 from skrample.scheduling import (
     Beta,
     Exponential,
     FlowShift,
+    Hyper,
     Karras,
     Linear,
     NoMod,
@@ -47,6 +49,7 @@ ALL_STRUCTURED: list[type[StructuredSampler]] = [
     Euler,
     SPC,
     UniPC,
+    UniP,
 ]
 
 
@@ -63,6 +66,7 @@ ALL_MODIFIERS: list[type[ScheduleModifier]] = [
     FlowShift,
     Karras,
     Exponential,
+    Hyper,
 ]
 ALL_MODIFIERS_OPTION: list[type[ScheduleModifier] | None] = [None, *ALL_MODIFIERS]
 
