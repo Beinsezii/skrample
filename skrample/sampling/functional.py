@@ -5,8 +5,6 @@ from collections.abc import Callable
 from types import MappingProxyType
 from typing import Any
 
-import numpy as np
-
 from skrample import common, scheduling
 from skrample.common import RNG, DictOrProxy, FloatSchedule, Sample, SigmaTransform
 
@@ -18,48 +16,27 @@ type SampleableModel[T: Sample] = Callable[[T, float, float], T]
 "sample, timestep, sigma"
 
 
-def fractional_step(
-    schedule: FloatSchedule,
-    current: int,
-    idx: tuple[float, ...],
-) -> tuple[tuple[float, float], ...]:
-    schedule_np = np.array([*schedule, (0, 0)])
-    idx_np = np.array(idx) / len(schedule) + current / len(schedule)
-    scale = np.linspace(0, 1, len(schedule_np))
-
-    # TODO (beinszeii): better 2d interpolate
-    result = tuple(
-        zip(
-            (np.interp(idx_np, scale, schedule_np[:, 0])).tolist(),
-            (np.interp(idx_np, scale, schedule_np[:, 1])).tolist(),
-        )
-    )
-    return result
-
-
 def step_tableau[T: Sample](
     tableau: tableaux.Tableau | tableaux.ExtendedTableau,
     sample: T,
     model: SampleableModel[T],
     model_transform: models.DiffusionModel,
-    step: int,
-    schedule: FloatSchedule,
-    sigma_transform: SigmaTransform,
+    schedule: scheduling.SkrampleSchedule,
+    step: tuple[float, float],
     derivative_transform: models.DiffusionModel | None = None,
-    step_size: int = 1,
     epsilon: float = 1e-8,
 ) -> tuple[T, ...]:
     nodes, weights = tableau[0], tableau[1:]
+
+    sigma_transform = schedule.sigma_transform
 
     if derivative_transform:
         model = models.ModelConvert(model_transform, derivative_transform).wrap_model_call(model, sigma_transform)
         model_transform = derivative_transform
 
     derivatives: list[T] = []
-    S0 = schedule[step][1]
-    S1 = schedule[step + step_size][1] if step + step_size < len(schedule) else 0
-
-    fractions = fractional_step(schedule, step, tuple(f[0] * step_size for f in nodes))
+    S0, S1 = schedule.ipoints(step)[:, 1].tolist()
+    fractions: FloatSchedule = schedule.ipoints([step[0] + f[0] * (step[1] - step[0]) for f in nodes]).tolist()  # type: ignore
 
     for frac_sc, icoeffs in zip(fractions, (t[1] for t in nodes), strict=True):
         sigma_i = frac_sc[1]
@@ -94,12 +71,8 @@ def step_tableau[T: Sample](
 
 @dataclasses.dataclass(frozen=True)
 class FunctionalSampler(ABC):
-    schedule: scheduling.SkrampleSchedule
-
-    def merge_noise[T: Sample](self, sample: T, noise: T, steps: int, start: int) -> T:
-        sigmas = self.schedule.sigmas(steps)
-        sigma = sigmas[start] if start < len(sigmas) else 0
-        return common.merge_noise(sample, noise, sigma, self.schedule.sigma_transform)
+    def merge_noise[T: Sample](self, sample: T, noise: T, sigma: float, sigma_transform: SigmaTransform) -> T:
+        return common.merge_noise(sample, noise, sigma, sigma_transform)
 
     @abstractmethod
     def sample_model[T: Sample](
@@ -107,6 +80,7 @@ class FunctionalSampler(ABC):
         sample: T,
         model: SampleableModel[T],
         model_transform: models.DiffusionModel,
+        schedule: scheduling.SkrampleSchedule,
         steps: int,
         include: slice = slice(None),
         rng: RNG[T] | None = None,
@@ -120,6 +94,7 @@ class FunctionalSampler(ABC):
         self,
         model: SampleableModel[T],
         model_transform: models.DiffusionModel,
+        schedule: scheduling.SkrampleSchedule,
         rng: RNG[T],
         steps: int,
         include: slice = slice(None),
@@ -135,12 +110,12 @@ class FunctionalSampler(ABC):
             sample: T = self.merge_noise(
                 0 if initial is None else initial,  # type: ignore
                 rng(),
-                steps,
-                include.start or 0,
-            ) / self.merge_noise(0.0, 1.0, steps, 0)
+                schedule.ipoint((include.start or 0) / steps)[1],
+                schedule.sigma_transform,
+            ) / self.merge_noise(0.0, 1.0, schedule.ipoint(0)[1], schedule.sigma_transform)
             # Rescale sample by initial sigma. Mostly just to handle quirks with Scaled
 
-        return self.sample_model(sample, model, model_transform, steps, include, rng, callback)
+        return self.sample_model(sample, model, model_transform, schedule, steps, include, rng, callback)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -174,8 +149,8 @@ class FunctionalSinglestep(FunctionalSampler):
         sample: T,
         model: SampleableModel[T],
         model_transform: models.DiffusionModel,
-        step: int,
-        schedule: FloatSchedule,
+        schedule: scheduling.SkrampleSchedule,
+        step: tuple[float, float],
         rng: RNG[T] | None = None,
     ) -> T: ...
 
@@ -184,18 +159,17 @@ class FunctionalSinglestep(FunctionalSampler):
         sample: T,
         model: SampleableModel[T],
         model_transform: models.DiffusionModel,
+        schedule: scheduling.SkrampleSchedule,
         steps: int,
         include: slice = slice(None),
         rng: RNG[T] | None = None,
         callback: SampleCallback | None = None,
     ) -> T:
-        schedule: FloatSchedule = self.schedule.schedule(steps)
-
         for n in list(range(steps))[include]:
-            sample = self.step(sample, model, model_transform, n, schedule, rng)
+            sample = self.step(sample, model, model_transform, schedule, (n / steps, (n + 1) / steps), rng)
 
             if callback:
-                callback(sample, n, *schedule[n] if n < len(schedule) else (0, 0))
+                callback(sample, n, *schedule.ipoint(n / steps))
 
         return sample
 
@@ -261,8 +235,8 @@ class RKUltra(FunctionalDerivative, FunctionalSinglestep):
         sample: T,
         model: SampleableModel[T],
         model_transform: models.DiffusionModel,
-        step: int,
-        schedule: FloatSchedule,
+        schedule: scheduling.SkrampleSchedule,
+        step: tuple[float, float],
         rng: RNG[T] | None = None,
     ) -> T:
         return step_tableau(
@@ -270,9 +244,8 @@ class RKUltra(FunctionalDerivative, FunctionalSinglestep):
             sample,
             model,
             model_transform,
-            step,
             schedule,
-            self.schedule.sigma_transform,
+            step,
             derivative_transform=self.derivative_transform,
         )[0]
 
@@ -299,21 +272,21 @@ class FastHeun(FunctionalAdaptive, FunctionalSinglestep, FunctionalHigher):
         sample: T,
         model: SampleableModel[T],
         model_transform: models.DiffusionModel,
-        step: int,
-        schedule: FloatSchedule,
+        schedule: scheduling.SkrampleSchedule,
+        step: tuple[float, float],
         rng: RNG[T] | None = None,
     ) -> T:
-        k1 = model(sample, *schedule[step])
-        sigma_from = schedule[step][1]
-        sigma_to = schedule[step + 1][1] if step + 1 < len(schedule) else 0
-        result: T = model_transform.forward(sample, k1, sigma_from, sigma_to, self.schedule.sigma_transform)
+        [time_t, sig_t], [time_s, sig_s] = schedule.ipoints(step).tolist()
+
+        k1 = model(sample, time_t, sig_t)
+        result: T = model_transform.forward(sample, k1, sig_t, sig_s, schedule.sigma_transform)
 
         # Multiplying by step size here is kind of an asspull, but so is this whole solver so...
-        if step + 1 < len(schedule) and self.evaluator(sample, result) / max(
-            self.evaluator(0, result), 1e-16
-        ) > self.threshold * abs(sigma_from - sigma_to):
-            k2: T = (k1 + model(result, *schedule[step + 1])) / 2  # pyright: ignore [reportAssignmentType]
-            result: T = model_transform.forward(sample, k2, sigma_from, sigma_to, self.schedule.sigma_transform)
+        if time_s > 0 and self.evaluator(sample, result) / max(self.evaluator(0, result), 1e-16) > self.threshold * abs(
+            sig_t - sig_s
+        ):
+            k2: T = (k1 + model(result, time_s, sig_s)) / 2  # pyright: ignore [reportAssignmentType]
+            result: T = model_transform.forward(sample, k2, sig_t, sig_s, schedule.sigma_transform)
 
         return result
 
@@ -373,6 +346,7 @@ class RKMoire(FunctionalAdaptive, FunctionalDerivative):
         sample: T,
         model: SampleableModel[T],
         model_transform: models.DiffusionModel,
+        schedule: scheduling.SkrampleSchedule,
         steps: int,
         include: slice = slice(None),
         rng: RNG[T] | None = None,
@@ -390,30 +364,27 @@ class RKMoire(FunctionalAdaptive, FunctionalDerivative):
         step_size: int = max(round(steps * initial), 1)
         epsilon: float = 1e-16  # lgtm
 
-        schedule: FloatSchedule = self.schedule.schedule(steps)
-
         indices: list[int] = list(range(steps))[include]
         step: int = indices[0]
 
         while step <= indices[-1]:
             step_next = min(step + step_size, indices[-1] + 1)
 
-            if step_next < len(schedule):
+            if step_next < steps:
                 sample_high, sample_low = step_tableau(
                     tab,
                     sample,
                     model,
                     model_transform,
-                    step,
                     schedule,
-                    self.schedule.sigma_transform,
+                    (step / steps, step_next / steps),
                     self.derivative_transform,
-                    step_size,
                 )
 
-                sigma0 = schedule[step][1]
-                sigma1 = schedule[step_next][1]
-                sigma2 = schedule[step_next + step_size][1] if step_next + step_size < len(schedule) else 0
+                [sigma0, sigma1, sigma2] = schedule.ipoints(
+                    [step / steps, step_next / steps, (step_next + step_size) / steps]
+                )[:, 1].tolist()
+
                 # Offset adjustment by dt2 / dt to account for non-linearity
                 # Basically if we want a 50% larger step but the next dt will already be 25% larger,
                 # we should only set a 20% larger step ie 1.5 / 1.25
@@ -434,17 +405,15 @@ class RKMoire(FunctionalAdaptive, FunctionalDerivative):
                     sample,
                     model,
                     model_transform,
-                    step,
                     schedule,
-                    self.schedule.sigma_transform,
+                    (step / steps, 1),
                     self.derivative_transform,
-                    step_size,
                 )[0]
 
             sample = sample_high
 
             if callback:
-                callback(sample, step_next - 1, *schedule[step] if step < len(schedule) else (0, 0))
+                callback(sample, step_next - 1, *schedule.ipoint(step / steps))
 
             step = step_next
 

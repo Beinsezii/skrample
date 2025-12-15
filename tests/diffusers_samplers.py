@@ -263,11 +263,11 @@ def test_heun(
 ) -> None:
     diffusers_scheduler.set_timesteps(steps)
 
+    skrample_schedule = DummyScheduleExact(
+        list(zip(diffusers_scheduler.timesteps.tolist(), diffusers_scheduler.sigmas.tolist())),
+        sigma_transform,
+    )
     skrample_sampler = RKUltra(
-        DummyScheduleExact(
-            list(zip(diffusers_scheduler.timesteps.tolist(), diffusers_scheduler.sigmas.tolist())),
-            sigma_transform,
-        ),
         order=2,
         providers={2: RK2.Heun},
         derivative_transform=derivative_transform,
@@ -297,6 +297,7 @@ def test_heun(
     sk_sample = skrample_sampler.generate_model(
         lambda x, t, s: fake_model(x),
         model_transform,
+        skrample_schedule,
         lambda: torch.randn(sk_sample.shape, generator=seed, dtype=sk_sample.dtype),
         steps,
         initial=sk_sample,

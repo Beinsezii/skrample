@@ -247,12 +247,12 @@ def test_functional_adapter(sampler: StructuredSampler, schedule: ScheduleCommon
         return x + math.sin(x) * s
 
     sample = 1.5
-    adapter = StructuredFunctionalAdapter(schedule, sampler)
+    adapter = StructuredFunctionalAdapter(sampler)
     noise = [random.random() for _ in range(steps)]
 
     rng = iter(noise)
     model_transform = FlowModel()
-    sample_f = adapter.sample_model(sample, fake_model, model_transform, steps, rng=lambda: next(rng))
+    sample_f = adapter.sample_model(sample, fake_model, model_transform, schedule, steps, rng=lambda: next(rng))
 
     rng = iter(noise)
     float_schedule = schedule.schedule(steps)

@@ -69,9 +69,9 @@ SAMPLERS: dict[str, structured.StructuredSampler | functional.FunctionalSampler]
     "unip": structured.UniP(),
     "unipc": structured.UniPC(),
     "spc": structured.SPC(),
-    "rku": functional.RKUltra(scheduling.Linear()),
-    "rkm": functional.RKMoire(scheduling.Linear()),
-    "fheun": functional.FastHeun(scheduling.Linear()),
+    "rku": functional.RKUltra(),
+    "rkm": functional.RKMoire(),
+    "fheun": functional.FastHeun(),
 }
 for k, v in list(SAMPLERS.items()):
     if isinstance(v, structured.StructuredMultistep | functional.FunctionalHigher):
@@ -171,7 +171,7 @@ if args.command == "samplers":
         sampler: structured.StructuredSampler | functional.FunctionalSampler, steps: int
     ) -> tuple[list[float], list[float]]:
         if isinstance(sampler, structured.StructuredSampler):
-            sampler = StructuredFunctionalAdapter(schedule, sampler)
+            sampler = StructuredFunctionalAdapter(sampler)
         else:
             sampler = replace(sampler, schedule=schedule)
 
@@ -195,6 +195,7 @@ if args.command == "samplers":
             sample=sample,
             model=lambda x, t, s: x - math.sin(t / schedule.base_timesteps * args.curve),
             model_transform=TRANSFORMS[args.transform][2],
+            schedule=schedule,
             steps=adjusted,
             rng=random,
             callback=callback,
@@ -234,7 +235,7 @@ elif args.command == "schedules":
 
                 label = " ".join([s.capitalize() for s in label.split("_")])
 
-                data = composed.points(np.linspace(1, 0, args.steps + 1))
+                data = composed.ipoints(np.linspace(0, 1, args.steps + 1))
 
                 timesteps = data[:, 0] / composed.base_timesteps
                 sigmas = data[:, 1] / data[:, 1].max()
