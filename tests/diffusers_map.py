@@ -97,7 +97,7 @@ def test_euler() -> None:
 
 def test_euler_a() -> None:
     assert_wrapper(
-        SkrampleWrapperScheduler(DPM(add_noise=True), Scaled(uniform=False)),
+        SkrampleWrapperScheduler(DPM(order=1, add_noise=True), Scaled(uniform=False)),
         EulerAncestralDiscreteScheduler.from_config(SCALED_CONFIG),
     )
 
@@ -139,7 +139,7 @@ def test_unipc_flow() -> None:
 
 def test_dpmsde() -> None:
     assert_wrapper(
-        SkrampleWrapperScheduler(DPM(add_noise=True), Scaled(uniform=False)),
+        SkrampleWrapperScheduler(DPM(order=1, add_noise=True), Scaled(uniform=False)),
         DPMSolverSDEScheduler.from_config(SCALED_CONFIG),
     )
 
@@ -153,6 +153,6 @@ def test_ddim() -> None:
 
 def test_ddpm() -> None:
     assert_wrapper(
-        SkrampleWrapperScheduler(DPM(add_noise=True), Scaled(uniform=False)),
+        SkrampleWrapperScheduler(DPM(order=1, add_noise=True), Scaled(uniform=False)),
         DDPMScheduler.from_config(SCALED_CONFIG),
     )
