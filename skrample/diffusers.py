@@ -31,7 +31,7 @@ DIFFUSERS_CLASS_MAP: dict[str, tuple[type[StructuredSampler], dict[str, Any]]] =
     "DDIMScheduler": (sampling.Euler, {}),
     "DDPMScheduler": (sampling.DPM, {"add_noise": True, "order": 1}),
     "DPMSolverMultistepScheduler": (sampling.DPM, {}),
-    "DPMSolverSDEScheduler": (sampling.DPM, {"add_noise": True}),
+    "DPMSolverSDEScheduler": (sampling.DPM, {"add_noise": True, "order": 1}),
     "EulerAncestralDiscreteScheduler": (sampling.DPM, {"add_noise": True, "order": 1}),
     "EulerDiscreteScheduler": (sampling.Euler, {}),
     "FlowMatchEulerDiscreteScheduler": (sampling.Euler, {}),

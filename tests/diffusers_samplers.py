@@ -138,7 +138,7 @@ def test_euler(predictor: tuple[DiffusionModel, str], steps: range) -> None:
 def test_euler_ancestral(predictor: tuple[DiffusionModel, str], steps: range) -> None:
     compare_tensors(
         *dual_sample(
-            DPM(add_noise=True),
+            DPM(order=1, add_noise=True),
             EulerAncestralDiscreteScheduler.from_config(
                 SCALED_CONFIG,
                 prediction_type=predictor[1],
