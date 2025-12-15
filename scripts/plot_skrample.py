@@ -172,8 +172,6 @@ if args.command == "samplers":
     ) -> tuple[list[float], list[float]]:
         if isinstance(sampler, structured.StructuredSampler):
             sampler = StructuredFunctionalAdapter(sampler)
-        else:
-            sampler = replace(sampler, schedule=schedule)
 
         sample = 1.0
         sampled_values = [sample]
