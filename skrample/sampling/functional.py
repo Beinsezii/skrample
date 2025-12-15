@@ -145,7 +145,7 @@ class FunctionalSampler(ABC):
 
 @dataclasses.dataclass(frozen=True)
 class FunctionalHigher(FunctionalSampler):
-    order: int = 1
+    order: int = 2
 
     @staticmethod
     def min_order() -> int:
@@ -219,8 +219,6 @@ class FunctionalAdaptive(FunctionalSampler):
 class RKUltra(FunctionalDerivative, FunctionalSinglestep):
     "Implements almost every single method from https://en.wikipedia.org/wiki/List_of_Runge–Kutta_methods"  # noqa: RUF002
 
-    order: int = 2
-
     providers: DictOrProxy[int, tableaux.TableauProvider[tableaux.Tableau | tableaux.ExtendedTableau]] = (
         MappingProxyType(
             {
@@ -279,8 +277,6 @@ class RKUltra(FunctionalDerivative, FunctionalSinglestep):
 
 @dataclasses.dataclass(frozen=True)
 class FastHeun(FunctionalAdaptive, FunctionalSinglestep, FunctionalHigher):
-    order: int = 2
-
     threshold: float = 5e-2
 
     @staticmethod
@@ -320,8 +316,6 @@ class FastHeun(FunctionalAdaptive, FunctionalSinglestep, FunctionalHigher):
 
 @dataclasses.dataclass(frozen=True)
 class RKMoire(FunctionalAdaptive, FunctionalDerivative):
-    order: int = 2
-
     providers: DictOrProxy[int, tableaux.TableauProvider[tableaux.ExtendedTableau]] = MappingProxyType(
         {
             2: tableaux.RKE2.Heun,
