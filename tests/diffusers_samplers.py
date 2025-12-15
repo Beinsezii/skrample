@@ -114,7 +114,7 @@ def test_euler() -> None:
 def test_euler_ancestral() -> None:
     for predictor in [(EPSILON, "epsilon"), (VELOCITY, "v_prediction")]:
         compare_samplers(
-            DPM(add_noise=True),
+            DPM(order=1, add_noise=True),
             EulerAncestralDiscreteScheduler.from_config(
                 SCALED_CONFIG,
                 prediction_type=predictor[1],

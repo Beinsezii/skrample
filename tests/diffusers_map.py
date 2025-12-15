@@ -72,7 +72,7 @@ def test_euler() -> None:
         EulerDiscreteScheduler.from_config(SCALED_CONFIG),
     )
     check_wrapper(
-        SkrampleWrapperScheduler(DPM(add_noise=True), Scaled(uniform=False)),
+        SkrampleWrapperScheduler(DPM(order=1, add_noise=True), Scaled(uniform=False)),
         EulerAncestralDiscreteScheduler.from_config(SCALED_CONFIG),
     )
     check_wrapper(
@@ -105,7 +105,7 @@ def test_unipc() -> None:
 
 def test_alias() -> None:
     check_wrapper(
-        SkrampleWrapperScheduler(DPM(add_noise=True), Scaled(uniform=False)),
+        SkrampleWrapperScheduler(DPM(order=1, add_noise=True), Scaled(uniform=False)),
         DPMSolverSDEScheduler.from_config(SCALED_CONFIG),
     )
     check_wrapper(
@@ -113,6 +113,6 @@ def test_alias() -> None:
         DDIMScheduler.from_config(SCALED_CONFIG),
     )
     check_wrapper(
-        SkrampleWrapperScheduler(DPM(add_noise=True), Scaled(uniform=False)),
+        SkrampleWrapperScheduler(DPM(order=1, add_noise=True), Scaled(uniform=False)),
         DDPMScheduler.from_config(SCALED_CONFIG),
     )

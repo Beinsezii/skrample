@@ -104,7 +104,7 @@ class HighOrderSampler(SkrampleSampler):
     """Samplers inheriting this trait support order > 1, and will require
     `prevous` be managed and passed to function accordingly."""
 
-    order: int = 1
+    order: int = 2
 
     @staticmethod
     def min_order() -> int:
@@ -265,8 +265,6 @@ class DPM(HighOrderSampler, StochasticSampler):
 @dataclass(frozen=True)
 class Adams(HighOrderSampler, Euler):
     "Higher order extension to Euler using the Adams-Bashforth coefficients on the model prediction"
-
-    order: int = 2
 
     @staticmethod
     def max_order() -> int:
