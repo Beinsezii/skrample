@@ -28,10 +28,11 @@ def step_tableau[T: Sample](
 ) -> tuple[T, ...]:
     nodes, weights = tableau[0], tableau[1:]
 
-    sigma_transform = schedule.sigma_transform
-
     if derivative_transform:
-        model = models.ModelConvert(model_transform, derivative_transform).wrap_model_call(model, sigma_transform)
+        model = models.ModelConvert(
+            model_transform,
+            derivative_transform,
+        ).wrap_model_call(model, schedule.sigma_transform)
         model_transform = derivative_transform
 
     derivatives: list[T] = []
@@ -46,14 +47,14 @@ def step_tableau[T: Sample](
                 math.sumprod(derivatives, icoeffs) / math.fsum(icoeffs),  # pyright: ignore [reportArgumentType]
                 S0,
                 sigma_i,
-                sigma_transform,
+                schedule.sigma_transform,
             )
         else:
             X = sample
 
         # Do not call model on timestep = 0 or sigma = 0
         if any(abs(v) < epsilon for v in frac_sc):
-            derivatives.append(model_transform.backward(sample, X, S0, S1, sigma_transform))
+            derivatives.append(model_transform.backward(sample, X, S0, S1, schedule.sigma_transform))
         else:
             derivatives.append(model(X, *frac_sc))
 
@@ -63,7 +64,7 @@ def step_tableau[T: Sample](
             math.sumprod(derivatives, w),  # pyright: ignore [reportArgumentType]
             S0,
             S1,
-            sigma_transform,
+            schedule.sigma_transform,
         )
         for w in weights
     )

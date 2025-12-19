@@ -6,7 +6,7 @@ from diffusers.schedulers.scheduling_euler_discrete import EulerDiscreteSchedule
 from diffusers.schedulers.scheduling_flow_match_euler_discrete import FlowMatchEulerDiscreteScheduler
 from testing_common import FLOW_CONFIG, SCALED_CONFIG, compare_pp
 
-from skrample.scheduling import ZSNR, Beta, Exponential, FlowShift, Karras, Linear, NPSchedule, Scaled, SkrampleSchedule
+from skrample.scheduling import ZSNR, FlowShift, Linear, NPSchedule, Scaled, SkrampleSchedule
 
 STEPS: Iterable[int] = [*range(1, 12)]
 
@@ -53,30 +53,6 @@ def test_scaled_sigmas(steps: int) -> None:
     compare_sigmas(Scaled(), EulerDiscreteScheduler.from_config(SCALED_CONFIG), steps)
 
 
-@pytest.mark.skip("Intentionally Different")
-@pytest.mark.parametrize("steps", STEPS)
-def test_scaled_beta_sigmas(steps: int) -> None:
-    compare_sigmas(Beta(Scaled()), EulerDiscreteScheduler.from_config(SCALED_CONFIG, use_beta_sigmas=True), steps)
-
-
-@pytest.mark.skip("Intentionally Different")
-@pytest.mark.parametrize("steps", STEPS)
-def test_scaled_exponential_sigmas(steps: int) -> None:
-    compare_sigmas(
-        Exponential(Scaled(), steps=steps),
-        EulerDiscreteScheduler.from_config(SCALED_CONFIG, use_exponential_sigmas=True),
-        steps,
-    )
-
-
-@pytest.mark.skip("Intentionally Different")
-@pytest.mark.parametrize("steps", STEPS)
-def test_scaled_karras_sigmas(steps: int) -> None:
-    compare_sigmas(
-        Karras(Scaled(), steps=steps), EulerDiscreteScheduler.from_config(SCALED_CONFIG, use_karras_sigmas=True), steps
-    )
-
-
 @pytest.mark.parametrize("steps", STEPS)
 def test_zsnr_timesteps(steps: int) -> None:
     compare_timesteps(
@@ -103,41 +79,5 @@ def test_flow_sigmas(steps: int) -> None:
     compare_sigmas(
         FlowShift(Linear()),
         FlowMatchEulerDiscreteScheduler.from_config(FLOW_CONFIG | {"use_dynamic_shifting": False}),
-        steps,
-    )
-
-
-@pytest.mark.skip("Intentionally Different")
-@pytest.mark.parametrize("steps", STEPS)
-def test_flow_beta_sigmas(steps: int) -> None:
-    compare_sigmas(
-        Beta(FlowShift(Linear())),
-        FlowMatchEulerDiscreteScheduler.from_config(
-            FLOW_CONFIG | {"use_dynamic_shifting": False}, use_beta_sigmas=True
-        ),
-        steps,
-    )
-
-
-@pytest.mark.skip("Intentionally Different")
-@pytest.mark.parametrize("steps", STEPS)
-def test_flow_exponential_sigmas(steps: int) -> None:
-    compare_sigmas(
-        Exponential(FlowShift(Linear()), steps=steps),
-        FlowMatchEulerDiscreteScheduler.from_config(
-            FLOW_CONFIG | {"use_dynamic_shifting": False}, use_exponential_sigmas=True
-        ),
-        steps,
-    )
-
-
-@pytest.mark.skip("Intentionally Different")
-@pytest.mark.parametrize("steps", STEPS)
-def test_flow_karras_sigmas(steps: int) -> None:
-    compare_sigmas(
-        Karras(FlowShift(Linear()), steps=steps),
-        FlowMatchEulerDiscreteScheduler.from_config(
-            FLOW_CONFIG | {"use_dynamic_shifting": False}, use_karras_sigmas=True
-        ),
         steps,
     )

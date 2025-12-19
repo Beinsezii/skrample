@@ -1,8 +1,6 @@
-import dataclasses
 import itertools
 from inspect import signature
 
-import numpy as np
 import pytest
 import torch
 from diffusers.schedulers.scheduling_dpmsolver_multistep import DPMSolverMultistepScheduler
@@ -14,12 +12,12 @@ from diffusers.schedulers.scheduling_heun_discrete import HeunDiscreteScheduler
 from diffusers.schedulers.scheduling_unipc_multistep import UniPCMultistepScheduler
 from testing_common import FLOW_CONFIG, SCALED_CONFIG, compare_tensors
 
-from skrample.common import FloatSchedule, SigmaTransform, sigma_complement, sigma_polar
+from skrample.common import SigmaTransform, sigma_complement, sigma_polar
 from skrample.sampling.functional import RKUltra
 from skrample.sampling.models import DiffusionModel, FlowModel, NoiseModel, VelocityModel
 from skrample.sampling.structured import DPM, Euler, SKSamples, StructuredSampler, UniPC
 from skrample.sampling.tableaux import RK2
-from skrample.scheduling import NPSchedule, NPSequence, SkrampleSchedule
+from skrample.scheduling import FixedSchedule
 
 # TODO (beinsezii): no idea why this is touchy???
 SCALED_CONFIG = SCALED_CONFIG | {"timestep_spacing": "leading"}
@@ -35,24 +33,6 @@ DiffusersScheduler = (
 EPSILON = NoiseModel()
 FLOW = FlowModel()
 VELOCITY = VelocityModel()
-
-
-@dataclasses.dataclass(frozen=True)
-class DummyScheduleExact(SkrampleSchedule):
-    fixed_schedule: FloatSchedule | NPSchedule
-    transform: SigmaTransform
-
-    def _points(self, t: NPSequence) -> NPSchedule:
-        return np.quantile(
-            np.concatenate([np.asarray(self.fixed_schedule, dtype=np.float64), [[0, 0]]]),
-            t,
-            axis=0,
-            method="closest_observation",
-        )
-
-    @property
-    def sigma_transform(self) -> SigmaTransform:
-        return self.transform
 
 
 def fake_model(t: torch.Tensor) -> torch.Tensor:
@@ -263,7 +243,7 @@ def test_heun(
 ) -> None:
     diffusers_scheduler.set_timesteps(steps)
 
-    skrample_schedule = DummyScheduleExact(
+    skrample_schedule = FixedSchedule(
         list(zip(diffusers_scheduler.timesteps.tolist(), diffusers_scheduler.sigmas.tolist())),
         sigma_transform,
     )
