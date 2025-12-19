@@ -1,8 +1,6 @@
-import dataclasses
 import itertools
 from inspect import signature
 
-import numpy as np
 import pytest
 import torch
 from diffusers.schedulers.scheduling_dpmsolver_multistep import DPMSolverMultistepScheduler
@@ -14,12 +12,15 @@ from diffusers.schedulers.scheduling_heun_discrete import HeunDiscreteScheduler
 from diffusers.schedulers.scheduling_unipc_multistep import UniPCMultistepScheduler
 from testing_common import FLOW_CONFIG, SCALED_CONFIG, compare_tensors
 
-from skrample.common import FloatSchedule, SigmaTransform, sigma_complement, sigma_polar
+from skrample.common import SigmaTransform, sigma_complement, sigma_polar
 from skrample.sampling.functional import RKUltra
 from skrample.sampling.models import DiffusionModel, FlowModel, NoiseModel, VelocityModel
 from skrample.sampling.structured import DPM, Euler, SKSamples, StructuredSampler, UniPC
 from skrample.sampling.tableaux import RK2
-from skrample.scheduling import SkrampleSchedule
+from skrample.scheduling import FixedSchedule
+
+# TODO (beinsezii): no idea why this is touchy???
+SCALED_CONFIG = SCALED_CONFIG | {"timestep_spacing": "leading"}
 
 DiffusersScheduler = (
     EulerDiscreteScheduler
@@ -32,19 +33,6 @@ DiffusersScheduler = (
 EPSILON = NoiseModel()
 FLOW = FlowModel()
 VELOCITY = VelocityModel()
-
-
-@dataclasses.dataclass(frozen=True)
-class FixedSchedule(SkrampleSchedule):
-    fixed_schedule: FloatSchedule
-    transform: SigmaTransform
-
-    def schedule_np(self, steps: int) -> np.typing.NDArray[np.float64]:
-        return np.array(self.fixed_schedule, dtype=np.float64)
-
-    @property
-    def sigma_transform(self) -> SigmaTransform:
-        return self.transform
 
 
 def fake_model(t: torch.Tensor) -> torch.Tensor:
@@ -255,15 +243,13 @@ def test_heun(
 ) -> None:
     diffusers_scheduler.set_timesteps(steps)
 
-    fixed: list[tuple[float, float]] = []
-    for t in zip(diffusers_scheduler.timesteps.tolist(), diffusers_scheduler.sigmas.tolist()):
-        if t not in fixed:
-            fixed.append(t)
-
+    skrample_schedule = FixedSchedule(
+        list(zip(diffusers_scheduler.timesteps.tolist(), diffusers_scheduler.sigmas.tolist())),
+        sigma_transform,
+    )
     skrample_sampler = RKUltra(
-        FixedSchedule(fixed, sigma_transform),
         order=2,
-        providers=RKUltra.providers | {2: RK2.Heun},
+        providers={2: RK2.Heun},
         derivative_transform=derivative_transform,
     )
 
@@ -291,6 +277,7 @@ def test_heun(
     sk_sample = skrample_sampler.generate_model(
         lambda x, t, s: fake_model(x),
         model_transform,
+        skrample_schedule,
         lambda: torch.randn(sk_sample.shape, generator=seed, dtype=sk_sample.dtype),
         steps,
         initial=sk_sample,

@@ -25,13 +25,13 @@ wrapper = SkrampleWrapperScheduler(
 )
 
 # Equivalent to structured example
-sampler = StructuredFunctionalAdapter(schedule, structured.DPM(order=2, add_noise=True))
+sampler = StructuredFunctionalAdapter(structured.DPM(order=2, add_noise=True))
 # Native functional example
-sampler = functional.RKUltra(schedule, 4)
+sampler = functional.RKUltra(4)
 # Dynamic model calls
-sampler = functional.FastHeun(schedule)
+sampler = functional.FastHeun()
 # Dynamic step sizes
-sampler = functional.RKMoire(schedule)
+sampler = functional.RKMoire()
 
 
 class FunctionalDenoise(FluxDenoiseStep):
@@ -69,6 +69,7 @@ class FunctionalDenoise(FluxDenoiseStep):
             sample=block_state["latents"],
             model=call_model,
             model_transform=models.FlowModel(),
+            schedule=schedule,
             steps=block_state["num_inference_steps"],
             callback=sample_callback,
         )

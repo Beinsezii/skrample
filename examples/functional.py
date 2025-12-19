@@ -23,13 +23,13 @@ with torch.inference_mode():
     schedule = scheduling.Karras(scheduling.Scaled())
 
     # Equivalent to structured example
-    sampler = StructuredFunctionalAdapter(schedule, structured.DPM(order=2, add_noise=True))
+    sampler = StructuredFunctionalAdapter(structured.DPM(order=2, add_noise=True))
     # Native functional example
-    sampler = functional.RKUltra(schedule, 4)
+    sampler = functional.RKUltra(4)
     # Dynamic model calls
-    sampler = functional.FastHeun(schedule)
+    sampler = functional.FastHeun()
     # Dynamic step sizes
-    sampler = functional.RKMoire(schedule)
+    sampler = functional.RKMoire()
 
     tokenizer: CLIPTokenizer = CLIPTokenizer.from_pretrained(url, subfolder="tokenizer")
     text_encoder: CLIPTextModel = CLIPTextModel.from_pretrained(
@@ -66,6 +66,7 @@ with torch.inference_mode():
     sample = sampler.generate_model(
         model=call_model,
         model_transform=models.NoiseModel(),
+        schedule=schedule,
         steps=steps,
         rng=lambda: rng.generate().to(dtype=dtype, device=device),
         callback=lambda x, n, t, s: bar.update(n + 1 - bar.n),

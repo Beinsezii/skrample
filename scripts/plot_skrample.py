@@ -69,9 +69,9 @@ SAMPLERS: dict[str, structured.StructuredSampler | functional.FunctionalSampler]
     "unip": structured.UniP(),
     "unipc": structured.UniPC(),
     "spc": structured.SPC(),
-    "rku": functional.RKUltra(scheduling.Linear()),
-    "rkm": functional.RKMoire(scheduling.Linear()),
-    "fheun": functional.FastHeun(scheduling.Linear()),
+    "rku": functional.RKUltra(),
+    "rkm": functional.RKMoire(),
+    "fheun": functional.FastHeun(),
 }
 for k, v in list(SAMPLERS.items()):
     if isinstance(v, structured.StructuredMultistep | functional.FunctionalHigher):
@@ -80,8 +80,7 @@ for k, v in list(SAMPLERS.items()):
                 SAMPLERS[k + str(o)] = replace(v, order=o)
 
 SCHEDULES: dict[str, scheduling.ScheduleCommon | scheduling.ScheduleModifier] = {
-    "scaled": scheduling.Scaled(uniform=False),
-    "scaled_uniform": scheduling.Scaled(),
+    "scaled": scheduling.Scaled(),
     "zsnr": scheduling.ZSNR(),
     "linear": scheduling.Linear(),
     "sigcdf": scheduling.SigmoidCDF(),
@@ -172,9 +171,7 @@ if args.command == "samplers":
         sampler: structured.StructuredSampler | functional.FunctionalSampler, steps: int
     ) -> tuple[list[float], list[float]]:
         if isinstance(sampler, structured.StructuredSampler):
-            sampler = StructuredFunctionalAdapter(schedule, sampler)
-        else:
-            sampler = replace(sampler, schedule=schedule)
+            sampler = StructuredFunctionalAdapter(sampler)
 
         sample = 1.0
         sampled_values = [sample]
@@ -196,6 +193,7 @@ if args.command == "samplers":
             sample=sample,
             model=lambda x, t, s: x - math.sin(t / schedule.base_timesteps * args.curve),
             model_transform=TRANSFORMS[args.transform][2],
+            schedule=schedule,
             steps=adjusted,
             rng=random,
             callback=callback,
@@ -235,14 +233,16 @@ elif args.command == "schedules":
 
                 label = " ".join([s.capitalize() for s in label.split("_")])
 
-                data = np.concatenate([composed.schedule_np(args.steps), [[0, 0]]], dtype=np.float64)
+                data = composed.ipoints(np.linspace(0, 1, args.steps + 1))
 
                 timesteps = data[:, 0] / composed.base_timesteps
                 sigmas = data[:, 1] / data[:, 1].max()
 
-                plt.plot(timesteps, label=label + " Timesteps", marker="+", color=next(COLORS))
+                marker = "+" if args.steps <= 50 else ""
+                plt.plot(timesteps, label=label + " Timesteps", marker=marker, color=next(COLORS))
                 if not np.allclose(timesteps, sigmas, atol=1e-2):
-                    plt.plot(sigmas, label=label + " Sigmas", marker="+", color=next(COLORS))
+                    plt.plot(sigmas, label=label + " Sigmas", marker=marker, color=next(COLORS))
+
 else:
     raise NotImplementedError
 

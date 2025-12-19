@@ -1,13 +1,18 @@
 import itertools
 import math
 import random
-from collections.abc import Sequence
 from dataclasses import replace
 
 import numpy as np
 import pytest
 import torch
-from testing_common import compare_tensors
+from testing_common import (
+    ALL_FAKE_MODELS,
+    ALL_MODELS,
+    ALL_SCHEDULES,
+    ALL_STRUCTURED,
+    ALL_TRANSFROMS,
+)
 
 from skrample.common import (
     MergeStrategy,
@@ -15,78 +20,24 @@ from skrample.common import (
     bashforth,
     euler,
     sigma_complement,
-    sigma_polar,
     sigmoid,
     softmax,
     spowf,
 )
-from skrample.diffusers import SkrampleWrapperScheduler
 from skrample.sampling import tableaux
 from skrample.sampling.interface import StructuredFunctionalAdapter
-from skrample.sampling.models import (
-    DataModel,
-    DiffusionModel,
-    FlowModel,
-    ModelConvert,
-    NoiseModel,
-    ScaleX,
-    VelocityModel,
-)
+from skrample.sampling.models import DiffusionModel, FlowModel, ModelConvert
 from skrample.sampling.structured import (
     DPM,
     SPC,
     Adams,
-    Euler,
     SKSamples,
     StructuredMultistep,
     StructuredSampler,
     StructuredStochastic,
     UniPC,
 )
-from skrample.scheduling import Beta, FlowShift, Karras, Linear, Scaled, ScheduleCommon, ScheduleModifier, SigmoidCDF
-
-ALL_STRUCTURED: Sequence[type[StructuredSampler]] = [
-    Adams,
-    DPM,
-    Euler,
-    SPC,
-    UniPC,
-]
-
-ALL_SCHEDULES: Sequence[type[ScheduleCommon]] = [
-    Linear,
-    Scaled,
-    SigmoidCDF,
-]
-
-ALL_MODIFIERS: Sequence[type[ScheduleModifier]] = [
-    Beta,
-    FlowShift,
-    Karras,
-]
-
-ALL_MODELS: Sequence[type[DiffusionModel]] = [
-    DataModel,
-    NoiseModel,
-    FlowModel,
-    VelocityModel,
-]
-
-ALL_FAKE_MODELS: Sequence[type[DiffusionModel]] = [
-    ScaleX,
-]
-
-ALL_TRANSFROMS: Sequence[SigmaTransform] = [
-    sigma_complement,
-    sigma_polar,
-]
-
-
-@pytest.mark.parametrize("schedule", [*(cls() for cls in ALL_SCHEDULES), Scaled(beta_scale=1)])
-def test_sigmas_to_timesteps(schedule: ScheduleCommon) -> None:
-    timesteps = schedule.timesteps_np(123)
-    timesteps_inv = schedule.sigmas_to_timesteps(schedule.sigmas_np(123))
-    compare_tensors(torch.tensor(timesteps), torch.tensor(timesteps_inv), margin=0)  # shocked this rounds good
+from skrample.scheduling import FlowShift, Linear, Scaled, ScheduleCommon
 
 
 @pytest.mark.parametrize(("model_type", "sigma_transform"), itertools.product(ALL_MODELS, ALL_TRANSFROMS))
@@ -187,14 +138,6 @@ def test_sampler_generics(sampler: StructuredSampler, schedule: ScheduleCommon) 
     assert abs(tensor - scalar) < eps
     assert abs(tensor - ndarr) < eps
     assert abs(scalar - ndarr) < eps
-
-
-def test_mu_set() -> None:
-    mu = 1.2345
-    a = SkrampleWrapperScheduler(DPM(), Beta(FlowShift(Karras(Linear()))))
-    b = SkrampleWrapperScheduler(DPM(), Beta(FlowShift(Karras(Linear()), shift=math.exp(mu))))
-    a.set_timesteps(1, mu=mu)
-    assert a.schedule == b.schedule
 
 
 @pytest.mark.parametrize(
@@ -304,12 +247,12 @@ def test_functional_adapter(sampler: StructuredSampler, schedule: ScheduleCommon
         return x + math.sin(x) * s
 
     sample = 1.5
-    adapter = StructuredFunctionalAdapter(schedule, sampler)
+    adapter = StructuredFunctionalAdapter(sampler)
     noise = [random.random() for _ in range(steps)]
 
     rng = iter(noise)
     model_transform = FlowModel()
-    sample_f = adapter.sample_model(sample, fake_model, model_transform, steps, rng=lambda: next(rng))
+    sample_f = adapter.sample_model(sample, fake_model, model_transform, schedule, steps, rng=lambda: next(rng))
 
     rng = iter(noise)
     float_schedule = schedule.schedule(steps)
