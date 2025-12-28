@@ -10,7 +10,7 @@ from skrample.scheduling import Beta, FlowShift, SigmoidCDF
 
 
 def bench_wrapper() -> int:
-    wrapper = SkrampleWrapperScheduler(Euler(), Beta(FlowShift(SigmoidCDF())))
+    wrapper = SkrampleWrapperScheduler(Euler(), FlowShift(Beta(SigmoidCDF())))
     wrapper.set_timesteps(1000)
 
     clock = perf_counter_ns()

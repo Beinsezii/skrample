@@ -2,7 +2,7 @@ import dataclasses
 import math
 from collections import OrderedDict
 from collections.abc import Hashable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import torch
@@ -21,7 +21,7 @@ from skrample.pytorch.noise import (
 )
 from skrample.sampling.models import DataModel, DiffusionModel, FlowModel, NoiseModel, VelocityModel
 from skrample.sampling.structured import SKSamples, StructuredSampler
-from skrample.scheduling import ScheduleCommon, ScheduleModifier, SkrampleSchedule
+from skrample.scheduling import ScheduleCommon, ScheduleModifier, SkrampleSchedule, SubSchedule
 
 if TYPE_CHECKING:
     from diffusers.configuration_utils import ConfigMixin
@@ -71,9 +71,9 @@ DIFFUSERS_VALUE_MAP: dict[tuple[str, Any], tuple[str, Any]] = {
     ("prediction_type", "flow"): ("skrample_predictor", FlowModel()),
     ("prediction_type", "sample"): ("skrample_predictor", DataModel()),
     ("prediction_type", "v_prediction"): ("skrample_predictor", VelocityModel()),
-    ("use_beta_sigmas", True): ("skrample_modifier", scheduling.Beta),
-    ("use_exponential_sigmas", True): ("skrample_modifier", scheduling.Exponential),
-    ("use_karras_sigmas", True): ("skrample_modifier", scheduling.Karras),
+    ("use_beta_sigmas", True): ("skrample_subschedule", scheduling.Beta),
+    ("use_exponential_sigmas", True): ("skrample_subschedule", scheduling.Exponential),
+    ("use_karras_sigmas", True): ("skrample_subschedule", scheduling.Karras),
 }
 "Key/value to key/value map. For mapping more complex types against diffusers"
 
@@ -99,6 +99,8 @@ class ParsedDiffusersConfig:
     sampler_props: dict[str, Any]
     schedule: type[SkrampleSchedule]
     schedule_props: dict[str, Any]
+    subschedule: type[SubSchedule] | None
+    subschedule_props: dict[str, Any]
     schedule_modifiers: list[tuple[type[ScheduleModifier], dict[str, Any]]]
     model: DiffusionModel
 
@@ -155,10 +157,13 @@ def parse_diffusers_config(
         flow_keys = [f.name for f in dataclasses.fields(scheduling.FlowShift)]
         schedule_modifiers.append((scheduling.FlowShift, {k: v for k, v in remapped.items() if k in flow_keys}))
 
-    if "skrample_modifier" in remapped:
-        schedule_modifier: type[ScheduleModifier] = remapped.pop("skrample_modifier")
-        modifier_keys = [f.name for f in dataclasses.fields(schedule_modifier)]
-        schedule_modifiers.append((schedule_modifier, {k: v for k, v in remapped.items() if k in modifier_keys}))
+    subschedule: type[SubSchedule] | None
+    if "skrample_subschedule" in remapped:
+        subschedule = cast("type[SubSchedule]", remapped.pop("skrample_subschedule"))
+        modifier_keys = [f.name for f in dataclasses.fields(subschedule)]
+        subschedule_props = {k: v for k, v in remapped.items() if k in modifier_keys}
+    else:
+        subschedule, subschedule_props = None, {}
 
     # feels cleaner than inspect.signature().parameters
     sampler_keys = [f.name for f in dataclasses.fields(sampler)]
@@ -169,6 +174,8 @@ def parse_diffusers_config(
         sampler_props=sampler_props | {k: v for k, v in (remapped).items() if k in sampler_keys},
         schedule=schedule,
         schedule_props={k: v for k, v in remapped.items() if k in schedule_keys},
+        subschedule=subschedule,
+        subschedule_props=subschedule_props,
         schedule_modifiers=schedule_modifiers,
         model=model,
     )
@@ -191,9 +198,9 @@ def as_diffusers_config(
     skrample_config["skrample_predictor"] = model
 
     if isinstance(schedule, ScheduleModifier):
-        for modifier in schedule.all:
-            skrample_config |= dataclasses.asdict(modifier)
-        skrample_config["skrample_modifier"] = type(schedule)
+        _, subschedule, _ = schedule.all_split
+        if subschedule is not None:
+            skrample_config["skrample_subschedule"] = type(subschedule)
     else:
         skrample_config |= dataclasses.asdict(schedule)
 
@@ -241,6 +248,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
         config: "dict[str, Any] | ConfigMixin",
         sampler: type[StructuredSampler] | None = None,
         schedule: type[SkrampleSchedule] | None = None,
+        subschedule: type[SubSchedule] | None = None,
         schedule_modifiers: list[tuple[type[ScheduleModifier], dict[str, Any]]] = [],
         model: DiffusionModel | None = None,
         noise_type: type[TensorNoiseCommon[N]] = Random,
@@ -248,6 +256,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
         sampler_props: dict[str, Any] = {},
         noise_props: N | None = None,
         schedule_props: dict[str, Any] = {},
+        subschedule_props: dict[str, Any] = {},
         modifier_merge_strategy: MergeStrategy = MergeStrategy.UniqueBefore,
         allow_dynamic: bool = True,
     ) -> "SkrampleWrapperScheduler[N]":
@@ -257,7 +266,10 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
         built_sampler = (sampler or parsed.sampler)(**parsed.sampler_props | sampler_props)
         built_schedule = (schedule or parsed.schedule)(**parsed.schedule_props | schedule_props)
 
-        if isinstance(built_schedule, ScheduleCommon | ScheduleModifier):
+        if (sub := subschedule or parsed.subschedule) is not None and isinstance(built_schedule, ScheduleCommon):
+            built_schedule = sub(built_schedule, **parsed.subschedule_props | subschedule_props)
+
+        if isinstance(built_schedule, ScheduleCommon | SubSchedule | ScheduleModifier):
             for modifier, modifier_props in modifier_merge_strategy.merge(
                 ours=schedule_modifiers,
                 theirs=parsed.schedule_modifiers,
@@ -343,8 +355,10 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
             and isinstance(self.schedule, scheduling.ScheduleModifier)
             and (found := self.schedule.find_split(scheduling.FlowShift)) is not None
         ):
-            before, flow, after, base = found
-            self.schedule = self.schedule.stack([*before, dataclasses.replace(flow, shift=math.exp(mu)), *after], base)
+            before, flow, after, sub, base = found
+            self.schedule = self.schedule.stack(
+                [*before, dataclasses.replace(flow, shift=math.exp(mu)), *after], sub, base
+            )
 
         self._previous = []
         self._noise_generator = None

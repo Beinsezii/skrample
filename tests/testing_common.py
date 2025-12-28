@@ -35,6 +35,7 @@ from skrample.scheduling import (
     ScheduleCommon,
     ScheduleModifier,
     SigmoidCDF,
+    SubSchedule,
 )
 
 
@@ -60,7 +61,7 @@ ALL_SCHEDULES: list[type[ScheduleCommon]] = [
     SigmoidCDF,
 ]
 
-ALL_MODIFIERS: list[type[ScheduleModifier]] = [
+ALL_MODIFIERS: list[type[ScheduleModifier | SubSchedule]] = [
     NoMod,
     Beta,
     FlowShift,
@@ -68,7 +69,7 @@ ALL_MODIFIERS: list[type[ScheduleModifier]] = [
     Exponential,
     Hyper,
 ]
-ALL_MODIFIERS_OPTION: list[type[ScheduleModifier] | None] = [None, *ALL_MODIFIERS]
+ALL_MODIFIERS_OPTION: list[type[ScheduleModifier | SubSchedule] | None] = [None, *ALL_MODIFIERS]
 
 ALL_MODELS: list[type[DiffusionModel]] = [
     DataModel,
