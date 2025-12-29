@@ -35,6 +35,7 @@ from skrample.scheduling import (
     ScheduleCommon,
     ScheduleModifier,
     Siggauss,
+    Sinner,
     SubSchedule,
 )
 
@@ -68,6 +69,7 @@ ALL_MODIFIERS: list[type[ScheduleModifier | SubSchedule]] = [
     Exponential,
     Siggauss,
     Hyper,
+    Sinner,
 ]
 ALL_MODIFIERS_OPTION: list[type[ScheduleModifier | SubSchedule] | None] = [None, *ALL_MODIFIERS]
 

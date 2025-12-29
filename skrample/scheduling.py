@@ -7,7 +7,16 @@ from typing import Literal
 
 import numpy as np
 
-from skrample.common import FloatSchedule, SigmaTransform, normalize, regularize, sigma_complement, sigma_polar, sigmoid
+from skrample.common import (
+    FloatSchedule,
+    SigmaTransform,
+    normalize,
+    regularize,
+    rescale_positive,
+    sigma_complement,
+    sigma_polar,
+    sigmoid,
+)
 
 type NPSchedule = np.ndarray[tuple[int, Literal[2]], np.dtype[np.float64]]
 "[sequence..., timestep:sigma]"
@@ -272,6 +281,11 @@ class SubSchedule(_PartialSchedule):
     base: ScheduleCommon
     "Schedule that this one will replace"
 
+    @property
+    def all(self) -> tuple["SubSchedule", ScheduleCommon]:
+        "All SkrampleModifiers recursively, including self"
+        return (self, self.base)
+
 
 @dataclass(frozen=True)
 class ScheduleModifier(_PartialSchedule):
@@ -492,5 +506,57 @@ class Hyper(ScheduleModifier):
         points = np.sinh(points) if self.scale < 0 else np.tanh(points / math.sqrt(2))
         # don't use -1 because no endcaps
         points = normalize(points[1:], points[0], -points[0] * self.tail)  # hyper..-hyper -> 1..0
+
+        return self.base._points(points)
+
+
+@dataclass(frozen=True)
+class Sinner(ScheduleModifier):
+    "Sine wave modifier"
+
+    count: float = -2
+    """Amount of nodes in the wave, centered on 2 (S-curve, 1/2 wave cycle).
+    Values <0 move towards a single crest without a trough (1/4 wave cycle).
+    Values >0 move towards infinity waves at 1 cycle per count"""
+
+    scale: float = 2
+    """Steepness of curve. Values <0 mirror the waveform.
+    Because this modifier creates multiple wave heads,
+    the maximum sharpness that can be reached is limited by the constraint
+    that the trough of one wave does not sink below the crest of another.
+
+    At infinity, the trough and crest of two adjacent waves are roughly equal,
+    which may not be valid in all contexts."""
+
+    def _points(self, t: NPSequence) -> NPSchedule:
+        if abs(self.scale) <= 1e-8:
+            return self.base._points(t)
+
+        # Count -inf..inf -> 1..inf
+        # Input values >0 are 2 scale (1 wave per count), <0 are 1/2 scale (arbitrary but works)
+        # Absolute counts <= 0 are invalid, <= 1 makes little sense (<1/4 cycle).
+        count = rescale_positive(self.count * 2 ** math.copysign(1, self.count)) + 1
+
+        # Inverse period so the first wave at T=1 is a constant direction
+        t = np.concatenate([[0, 1], 1 - t])  # 0, 1 instead of 1, 0
+
+        # Generates a sine wave with `count` changes in direction (1/2 cycles)
+        period = t * (math.pi * count)  # Cluster pi * count for less vector math
+
+        # 180° phase shift based on scale sign
+        # Has the effect of mirroring the wave
+        if self.scale >= 0:
+            period += math.pi
+
+        # Remap and flip scale |0..inf| -> inf..1
+        # Because this is a flat offset relative to magnitude of the wave,
+        # Higher scales result in smaller waves after normalization
+        scale = abs(self.scale) ** -1 + 1
+
+        # y = sin(x) + x * scale
+        # Ensures y is always increasing over x so long as scale >= 1
+        points = np.sin(period) + period * scale
+
+        points = normalize(points[2:], *points[:2])
 
         return self.base._points(points)

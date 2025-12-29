@@ -97,6 +97,8 @@ MODIFIERS: dict[str, tuple[type[scheduling.ScheduleModifier], dict[str, Any]] | 
     "vyper": (scheduling.Hyper, {"scale": -2}),
     "hype": (scheduling.Hyper, {"tail": False}),
     "vype": (scheduling.Hyper, {"scale": -2, "tail": False}),
+    "sinner": (scheduling.Sinner, {}),
+    "pinner": (scheduling.Sinner, {"scale": -scheduling.Sinner.scale}),
     "none": None,
 }
 

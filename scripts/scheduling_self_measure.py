@@ -13,7 +13,9 @@ from skrample.scheduling import (
     Linear,
     ScheduleModifier,
     Siggauss,
+    Sinner,
     SkrampleSchedule,
+    SubSchedule,
 )
 
 MEASURED_SCHEDULES: list[SkrampleSchedule] = [
@@ -26,6 +28,7 @@ MEASURED_SCHEDULES: list[SkrampleSchedule] = [
     # Hyper(Linear(), tail=False),
     # Hyper(Linear(), scale=-2),
     # Hyper(Hyper(Linear(), scale=4), scale=-3),
+    Sinner(Linear()),
 ]
 STEPS: int = 7
 
@@ -34,7 +37,9 @@ print("# fmt: off")
 print(f"MEASURED_SCHEDULES_STEPS: int = {STEPS}")
 print("MEASURED_SCHEDULE_RESULTS: dict[SkrampleSchedule, list[list[float]]] = {")
 for schedule in MEASURED_SCHEDULES:
-    graph: Sequence[SkrampleSchedule] = schedule.all if isinstance(schedule, ScheduleModifier) else (schedule,)
+    graph: Sequence[SkrampleSchedule] = (
+        schedule.all if isinstance(schedule, ScheduleModifier | SubSchedule) else (schedule,)
+    )
     graph_string = "".join(type(g).__name__ + "(" for g in graph) + ")" * len(graph)
     print(f"    {graph_string}: {schedule.points(np.linspace(1, 0, STEPS)).tolist()},  # noqa: E501")
 print("}")
