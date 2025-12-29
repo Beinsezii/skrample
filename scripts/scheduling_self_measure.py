@@ -12,15 +12,15 @@ from skrample.scheduling import (
     Karras,
     Linear,
     ScheduleModifier,
-    SigmoidCDF,
+    Siggauss,
     SkrampleSchedule,
 )
 
 MEASURED_SCHEDULES: list[SkrampleSchedule] = [
-    SigmoidCDF(),
     Karras(Linear()),
     Beta(Linear()),
     Exponential(Linear()),
+    Siggauss(Linear()),
     Hyper(Linear()),
     Hyper(Hyper(Linear())),
     # Hyper(Linear(), tail=False),

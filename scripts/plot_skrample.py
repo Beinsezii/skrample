@@ -83,12 +83,12 @@ SCHEDULES: dict[str, scheduling.ScheduleCommon] = {
     "scaled": scheduling.Scaled(),
     "zsnr": scheduling.ZSNR(),
     "linear": scheduling.Linear(),
-    "sigcdf": scheduling.SigmoidCDF(),
 }
 SUBSCHEDULES: dict[str, tuple[type[scheduling.SubSchedule], dict[str, Any]] | None] = {
     "beta": (scheduling.Beta, {}),
     "exponential": (scheduling.Exponential, {}),
     "karras": (scheduling.Karras, {}),
+    "sigauss": (scheduling.Siggauss, {}),
     "none": None,
 }
 MODIFIERS: dict[str, tuple[type[scheduling.ScheduleModifier], dict[str, Any]] | None] = {

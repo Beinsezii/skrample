@@ -243,29 +243,6 @@ class Linear(ScheduleCommon):
 
 
 @dataclass(frozen=True)
-class SigmoidCDF(Linear):
-    """Normal cumulative distribution run through sigmoid.
-    Produces an S-curve similar to the Beta modifier.
-    This is the continuous equivalent of `np.sort(np.randn([steps]))` used in some training schedules"""
-
-    cdf_scale: float = 3
-    "Multiply the inverse CDF output before the sigmoid function is applied"
-
-    def _points(self, t: NPSequence) -> NPSchedule:
-        from scipy.stats import norm
-
-        # Always include 1.0 for post-sigmoid normalize
-        t = np.concatenate([[1], t])
-        # 1.0 is invalid
-        probabilities = regularize(t, 1 - 1e-8, 0)
-        sigmas = sigmoid(norm.ppf(probabilities, scale=self.cdf_scale))
-        sigmas = normalize(sigmas, sigmas[0])
-        sigmas = sigmas[1:]
-
-        return np.stack([sigmas * self.base_timesteps, sigmas * self.sigma_start], axis=1)
-
-
-@dataclass(frozen=True)
 class _PartialSchedule(SkrampleSchedule):
     """Private base class for schedules that modify other schedules.
     Do not use directly, use `SubSchedule` or `ScheduleModifier` instead."""
@@ -460,6 +437,28 @@ class Beta(SubSchedule):
         sigmas = beta.ppf(probabilities, self.alpha, self.beta)
         sigmas = normalize(sigmas, sigmas[0])[1:]
         return self.base._sigmas_to_points(sigmas * sigma_max)
+
+
+@dataclass(frozen=True)
+class Siggauss(SubSchedule):
+    """Normal cumulative distribution run through sigmoid.
+    Produces an S-curve similar to the Beta modifier.
+    This is the continuous equivalent of `np.sort(np.randn([steps]))` used in some training schedules"""
+
+    scale: float = 3
+    "Sharpness of the curve. >= 0"
+
+    def _points(self, t: NPSequence) -> NPSchedule:
+        from scipy.stats import norm
+
+        # Always include endcaps for post-sigmoid normalize
+        t = np.concatenate([[1, 0], t])
+        # 1.0 is invalid
+        probabilities = regularize(t, 1 - 1e-8, 0)
+        sigmas = sigmoid(norm.ppf(probabilities, scale=self.scale))
+        sigmas = normalize(sigmas[2:], *sigmas[:2])
+
+        return self.base._sigmas_to_points(sigmas * self.base.point(1)[1])
 
 
 @dataclass(frozen=True)
