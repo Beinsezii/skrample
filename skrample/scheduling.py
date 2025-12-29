@@ -529,7 +529,7 @@ class Sinner(ScheduleModifier):
     which may not be valid in all contexts."""
 
     def _points(self, t: NPSequence) -> NPSchedule:
-        if abs(self.scale) <= 1e-8:
+        if abs(self.scale) <= 1e-8 or self.count == math.inf:  # infinitely small waves is effectively just a line
             return self.base._points(t)
 
         # Count -inf..inf -> 1..inf
