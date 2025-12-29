@@ -374,16 +374,16 @@ class ScheduleModifier(_PartialSchedule):
 
 
 @dataclass(frozen=True)
-class NoMod(ScheduleModifier):
-    "Does nothing. For generic programming against ScheduleModifier"
+class NoSub(SubSchedule):
+    "Does nothing. For generic programming against SubSchedule"
 
     def _points(self, t: NPSequence) -> NPSchedule:
         return self.base._points(t)
 
 
 @dataclass(frozen=True)
-class NoSub(ScheduleModifier):
-    "Does nothing. For generic programming against SubSchedule"
+class NoMod(ScheduleModifier):
+    "Does nothing. For generic programming against ScheduleModifier"
 
     def _points(self, t: NPSequence) -> NPSchedule:
         return self.base._points(t)

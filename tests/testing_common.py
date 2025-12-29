@@ -31,6 +31,7 @@ from skrample.scheduling import (
     Karras,
     Linear,
     NoMod,
+    NoSub,
     Scaled,
     ScheduleCommon,
     ScheduleModifier,
@@ -62,6 +63,7 @@ ALL_SCHEDULES: list[type[ScheduleCommon]] = [
 ]
 
 ALL_MODIFIERS: list[type[ScheduleModifier | SubSchedule]] = [
+    NoSub,
     NoMod,
     Beta,
     FlowShift,
