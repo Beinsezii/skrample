@@ -16,7 +16,7 @@ from testing_common import FLOW_CONFIG, SCALED_CONFIG
 from skrample.diffusers import SkrampleWrapperScheduler
 from skrample.sampling.models import DiffusionModel, FlowModel, NoiseModel, VelocityModel
 from skrample.sampling.structured import DPM, Adams, Euler, UniPC
-from skrample.scheduling import Beta, Exponential, FlowShift, Karras, Linear, Scaled, ScheduleModifier
+from skrample.scheduling import Beta, Exponential, FlowShift, Karras, Linear, Scaled, SubSchedule
 
 EPSILON = NoiseModel()
 FLOW = FlowModel()
@@ -49,7 +49,7 @@ def assert_wrapper(wrapper: SkrampleWrapperScheduler, scheduler: ConfigMixin) ->
     ),
 )
 def test_dpm(
-    modifiers: tuple[str, type[ScheduleModifier] | None],
+    modifiers: tuple[str, type[SubSchedule] | None],
     add_noise: tuple[str, bool],
     model_transform: tuple[str, DiffusionModel],
     order: int,
@@ -106,7 +106,7 @@ def test_euler_flow() -> None:
 
 def test_euler_beta() -> None:
     assert_wrapper(
-        SkrampleWrapperScheduler(Euler(), Beta(FlowShift(Linear())), FLOW),
+        SkrampleWrapperScheduler(Euler(), FlowShift(Beta(Linear())), FLOW),
         FlowMatchEulerDiscreteScheduler.from_config(FLOW_CONFIG | {"use_beta_sigmas": True}),
     )
 

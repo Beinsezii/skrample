@@ -31,10 +31,13 @@ from skrample.scheduling import (
     Karras,
     Linear,
     NoMod,
+    NoSub,
     Scaled,
     ScheduleCommon,
     ScheduleModifier,
-    SigmoidCDF,
+    Siggauss,
+    Sinner,
+    SubSchedule,
 )
 
 
@@ -57,18 +60,20 @@ ALL_SCHEDULES: list[type[ScheduleCommon]] = [
     Linear,
     Scaled,
     ScaledB1,
-    SigmoidCDF,
 ]
 
-ALL_MODIFIERS: list[type[ScheduleModifier]] = [
+ALL_MODIFIERS: list[type[ScheduleModifier | SubSchedule]] = [
+    NoSub,
     NoMod,
     Beta,
     FlowShift,
     Karras,
     Exponential,
+    Siggauss,
     Hyper,
+    Sinner,
 ]
-ALL_MODIFIERS_OPTION: list[type[ScheduleModifier] | None] = [None, *ALL_MODIFIERS]
+ALL_MODIFIERS_OPTION: list[type[ScheduleModifier | SubSchedule] | None] = [None, *ALL_MODIFIERS]
 
 ALL_MODELS: list[type[DiffusionModel]] = [
     DataModel,

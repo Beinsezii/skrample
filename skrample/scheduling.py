@@ -7,7 +7,16 @@ from typing import Literal
 
 import numpy as np
 
-from skrample.common import FloatSchedule, SigmaTransform, normalize, regularize, sigma_complement, sigma_polar, sigmoid
+from skrample.common import (
+    FloatSchedule,
+    SigmaTransform,
+    normalize,
+    regularize,
+    rescale_positive,
+    sigma_complement,
+    sigma_polar,
+    sigmoid,
+)
 
 type NPSchedule = np.ndarray[tuple[int, Literal[2]], np.dtype[np.float64]]
 "[sequence..., timestep:sigma]"
@@ -243,35 +252,11 @@ class Linear(ScheduleCommon):
 
 
 @dataclass(frozen=True)
-class SigmoidCDF(Linear):
-    """Normal cumulative distribution run through sigmoid.
-    Produces an S-curve similar to the Beta modifier.
-    This is the continuous equivalent of `np.sort(np.randn([steps]))` used in some training schedules"""
+class _PartialSchedule(SkrampleSchedule):
+    """Private base class for schedules that modify other schedules.
+    Do not use directly, use `SubSchedule` or `ScheduleModifier` instead."""
 
-    cdf_scale: float = 3
-    "Multiply the inverse CDF output before the sigmoid function is applied"
-
-    def _points(self, t: NPSequence) -> NPSchedule:
-        from scipy.stats import norm
-
-        # Always include 1.0 for post-sigmoid normalize
-        t = np.concatenate([[1], t])
-        # 1.0 is invalid
-        probabilities = regularize(t, 1 - 1e-8, 0)
-        sigmas = sigmoid(norm.ppf(probabilities, scale=self.cdf_scale))
-        sigmas = normalize(sigmas, sigmas[0])
-        sigmas = sigmas[1:]
-
-        return np.stack([sigmas * self.base_timesteps, sigmas * self.sigma_start], axis=1)
-
-
-@dataclass(frozen=True)
-class ScheduleModifier(SkrampleSchedule):
-    """Generic class for schedules that modify other schedules.
-    Unless otherwise specified, uses base schedule properties"""
-
-    base: "ScheduleCommon | ScheduleModifier"
-    "Schedule that this one will modify"
+    base: "ScheduleCommon | _PartialSchedule"
 
     @property
     def base_timesteps(self) -> int:
@@ -281,43 +266,80 @@ class ScheduleModifier(SkrampleSchedule):
     def sigma_transform(self) -> SigmaTransform:
         return self.base.sigma_transform
 
-    @property
-    def all_split(self) -> tuple[list["ScheduleModifier"], ScheduleCommon]:
-        """All SkrampleModifiers recursively, including self.
-        Separated for type safety."""
-        bases: list[ScheduleModifier] = [self]
-        last = self.base
-        while isinstance(last, ScheduleModifier):
-            bases.append(last)
-            last = last.base
-
-        return (bases, last)
-
-    @property
-    def all(self) -> list["ScheduleCommon | ScheduleModifier"]:
-        "All SkrampleModifiers recursively, including self"
-        mods, base = self.all_split
-        return [*mods, base]
-
-    @property
-    def lowest(self) -> ScheduleCommon:
-        "The basemost schedule of all modifiers"
-        return self.all_split[1]
-
-    @staticmethod
-    def stack(modifiers: list["ScheduleModifier"], base: ScheduleCommon) -> "ScheduleModifier | ScheduleCommon":
-        """Re-stacks the given modifiers, setting each `base` to the next modifier in the list before the true base.
-        Inverse of ScheduleModifier.all_split"""
-        last = base
-        for mod in reversed(modifiers):
-            last = replace(mod, base=last)
-        return last
-
     def _sigmas_to_points(self, sigmas: NPSequence) -> NPSchedule:
         return self.base._sigmas_to_points(sigmas)
 
     def sigmas_to_points(self, sigmas: Sequence[float] | NPSequence) -> NPSchedule:
         return self._sigmas_to_points(np.asarray(sigmas, dtype=np.float64))
+
+
+@dataclass(frozen=True)
+class SubSchedule(_PartialSchedule):
+    """Generic class for a schedule that depends on another schedule.
+    This schedule replaces the base schedule entirely, but is not itself standalone."""
+
+    base: ScheduleCommon
+    "Schedule that this one will replace"
+
+    @property
+    def all(self) -> tuple["SubSchedule", ScheduleCommon]:
+        "All SkrampleModifiers recursively, including self"
+        return (self, self.base)
+
+
+@dataclass(frozen=True)
+class ScheduleModifier(_PartialSchedule):
+    """Generic class for schedules that modify other schedules.
+    Unless otherwise specified, uses base schedule properties"""
+
+    base: "ScheduleCommon | SubSchedule | ScheduleModifier"
+    "Schedule that this one will modify"
+
+    @property
+    def all_split(self) -> tuple[list["ScheduleModifier"], SubSchedule | None, ScheduleCommon]:
+        """All SkrampleModifiers recursively, including self.
+        Separated for type safety."""
+        bases: list[ScheduleModifier] = [self]
+        sub: SubSchedule | None = None
+        last = self.base
+
+        while isinstance(last, ScheduleModifier):
+            bases.append(last)
+            last = last.base
+
+        if isinstance(last, SubSchedule):
+            sub, last = last, last.base
+
+        return (bases, sub, last)
+
+    @property
+    def all(self) -> list["ScheduleCommon | ScheduleModifier | SubSchedule"]:
+        "All SkrampleModifiers recursively, including self"
+        mods, sub, base = self.all_split
+        return [*mods, *((sub,) if sub is not None else ()), base]
+
+    @property
+    def lowest(self) -> ScheduleCommon:
+        "The basemost schedule of all modifiers"
+        return self.all_split[2]
+
+    @staticmethod
+    def stack(
+        modifiers: list["ScheduleModifier"],
+        sub: SubSchedule | None,
+        base: ScheduleCommon,
+    ) -> "ScheduleModifier | SubSchedule | ScheduleCommon":
+        """Re-stacks the given modifiers, setting each `base` to the next modifier in the list before the true base.
+        Inverse of ScheduleModifier.all_split"""
+        last = base
+
+        if sub is not None:
+            last = replace(sub, base=last)
+
+        for mod in reversed(modifiers):
+            last = replace(mod, base=last)
+
+        return last
 
     def find[T: "ScheduleModifier"](self, skrample_schedule: type[T], exact: bool = False) -> T | None:
         """Find the first schedule of type T recursively in the modifier tree.
@@ -330,11 +352,11 @@ class ScheduleModifier(SkrampleSchedule):
         self,
         skrample_schedule: type[T],
         exact: bool = False,
-    ) -> tuple[list["ScheduleModifier"], T, list["ScheduleModifier"], ScheduleCommon] | None:
+    ) -> tuple[list["ScheduleModifier"], T, list["ScheduleModifier"], SubSchedule | None, ScheduleCommon] | None:
         """Split version of ScheduleModifier.find().
         Modifiers are separated into before, found, after"""
 
-        mods, base = self.all_split
+        mods, sub, base = self.all_split
         found: T | None = None
         before = []
         after = []
@@ -348,7 +370,15 @@ class ScheduleModifier(SkrampleSchedule):
                 after.append(schedule)
 
         if found:
-            return (before, found, after, base)
+            return (before, found, after, sub, base)
+
+
+@dataclass(frozen=True)
+class NoSub(SubSchedule):
+    "Does nothing. For generic programming against SubSchedule"
+
+    def _points(self, t: NPSequence) -> NPSchedule:
+        return self.base._points(t)
 
 
 @dataclass(frozen=True)
@@ -360,18 +390,7 @@ class NoMod(ScheduleModifier):
 
 
 @dataclass(frozen=True)
-class FlowShift(ScheduleModifier):
-    shift: float = 3.0
-    """Amount to shift noise schedule by."""
-
-    def _points(self, t: NPSequence) -> NPSchedule:
-        mask = t > 0
-        t[mask] = self.shift / (self.shift + (1 / t[mask] - 1))
-        return self.base._points(t)
-
-
-@dataclass(frozen=True)
-class Karras(ScheduleModifier):
+class Karras(SubSchedule):
     "Similar to Exponential, intended for 1st generation Stable Diffusion models"
 
     rho: float = 7.0
@@ -393,7 +412,7 @@ class Karras(ScheduleModifier):
 
 
 @dataclass(frozen=True)
-class Exponential(ScheduleModifier):
+class Exponential(SubSchedule):
     "Also known as 'polyexponential' when rho != 1"
 
     rho: float = 1.0
@@ -415,7 +434,7 @@ class Exponential(ScheduleModifier):
 
 
 @dataclass(frozen=True)
-class Beta(ScheduleModifier):
+class Beta(SubSchedule):
     """Beta continuous distribtuion function. A sort of S-curve.
     https://arxiv.org/abs/2407.12173"""
 
@@ -432,6 +451,39 @@ class Beta(ScheduleModifier):
         sigmas = beta.ppf(probabilities, self.alpha, self.beta)
         sigmas = normalize(sigmas, sigmas[0])[1:]
         return self.base._sigmas_to_points(sigmas * sigma_max)
+
+
+@dataclass(frozen=True)
+class Siggauss(SubSchedule):
+    """Normal cumulative distribution run through sigmoid.
+    Produces an S-curve similar to the Beta modifier.
+    This is the continuous equivalent of `np.sort(np.randn([steps]))` used in some training schedules"""
+
+    scale: float = 3
+    "Sharpness of the curve. >= 0"
+
+    def _points(self, t: NPSequence) -> NPSchedule:
+        from scipy.stats import norm
+
+        # Always include endcaps for post-sigmoid normalize
+        t = np.concatenate([[1, 0], t])
+        # 1.0 is invalid
+        probabilities = regularize(t, 1 - 1e-8, 0)
+        sigmas = sigmoid(norm.ppf(probabilities, scale=self.scale))
+        sigmas = normalize(sigmas[2:], *sigmas[:2])
+
+        return self.base._sigmas_to_points(sigmas * self.base.point(1)[1])
+
+
+@dataclass(frozen=True)
+class FlowShift(ScheduleModifier):
+    shift: float = 3.0
+    """Amount to shift noise schedule by."""
+
+    def _points(self, t: NPSequence) -> NPSchedule:
+        mask = t > 0
+        t[mask] = self.shift / (self.shift + (1 / t[mask] - 1))
+        return self.base._points(t)
 
 
 @dataclass(frozen=True)
@@ -454,5 +506,57 @@ class Hyper(ScheduleModifier):
         points = np.sinh(points) if self.scale < 0 else np.tanh(points / math.sqrt(2))
         # don't use -1 because no endcaps
         points = normalize(points[1:], points[0], -points[0] * self.tail)  # hyper..-hyper -> 1..0
+
+        return self.base._points(points)
+
+
+@dataclass(frozen=True)
+class Sinner(ScheduleModifier):
+    "Sine wave modifier"
+
+    count: float = -2
+    """Amount of nodes in the wave, centered on 2 (S-curve, 1/2 wave cycle).
+    Values <0 move towards a single crest without a trough (1/4 wave cycle).
+    Values >0 move towards infinity waves at 1 cycle per count"""
+
+    scale: float = 2
+    """Steepness of curve. Values <0 mirror the waveform.
+    Because this modifier creates multiple wave heads,
+    the maximum sharpness that can be reached is limited by the constraint
+    that the trough of one wave does not sink below the crest of another.
+
+    At infinity, the trough and crest of two adjacent waves are roughly equal,
+    which may not be valid in all contexts."""
+
+    def _points(self, t: NPSequence) -> NPSchedule:
+        if abs(self.scale) <= 1e-8 or self.count == math.inf:  # infinitely small waves is effectively just a line
+            return self.base._points(t)
+
+        # Count -inf..inf -> 1..inf
+        # Input values >0 are 2 scale (1 wave per count), <0 are 1/2 scale (arbitrary but works)
+        # Absolute counts <= 0 are invalid, <= 1 makes little sense (<1/4 cycle).
+        count = rescale_positive(self.count * 2 ** math.copysign(1, self.count)) + 1
+
+        # Inverse period so the first wave at T=1 is a constant direction
+        t = np.concatenate([[0, 1], 1 - t])  # 0, 1 instead of 1, 0
+
+        # Generates a sine wave with `count` changes in direction (1/2 cycles)
+        period = t * (math.pi * count)  # Cluster pi * count for less vector math
+
+        # 180° phase shift based on scale sign
+        # Has the effect of mirroring the wave
+        if self.scale >= 0:
+            period += math.pi
+
+        # Remap and flip scale |0..inf| -> inf..1
+        # Because this is a flat offset relative to magnitude of the wave,
+        # Higher scales result in smaller waves after normalization
+        scale = abs(self.scale) ** -1 + 1
+
+        # y = sin(x) + x * scale
+        # Ensures y is always increasing over x so long as scale >= 1
+        points = np.sin(period) + period * scale
+
+        points = normalize(points[2:], *points[:2])
 
         return self.base._points(points)

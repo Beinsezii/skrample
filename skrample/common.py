@@ -147,6 +147,16 @@ def regularize(normal_array: NDArray[np.float64], start: float, end: float = 0) 
     return normal_array * (start - end) + end
 
 
+def rescale_positive(x: float) -> float:
+    "-inf..inf -> 0..inf"
+    return (abs(x) + 1) ** math.copysign(1, x)
+
+
+def rescale_subnormal(x: float) -> float:
+    "-inf..inf -> -1..1"
+    return math.copysign(1 - (abs(x) + 1) ** -1, x)
+
+
 def exp[T: Sample](x: T) -> T:
     return math.e**x  # type: ignore
 

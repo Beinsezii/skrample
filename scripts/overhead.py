@@ -6,11 +6,11 @@ import torch
 
 from skrample.diffusers import SkrampleWrapperScheduler
 from skrample.sampling.structured import Euler
-from skrample.scheduling import Beta, FlowShift, SigmoidCDF
+from skrample.scheduling import ZSNR, Beta, FlowShift
 
 
 def bench_wrapper() -> int:
-    wrapper = SkrampleWrapperScheduler(Euler(), Beta(FlowShift(SigmoidCDF())))
+    wrapper = SkrampleWrapperScheduler(Euler(), FlowShift(Beta(ZSNR())))
     wrapper.set_timesteps(1000)
 
     clock = perf_counter_ns()

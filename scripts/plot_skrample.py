@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from numpy.typing import NDArray
 
-import skrample.scheduling as scheduling
+from skrample import scheduling
 from skrample.common import SigmaTransform, sigma_complement, sigma_polar, spowf
 from skrample.sampling import functional, models, structured
 from skrample.sampling.interface import StructuredFunctionalAdapter
@@ -79,22 +79,26 @@ for k, v in list(SAMPLERS.items()):
             if o != v.order:
                 SAMPLERS[k + str(o)] = replace(v, order=o)
 
-SCHEDULES: dict[str, scheduling.ScheduleCommon | scheduling.ScheduleModifier] = {
+SCHEDULES: dict[str, scheduling.ScheduleCommon] = {
     "scaled": scheduling.Scaled(),
     "zsnr": scheduling.ZSNR(),
     "linear": scheduling.Linear(),
-    "sigcdf": scheduling.SigmoidCDF(),
 }
-
-MODIFIERS: dict[str, tuple[type[scheduling.ScheduleModifier], dict[str, Any]] | None] = {
+SUBSCHEDULES: dict[str, tuple[type[scheduling.SubSchedule], dict[str, Any]] | None] = {
     "beta": (scheduling.Beta, {}),
     "exponential": (scheduling.Exponential, {}),
     "karras": (scheduling.Karras, {}),
+    "sigauss": (scheduling.Siggauss, {}),
+    "none": None,
+}
+MODIFIERS: dict[str, tuple[type[scheduling.ScheduleModifier], dict[str, Any]] | None] = {
     "flow": (scheduling.FlowShift, {}),
     "hyper": (scheduling.Hyper, {}),
     "vyper": (scheduling.Hyper, {"scale": -2}),
     "hype": (scheduling.Hyper, {"tail": False}),
     "vype": (scheduling.Hyper, {"scale": -2, "tail": False}),
+    "sinner": (scheduling.Sinner, {}),
+    "pinner": (scheduling.Sinner, {"scale": -scheduling.Sinner.scale}),
     "none": None,
 }
 
@@ -128,6 +132,14 @@ parser_schedule.add_argument(
     choices=list(SCHEDULES.keys()),
     nargs="+",
     default=["scaled_uniform", "sigcdf"],
+)
+parser_schedule.add_argument(
+    "--subschedule",
+    "-S2",
+    type=str,
+    choices=list(SUBSCHEDULES.keys()),
+    nargs="+",
+    default=["none"],
 )
 parser_schedule.add_argument(
     "--modifier",
@@ -217,31 +229,36 @@ elif args.command == "schedules":
     plt.ylabel("Normalized Values")
     plt.title("Skrample Schedules")
 
-    for mod1 in args.modifier:
-        for mod2 in args.modifier_2:
-            for sched_name in args.schedule:
-                schedule = SCHEDULES[sched_name]
+    for sched_name in args.schedule:
+        for sub in args.subschedule:
+            for mod1 in args.modifier:
+                for mod2 in args.modifier_2:
+                    schedule = SCHEDULES[sched_name]
 
-                composed = schedule
-                label: str = sched_name
+                    composed = schedule
+                    label: str = sched_name
 
-                for mod_label, (mod_type, mod_props) in [  # type: ignore # Destructure
-                    m for m in [(mod1, MODIFIERS[mod1]), (mod2, MODIFIERS[mod2])] if m[1]
-                ]:
-                    composed = mod_type(composed, **mod_props)
-                    label += "_" + mod_label
+                    if (subschedule := SUBSCHEDULES[sub]) and sub is not None:
+                        composed = subschedule[0](composed, **subschedule[1])
+                        label += "_" + subschedule[0].__name__.lower()
 
-                label = " ".join([s.capitalize() for s in label.split("_")])
+                    for mod_label, (mod_type, mod_props) in [  # type: ignore # Destructure
+                        m for m in [(mod1, MODIFIERS[mod1]), (mod2, MODIFIERS[mod2])] if m[1]
+                    ]:
+                        composed = mod_type(composed, **mod_props)
+                        label += "_" + mod_label
 
-                data = composed.ipoints(np.linspace(0, 1, args.steps + 1))
+                    label = " ".join([s.capitalize() for s in label.split("_")])
 
-                timesteps = data[:, 0] / composed.base_timesteps
-                sigmas = data[:, 1] / data[:, 1].max()
+                    data = composed.ipoints(np.linspace(0, 1, args.steps + 1))
 
-                marker = "+" if args.steps <= 50 else ""
-                plt.plot(timesteps, label=label + " Timesteps", marker=marker, color=next(COLORS))
-                if not np.allclose(timesteps, sigmas, atol=1e-2):
-                    plt.plot(sigmas, label=label + " Sigmas", marker=marker, color=next(COLORS))
+                    timesteps = data[:, 0] / composed.base_timesteps
+                    sigmas = data[:, 1] / data[:, 1].max()
+
+                    marker = "+" if args.steps <= 50 else ""
+                    plt.plot(timesteps, label=label + " Timesteps", marker=marker, color=next(COLORS))
+                    if not np.allclose(timesteps, sigmas, atol=1e-2):
+                        plt.plot(sigmas, label=label + " Sigmas", marker=marker, color=next(COLORS))
 
 else:
     raise NotImplementedError
