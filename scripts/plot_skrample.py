@@ -120,7 +120,7 @@ parser_sampler.add_argument(
     type=str,
     nargs="+",
     choices=list(SAMPLERS.keys()),
-    default=["euler", "adams", "dpm2", "unipc", "spc"],
+    default=["euler", "adams", "dpm", "unipc", "spc"],
 )
 
 # Schedules
@@ -131,7 +131,7 @@ parser_schedule.add_argument(
     type=str,
     choices=list(SCHEDULES.keys()),
     nargs="+",
-    default=["scaled_uniform", "sigcdf"],
+    default=["linear"],
 )
 parser_schedule.add_argument(
     "--subschedule",
@@ -147,7 +147,7 @@ parser_schedule.add_argument(
     type=str,
     choices=list(MODIFIERS.keys()),
     nargs="+",
-    default=["none", "flow"],
+    default=["none", "flow", "hyper"],
 )
 parser_schedule.add_argument(
     "--modifier_2",
