@@ -427,15 +427,10 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
             noise = None
 
         sample_cast = sample.to(dtype=self.compute_scale)
-        prediction = self.model.to_x(
-            sample_cast,
-            model_output.to(dtype=self.compute_scale),
-            schedule[step, 1].item(),
-            self.schedule.sigma_transform,
-        )
         sampled = self.sampler.sample(
             sample=sample_cast,
-            prediction=prediction,
+            prediction=model_output.to(dtype=self.compute_scale),
+            model_transform=self.model,
             schedule=self.schedule_float,
             step=step,
             noise=noise,

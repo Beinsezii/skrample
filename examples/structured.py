@@ -54,12 +54,11 @@ with torch.inference_mode():
         ).sample.chunk(2)
         model_output: torch.Tensor = conditioned + (cfg - 1) * (conditioned - unconditioned)
 
-        prediction = transform.to_x(sample, model_output, sigma, schedule.sigma_transform)
-
         sampler_output = sampler.sample(
             sample=sample,
-            prediction=prediction,
+            prediction=model_output,
             step=n,
+            model_transform=transform,
             schedule=float_schedule,
             sigma_transform=schedule.sigma_transform,
             noise=torch.randn(sample.shape, generator=seed).to(dtype=sample.dtype, device=sample.device),

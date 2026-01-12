@@ -30,13 +30,11 @@ class StructuredFunctionalAdapter(functional.FunctionalSampler):
         for n in list(range(len(float_schedule)))[include]:
             timestep, sigma = float_schedule[n]
 
-            output = model(self.sampler.scale_input(sample, sigma, schedule.sigma_transform), timestep, sigma)
-            prediction = model_transform.to_x(sample, output, sigma, schedule.sigma_transform)
-
             sksamples = self.sampler.sample(
                 sample,
-                prediction,
+                model(self.sampler.scale_input(sample, sigma, schedule.sigma_transform), timestep, sigma),
                 n,
+                model_transform,
                 float_schedule,
                 schedule.sigma_transform,
                 noise=rng() if rng and self.sampler.require_noise else None,

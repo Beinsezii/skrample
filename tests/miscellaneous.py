@@ -26,7 +26,7 @@ from skrample.common import (
 )
 from skrample.sampling import tableaux
 from skrample.sampling.interface import StructuredFunctionalAdapter
-from skrample.sampling.models import DiffusionModel, FlowModel, ModelConvert
+from skrample.sampling.models import DataModel, DiffusionModel, FlowModel, ModelConvert
 from skrample.sampling.structured import (
     DPM,
     SPC,
@@ -112,15 +112,20 @@ def test_model_convert(
 def test_sampler_generics(sampler: StructuredSampler, schedule: ScheduleCommon) -> None:
     eps = 1e-12
     i, o = random.random(), random.random()
-    prev = [SKSamples(random.random(), random.random(), random.random()) for _ in range(9)]
+    prev = [
+        SKSamples(random.random(), random.random(), random.random(), random.random(), random.random()) for _ in range(9)
+    ]
 
-    scalar = sampler.sample(i, o, 4, schedule.schedule(10), schedule.sigma_transform, previous=tuple(prev)).final
+    scalar = sampler.sample(
+        i, o, 4, DataModel(), schedule.schedule(10), schedule.sigma_transform, previous=tuple(prev)
+    ).final
 
     # Enforce FP64 as that should be equivalent to python scalar
     ndarr = sampler.sample(
         np.array([i], dtype=np.float64),
         np.array([o], dtype=np.float64),
         4,
+        DataModel(),
         schedule.schedule(10),
         schedule.sigma_transform,
         previous=prev,  # type: ignore
@@ -130,6 +135,7 @@ def test_sampler_generics(sampler: StructuredSampler, schedule: ScheduleCommon) 
         torch.tensor([i], dtype=torch.float64),
         torch.tensor([o], dtype=torch.float64),
         4,
+        DataModel(),
         schedule.schedule(10),
         schedule.sigma_transform,
         previous=prev,  # type: ignore
@@ -160,12 +166,13 @@ def test_sampler_generics(sampler: StructuredSampler, schedule: ScheduleCommon) 
 def test_require_previous(sampler: StructuredSampler) -> None:
     sample = 1.5
     prediction = 0.5
-    previous = tuple(SKSamples(n / 2, n * 2, n * 1.5) for n in range(100))
+    previous = tuple(SKSamples(n / 2, n * 2, n * 1.5, 1 / (n + 1), n**0.5) for n in range(100))
 
     a = sampler.sample(
         sample,
         prediction,
         31,
+        DataModel(),
         Linear().schedule(100),
         sigma_complement,
         None,
@@ -175,6 +182,7 @@ def test_require_previous(sampler: StructuredSampler) -> None:
         sample,
         prediction,
         31,
+        DataModel(),
         Linear().schedule(100),
         sigma_complement,
         None,
@@ -206,13 +214,14 @@ def test_require_previous(sampler: StructuredSampler) -> None:
 def test_require_noise(sampler: StructuredSampler) -> None:
     sample = 1.5
     prediction = 0.5
-    previous = tuple(SKSamples(n / 2, n * 2, n * 1.5) for n in range(100))
+    previous = tuple(SKSamples(n / 2, n * 2, n * 1.5, 1 / (n + 1), n**0.5) for n in range(100))
     noise = -0.5
 
     a = sampler.sample(
         sample,
         prediction,
         31,
+        DataModel(),
         Linear().schedule(100),
         sigma_complement,
         noise,
@@ -222,6 +231,7 @@ def test_require_noise(sampler: StructuredSampler) -> None:
         sample,
         prediction,
         31,
+        DataModel(),
         Linear().schedule(100),
         sigma_complement,
         noise if sampler.require_noise else None,
@@ -261,8 +271,9 @@ def test_functional_adapter(sampler: StructuredSampler, schedule: ScheduleCommon
     for n, (t, s) in enumerate(float_schedule):
         results = sampler.sample(
             sample_s,
-            model_transform.to_x(sample_s, fake_model(sample_s, t, s), s, schedule.sigma_transform),
+            fake_model(sample_s, t, s),
             n,
+            model_transform,
             float_schedule,
             schedule.sigma_transform,
             next(rng),

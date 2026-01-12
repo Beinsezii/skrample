@@ -12,6 +12,7 @@ from numpy.typing import NDArray
 import skrample.sampling.structured as sampling
 import skrample.scheduling as scheduling
 from skrample.common import FloatSchedule, SigmaTransform, sigma_complement, sigma_polar
+from skrample.sampling.models import DataModel
 
 parser = ArgumentParser()
 parser.add_argument("out", type=FileType("w"))
@@ -42,6 +43,7 @@ def sample_model(
         result = sampler.sample(
             sample=sample,
             prediction=math.sin(sigma * curve),
+            model_transform=DataModel(),
             step=step,
             schedule=schedule,
             sigma_transform=transform,
