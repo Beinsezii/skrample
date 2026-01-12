@@ -213,7 +213,10 @@ if args.command == "samplers":
 
         return timesteps, sampled_values
 
-    plt.plot(*sample_model(structured.Euler(), schedule.base_timesteps), label="Reference", color=next(COLORS))
+    ground_truth = sample_model(structured.Euler(), schedule.base_timesteps)
+    plt.plot(*ground_truth, label="Reference", color=next(COLORS))
+    ymin, ymax = min(ground_truth[1]), max(ground_truth[1])
+    plt.ylim(ymin - 0.1 * ymin, ymax + 0.1 * ymax)
 
     for sampler in [SAMPLERS[s] for s in args.sampler]:
         label = type(sampler).__name__
