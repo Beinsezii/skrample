@@ -286,6 +286,9 @@ class DPM(StatedSampler, StructuredMultistep, StructuredStochastic):
 class Adams(StatedSampler, StructuredMultistep):
     "Higher order extension to Euler using the Adams-Bashforth coefficients on the model prediction"
 
+    derivative_transform: models.DiffusionModel | None = models.DataModel()  # noqa: RUF009 # is immutable
+    "Transform model output to this space when computing the result"
+
     @staticmethod
     def max_order() -> int:
         return 9
@@ -303,26 +306,27 @@ class Adams(StatedSampler, StructuredMultistep):
     ) -> T:
         effective_order = self.effective_order(step, schedule, previous)
 
-        predictions = [
-            model_transform.to_x(
-                sample,
-                prediction,
-                schedule[step][1],
-                sigma_transform,
-            ),
-            *reversed(
-                [
-                    model_transform.to_x(p.sample, p.prediction, p.sigma, sigma_transform)
-                    for p in previous[-effective_order + 1 :]
-                ]
-            ),
-        ]
+        if self.derivative_transform:
+            convert = models.ModelConvert(model_transform, self.derivative_transform)
+            predictions = [
+                convert.output_to(sample, prediction, schedule[step][1], sigma_transform),
+                *reversed(
+                    [
+                        convert.output_to(p.sample, p.prediction, p.sigma, sigma_transform)
+                        for p in previous[-effective_order + 1 :]
+                    ]
+                ),
+            ]
+            model_transform = convert.transform_to
+        else:
+            predictions = [prediction, *reversed([p.prediction for p in previous[-effective_order + 1 :]])]
+
         weighted_prediction: T = math.sumprod(
             predictions[:effective_order],  # type: ignore
             common.bashforth(effective_order),
         )
 
-        return models.DataModel().forward(
+        return model_transform.forward(
             sample,
             weighted_prediction,
             schedule[step][1],
@@ -460,6 +464,9 @@ class UniPC(UniP):
     solver: StructuredSampler | None = None
     "If not set, defaults to `UniSolver(order=self.order)`"
 
+    derivative_transform: models.DiffusionModel | None = models.DataModel()  # noqa: RUF009 # is immutable
+    "Transform model output to this space when computing the result"
+
     @staticmethod
     def max_order() -> int:
         # TODO(beinsezii): seems more stable after converting to python scalars
@@ -486,8 +493,10 @@ class UniPC(UniP):
         noise: T | None = None,
         previous: tuple[SKSamples[T], ...] = (),
     ) -> SKSamples[T]:
-        prediction = model_transform.to_x(sample, prediction, schedule[step][1], sigma_transform)
-        model_transform = models.DataModel()  # TODO (beinsezii): shouldn't be needed
+        if self.derivative_transform:
+            convert = models.ModelConvert(model_transform, self.derivative_transform)
+            prediction = convert.output_to(sample, prediction, schedule[step][1], sigma_transform)
+            model_transform = convert.transform_to
 
         if previous:
             sample = self.unisolve(
@@ -533,6 +542,9 @@ class SPC(StructuredSampler):
     invert: bool = False
     "Invert the prediction/correction ratios"
 
+    derivative_transform: models.DiffusionModel | None = models.DataModel()  # noqa: RUF009 # is immutable
+    "Transform model output to this space when computing the result"
+
     @property
     def require_noise(self) -> bool:
         return self.predictor.require_noise or self.corrector.require_noise
@@ -552,8 +564,10 @@ class SPC(StructuredSampler):
         noise: T | None = None,
         previous: tuple[SKSamples[T], ...] = (),
     ) -> SKSamples[T]:
-        prediction = model_transform.to_x(sample, prediction, schedule[step][1], sigma_transform)
-        model_transform = models.DataModel()  # TODO (beinsezii): shouldn't be needed
+        if self.derivative_transform:
+            convert = models.ModelConvert(model_transform, self.derivative_transform)
+            prediction = convert.output_to(sample, prediction, schedule[step][1], sigma_transform)
+            model_transform = convert.transform_to
 
         if previous:
             offset_previous = tuple(
