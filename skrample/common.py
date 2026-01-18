@@ -4,7 +4,7 @@ from collections.abc import Callable, Sequence
 from functools import lru_cache
 from itertools import repeat
 from types import MappingProxyType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 from numpy.typing import NDArray
@@ -25,11 +25,16 @@ type SigmaTransform = Callable[[float], tuple[float, float]]
 type DictOrProxy[T, U] = MappingProxyType[T, U] | dict[T, U]  # Mapping does not implement __or__
 "Simple union type for a possibly immutable dictionary"
 
-type FloatSchedule = Sequence[tuple[float, float]]
+type FloatSchedule = Sequence[Point]
 "Sequence of timestep, sigma"
 
 type RNG[T: Sample] = Callable[[], T]
 "Distribution should match model, typically normal"
+
+
+class Point(NamedTuple):
+    timestep: float
+    sigma: float
 
 
 @enum.unique
