@@ -1,7 +1,7 @@
 import dataclasses
 
 from skrample import scheduling
-from skrample.common import RNG, FloatSchedule, Sample, SigmaTransform
+from skrample.common import RNG, FloatSchedule, Sample, SigmaTransform, Step
 
 from . import functional, models, structured
 
@@ -27,18 +27,17 @@ class StructuredFunctionalAdapter(functional.FunctionalSampler):
         previous: list[structured.SKSamples[T]] = []
         float_schedule: FloatSchedule = schedule.schedule(steps)
 
-        for n in list(range(len(float_schedule)))[include]:
-            timestep, sigma = float_schedule[n]
-
-            sksamples = self.sampler.sample(
-                sample,
-                model(self.sampler.scale_input(sample, sigma, schedule.sigma_transform), timestep, sigma),
-                n,
+        for n, point in list(enumerate(float_schedule))[include]:
+            sksamples = self.sampler.sample_packed(
+                structured.SampleInput(
+                    sample=sample,
+                    prediction=model(self.sampler.scale_input(sample, point.sigma, schedule.sigma_transform), *point),
+                    step=Step.from_int(n, len(float_schedule)),
+                    noise=rng() if rng and self.sampler.require_noise else None,
+                ),
                 model_transform,
-                float_schedule,
-                schedule.sigma_transform,
-                noise=rng() if rng and self.sampler.require_noise else None,
-                previous=tuple(previous),
+                schedule,
+                previous=previous,
             )
 
             if self.sampler.require_previous > 0:

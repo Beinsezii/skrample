@@ -1,22 +1,34 @@
+import dataclasses
 import math
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 
 import numpy as np
 
 from skrample import common
-from skrample.common import FloatSchedule, Sample, SigmaTransform, divf, ln, merge_noise, softmax, spowf
+from skrample.common import (
+    DeltaPoint,
+    DeltaUV,
+    Point,
+    Sample,
+    SigmaTransform,
+    Step,
+    divf,
+    ln,
+    merge_noise,
+    softmax,
+    spowf,
+)
+from skrample.scheduling import SkrampleSchedule
 
 from . import models
 
 
 @dataclass(frozen=True)
-class SKSamples[T: Sample]:
+class SampleInput[T: Sample]:
     """Sampler result struct for easy management of multiple sampling stages.
     This should be accumulated in a list for the denoising loop in order to use higher order features"""
-
-    final: T
-    "Final result. What you probably want"
 
     sample: T
     "The model input"
@@ -24,11 +36,23 @@ class SKSamples[T: Sample]:
     prediction: T
     "The model prediction"
 
-    sigma: float
-    "The noise amount"
+    step: Step
+    "Time at which to evaluate"
 
     noise: T | None
     "The extra stochastic noise"
+
+    def delta_point(self, schedule: SkrampleSchedule) -> DeltaPoint:
+        return DeltaPoint(*(Point(*p) for p in schedule.ipoints(self.step).tolist()))
+
+    def delta_uv(self, schedule: SkrampleSchedule) -> DeltaUV:
+        return self.delta_point(schedule).uv(schedule.sigma_transform)
+
+
+@dataclass(frozen=True)
+class SKSamples[T: Sample](SampleInput[T]):
+    final: T
+    "Final result. What you probably want"
 
 
 @dataclass(frozen=True)
@@ -50,16 +74,23 @@ class StructuredSampler(ABC):
         return 0
 
     @abstractmethod
+    def sample_packed[T: Sample](
+        self,
+        packed: SampleInput[T],
+        model_transform: models.DiffusionModel,
+        schedule: SkrampleSchedule,
+        previous: Sequence[SKSamples[T]] = (),
+    ) -> SKSamples[T]: ...
+
     def sample[T: Sample](
         self,
         sample: T,
         prediction: T,
-        step: int,
+        step: Step | tuple[float, float],
         model_transform: models.DiffusionModel,
-        schedule: FloatSchedule,
-        sigma_transform: SigmaTransform,
+        schedule: SkrampleSchedule,
         noise: T | None = None,
-        previous: tuple[SKSamples[T], ...] = (),
+        previous: Sequence[SKSamples[T]] = (),
     ) -> SKSamples[T]:
         """sigma_schedule is just the sigmas, IE SkrampleSchedule()[:, 1].
 
@@ -71,6 +102,12 @@ class StructuredSampler(ABC):
         This is NOT the input noise, which is added directly into the sample with `merge_noise()`
 
         """
+        return self.sample_packed(
+            SampleInput(sample=sample, prediction=prediction, step=Step(*step), noise=noise),
+            model_transform=model_transform,
+            schedule=schedule,
+            previous=previous,
+        )
 
     def scale_input[T: Sample](self, sample: T, sigma: float, sigma_transform: SigmaTransform) -> T:
         return sample
@@ -82,45 +119,34 @@ class StructuredSampler(ABC):
 @dataclass(frozen=True)
 class StatedSampler(StructuredSampler):
     @abstractmethod
-    def _sample[T: Sample](
+    def _sample_packed[T: Sample](
         self,
-        sample: T,
-        prediction: T,
-        step: int,
+        packed: SampleInput[T],
         model_transform: models.DiffusionModel,
-        schedule: FloatSchedule,
-        sigma_transform: SigmaTransform,
-        noise: T | None = None,
-        previous: tuple[SKSamples[T], ...] = (),
+        schedule: SkrampleSchedule,
+        previous: Sequence[SKSamples[T]],
     ) -> T:
-        "Must not modify any Sample values."
+        "Must not modify or shadow `packed`"
 
-    def sample[T: Sample](
+    def sample_packed[T: Sample](
         self,
-        sample: T,
-        prediction: T,
-        step: int,
+        packed: SampleInput[T],
         model_transform: models.DiffusionModel,
-        schedule: FloatSchedule,
-        sigma_transform: SigmaTransform,
-        noise: T | None = None,
-        previous: tuple[SKSamples[T], ...] = (),
+        schedule: SkrampleSchedule,
+        previous: Sequence[SKSamples[T]] = (),
     ) -> SKSamples[T]:
         return SKSamples(
-            final=self._sample(
-                sample=sample,
-                prediction=prediction,
-                step=step,
-                model_transform=model_transform,
-                schedule=schedule,
-                sigma_transform=sigma_transform,
-                noise=noise,
-                previous=previous,
-            ),
-            sample=sample,
-            sigma=schedule[step][1],
-            prediction=prediction,
-            noise=noise,
+            **(
+                dataclasses.asdict(packed)
+                | {
+                    "final": self._sample_packed(
+                        packed,
+                        model_transform=model_transform,
+                        schedule=schedule,
+                        previous=previous,
+                    )
+                }
+            )
         )
 
 
@@ -144,16 +170,17 @@ class StructuredMultistep(StructuredSampler):
     def require_previous(self) -> int:
         return max(min(self.order, self.max_order()), self.min_order()) - 1
 
-    def effective_order(self, step: int, schedule: FloatSchedule, previous: tuple[SKSamples, ...]) -> int:
+    def effective_order(self, step: Step, previous: Sequence[SKSamples]) -> int:
         "The order used in calculation given a step, schedule length, and previous sample count"
         return max(
             1,  # not min_order because previous may be < min. samplers should check effective >= min
             min(
                 self.max_order(),
-                step + 1,
+                round((position := step.position()) + 1),
                 self.order,
                 len(previous) + 1,
-                len(schedule) - step,  # lower for final is the default
+                round(step.amount() - position),  # lower for final is the default
+                # len(schedule) - step,  # lower for final is the default
             ),
         )
 
@@ -172,23 +199,20 @@ class StructuredStochastic(StructuredSampler):
 class Euler(StatedSampler):
     """Basic sampler, the "safe" choice."""
 
-    def _sample[T: Sample](
+    def _sample_packed[T: Sample](
         self,
-        sample: T,
-        prediction: T,
-        step: int,
+        packed: SampleInput[T],
         model_transform: models.DiffusionModel,
-        schedule: FloatSchedule,
-        sigma_transform: SigmaTransform,
-        noise: T | None = None,
-        previous: tuple[SKSamples[T], ...] = (),
+        schedule: SkrampleSchedule,
+        previous: Sequence[SKSamples[T]],
     ) -> T:
+        delta = packed.delta_point(schedule)
         return model_transform.forward(
-            sample,
-            prediction,
-            schedule[step][1],
-            schedule[step + 1][1] if step + 1 < len(schedule) else 0,
-            sigma_transform,
+            packed.sample,
+            packed.prediction,
+            delta.point_from.sigma,
+            delta.point_to.sigma,
+            schedule.sigma_transform,
         )
 
 
@@ -204,30 +228,31 @@ class DPM(StatedSampler, StructuredMultistep, StructuredStochastic):
     def max_order() -> int:
         return 3  # TODO(beinsezii): 3, 4+?
 
-    def _sample[T: Sample](
+    def _sample_packed[T: Sample](
         self,
-        sample: T,
-        prediction: T,
-        step: int,
+        packed: SampleInput[T],
         model_transform: models.DiffusionModel,
-        schedule: FloatSchedule,
-        sigma_transform: SigmaTransform,
-        noise: T | None = None,
-        previous: tuple[SKSamples[T], ...] = (),
+        schedule: SkrampleSchedule,
+        previous: Sequence[SKSamples[T]],
     ) -> T:
-        sigma_u, sigma_v = common.get_sigma_uv(step, schedule, sigma_transform)
-        sigma_u_next, sigma_v_next = common.get_sigma_uv(step + 1, schedule, sigma_transform)
+        delta = packed.delta_point(schedule)
+        (sigma_u, sigma_v), (sigma_u_next, sigma_v_next) = delta.uv(schedule.sigma_transform)
 
         lambda_ = ln(divf(sigma_v, sigma_u))
         lambda_next = ln(divf(sigma_v_next, sigma_u_next))
         h = abs(lambda_next - lambda_)
 
-        x_prediction = model_transform.to_x(sample, prediction, schedule[step][1], sigma_transform)
+        x_prediction = model_transform.to_x(
+            packed.sample,
+            packed.prediction,
+            delta.point_from.sigma,
+            schedule.sigma_transform,
+        )
 
-        if noise is not None and self.add_noise:
+        if packed.noise is not None and self.add_noise:
             exp1 = math.exp(-h)
             hh = -2 * h
-            noise_factor = sigma_u_next * math.sqrt(1 - math.exp(hh)) * noise
+            noise_factor = sigma_u_next * math.sqrt(1 - math.exp(hh)) * packed.noise
         else:
             exp1 = 1
             hh = -h
@@ -235,13 +260,14 @@ class DPM(StatedSampler, StructuredMultistep, StructuredStochastic):
 
         exp2 = math.expm1(hh)
 
-        final = noise_factor + (sigma_u_next / sigma_u * exp1) * sample
+        final = noise_factor + (sigma_u_next / sigma_u * exp1) * packed.sample
 
         # 1st order
         final -= (sigma_v_next * exp2) * x_prediction
 
-        if (effective_order := self.effective_order(step, schedule, previous)) >= 2:
-            sigma_u_prev, sigma_v_prev = common.get_sigma_uv(step - 1, schedule, sigma_transform)
+        if (effective_order := self.effective_order(packed.step, previous)) >= 2:
+            point_prev = schedule.ipoint(previous[-1].step.time_from)
+            sigma_u_prev, sigma_v_prev = schedule.sigma_transform(point_prev.sigma)
 
             lambda_prev = ln(divf(sigma_v_prev, sigma_u_prev))
             h_prev = lambda_ - lambda_prev
@@ -251,13 +277,15 @@ class DPM(StatedSampler, StructuredMultistep, StructuredStochastic):
             x_prediction_prev = model_transform.to_x(
                 previous[-1].sample,
                 previous[-1].prediction,
-                schedule[step - 1][1],
-                sigma_transform,
+                point_prev.sigma,
+                schedule.sigma_transform,
             )
             D1_0 = (1.0 / r) * (x_prediction - x_prediction_prev)
 
             if effective_order >= 3:
-                sigma_u_prev2, sigma_v_prev2 = common.get_sigma_uv(step - 2, schedule, sigma_transform)
+                point_prev2 = schedule.ipoint(previous[-2].step.time_from)
+                sigma_u_prev2, sigma_v_prev2 = schedule.sigma_transform(point_prev2.sigma)
+
                 lambda_prev2 = ln(divf(sigma_v_prev2, sigma_u_prev2))
                 h_prev2 = lambda_prev - lambda_prev2
                 r_prev2 = h_prev2 / h
@@ -265,8 +293,8 @@ class DPM(StatedSampler, StructuredMultistep, StructuredStochastic):
                 x_prediction_p2 = model_transform.to_x(
                     previous[-2].sample,
                     previous[-2].prediction,
-                    schedule[step - 2][1],
-                    sigma_transform,
+                    point_prev2.sigma,
+                    schedule.sigma_transform,
                 )
 
                 D1_1 = (1.0 / r_prev2) * (x_prediction_prev - x_prediction_p2)
@@ -293,33 +321,35 @@ class Adams(StatedSampler, StructuredMultistep):
     def max_order() -> int:
         return 9
 
-    def _sample[T: Sample](
+    def _sample_packed[T: Sample](
         self,
-        sample: T,
-        prediction: T,
-        step: int,
+        packed: SampleInput[T],
         model_transform: models.DiffusionModel,
-        schedule: FloatSchedule,
-        sigma_transform: SigmaTransform,
-        noise: T | None = None,
-        previous: tuple[SKSamples[T], ...] = (),
+        schedule: SkrampleSchedule,
+        previous: Sequence[SKSamples[T]],
     ) -> T:
-        effective_order = self.effective_order(step, schedule, previous)
+        effective_order = self.effective_order(packed.step, previous)
+        delta = packed.delta_point(schedule)
 
         if self.derivative_transform:
             convert = models.ModelConvert(model_transform, self.derivative_transform)
             predictions = [
-                convert.output_to(sample, prediction, schedule[step][1], sigma_transform),
+                convert.output_to(packed.sample, packed.prediction, delta.point_from.sigma, schedule.sigma_transform),
                 *reversed(
                     [
-                        convert.output_to(p.sample, p.prediction, p.sigma, sigma_transform)
+                        convert.output_to(
+                            p.sample,
+                            p.prediction,
+                            p.delta_point(schedule).point_from.sigma,
+                            schedule.sigma_transform,
+                        )
                         for p in previous[-effective_order + 1 :]
                     ]
                 ),
             ]
             model_transform = convert.transform_to
         else:
-            predictions = [prediction, *reversed([p.prediction for p in previous[-effective_order + 1 :]])]
+            predictions = [packed.prediction, *reversed([p.prediction for p in previous[-effective_order + 1 :]])]
 
         weighted_prediction: T = math.sumprod(
             predictions[:effective_order],  # type: ignore
@@ -327,11 +357,11 @@ class Adams(StatedSampler, StructuredMultistep):
         )
 
         return model_transform.forward(
-            sample,
+            packed.sample,
             weighted_prediction,
-            schedule[step][1],
-            schedule[step + 1][1] if step + 1 < len(schedule) else 0,
-            sigma_transform,
+            delta.point_from.sigma,
+            delta.point_to.sigma,
+            schedule.sigma_transform,
         )
 
 
@@ -350,20 +380,16 @@ class UniP(StatedSampler, StructuredMultistep):
 
     def unisolve[T: Sample](
         self,
-        sample: T,
-        prediction: T,
-        step: int,
+        packed: SampleInput[T],
         model_transform: models.DiffusionModel,
-        schedule: FloatSchedule,
-        sigma_transform: SigmaTransform,
-        noise: T | None = None,
-        previous: tuple[SKSamples[T], ...] = (),
+        schedule: SkrampleSchedule,
+        previous: Sequence[SKSamples[T]],
         x_prediction_next: Sample | None = None,
     ) -> T:
         "Passing `prediction_next` is equivalent to UniC, otherwise behaves as UniP"
 
-        sigma_u, sigma_v = common.get_sigma_uv(step, schedule, sigma_transform)
-        sigma_u_next, sigma_v_next = common.get_sigma_uv(step + 1, schedule, sigma_transform)
+        delta = packed.delta_point(schedule)
+        (sigma_u, sigma_v), (sigma_u_next, sigma_v_next) = delta.uv(schedule.sigma_transform)
 
         lambda_ = ln(divf(sigma_v, sigma_u))
         lambda_next = ln(divf(sigma_v_next, sigma_u_next))
@@ -378,22 +404,26 @@ class UniP(StatedSampler, StructuredMultistep):
         # bh2
         B_h = h_phi_1
 
-        x_prediction = model_transform.to_x(sample, prediction, schedule[step][1], sigma_transform)
+        x_prediction = model_transform.to_x(
+            packed.sample,
+            packed.prediction,
+            delta.point_from.sigma,
+            schedule.sigma_transform,
+        )
 
         rks: list[float] = []
         D1s: list[Sample] = []
-        effective_order = self.effective_order(step, schedule, previous)
+        effective_order = self.effective_order(packed.step, previous)
         for n in range(1, effective_order):
-            step_prev_N = step - n
-
+            sigma_prev_N = previous[-n].delta_point(schedule).point_from.sigma
             x_prediction_prev_N = model_transform.to_x(
                 previous[-n].sample,
                 previous[-n].prediction,
-                schedule[step_prev_N][1],
-                sigma_transform,
+                sigma_prev_N,
+                schedule.sigma_transform,
             )
 
-            sigma_u_prev_N, sigma_v_prev_N = common.get_sigma_uv(step_prev_N, schedule, sigma_transform)
+            sigma_u_prev_N, sigma_v_prev_N = schedule.sigma_transform(sigma_prev_N)
             lambda_pO = ln(divf(sigma_v_prev_N, sigma_u_prev_N))
             rk = (lambda_pO - lambda_) / h
             if math.isfinite(rk):  # for subnormal
@@ -427,7 +457,7 @@ class UniP(StatedSampler, StructuredMultistep):
         result = math.sumprod(rhos[: len(D1s)], D1s)  # type: ignore  # Float
 
         # if self.predict_x0:
-        x_t_ = sigma_u_next / sigma_u * sample - sigma_v_next * h_phi_1 * x_prediction
+        x_t_ = sigma_u_next / sigma_u * packed.sample - sigma_v_next * h_phi_1 * x_prediction
 
         if x_prediction_next is not None:
             D1_t = x_prediction_next - x_prediction
@@ -441,18 +471,14 @@ class UniP(StatedSampler, StructuredMultistep):
 
         return final  # type: ignore
 
-    def _sample[T: Sample](
+    def _sample_packed[T: Sample](
         self,
-        sample: T,
-        prediction: T,
-        step: int,
+        packed: SampleInput[T],
         model_transform: models.DiffusionModel,
-        schedule: FloatSchedule,
-        sigma_transform: SigmaTransform,
-        noise: T | None = None,
-        previous: tuple[SKSamples[T], ...] = (),
+        schedule: SkrampleSchedule,
+        previous: Sequence[SKSamples[T]],
     ) -> T:
-        return self.unisolve(sample, prediction, step, model_transform, schedule, sigma_transform, noise, previous)
+        return self.unisolve(packed, model_transform, schedule, previous)
 
 
 @dataclass(frozen=True)
@@ -482,45 +508,46 @@ class UniPC(UniP):
         # +1 for correction
         return max(super().require_previous + 1, self.solver.require_previous if self.solver else 0)
 
-    def sample[T: Sample](
+    def sample_packed[T: Sample](
         self,
-        sample: T,
-        prediction: T,
-        step: int,
+        packed: SampleInput[T],
         model_transform: models.DiffusionModel,
-        schedule: FloatSchedule,
-        sigma_transform: SigmaTransform,
-        noise: T | None = None,
-        previous: tuple[SKSamples[T], ...] = (),
+        schedule: SkrampleSchedule,
+        previous: Sequence[SKSamples[T]] = (),
     ) -> SKSamples[T]:
+        delta = packed.delta_point(schedule)
+
         if self.derivative_transform:
             convert = models.ModelConvert(model_transform, self.derivative_transform)
-            prediction = convert.output_to(sample, prediction, schedule[step][1], sigma_transform)
+            packed = replace(
+                packed,
+                prediction=convert.output_to(
+                    packed.sample,
+                    packed.prediction,
+                    delta.point_from.sigma,
+                    schedule.sigma_transform,
+                ),
+            )
             model_transform = convert.transform_to
 
         if previous:
-            sample = self.unisolve(
-                previous[-1].sample,
-                previous[-1].prediction,
-                step - 1,
-                model_transform,
-                schedule,
-                sigma_transform,
-                noise,
-                previous[:-1],
-                x_prediction_next=model_transform.to_x(sample, prediction, schedule[step][1], sigma_transform),
+            packed = replace(
+                packed,
+                sample=self.unisolve(
+                    previous[-1],
+                    model_transform,
+                    schedule,
+                    previous[:-1],
+                    x_prediction_next=model_transform.to_x(
+                        packed.sample,
+                        packed.prediction,
+                        delta.point_from.sigma,
+                        schedule.sigma_transform,
+                    ),
+                ),
             )
 
-        return (self.solver if self.solver else super()).sample(
-            sample,
-            prediction,
-            step,
-            model_transform,
-            schedule,
-            sigma_transform,
-            noise,
-            previous,
-        )
+        return (self.solver if self.solver else super()).sample_packed(packed, model_transform, schedule, previous)
 
 
 @dataclass(frozen=True)
@@ -553,42 +580,43 @@ class SPC(StructuredSampler):
     def require_previous(self) -> int:
         return max(self.predictor.require_previous, self.corrector.require_previous + 1)
 
-    def sample[T: Sample](
+    def sample_packed[T: Sample](
         self,
-        sample: T,
-        prediction: T,
-        step: int,
+        packed: SampleInput[T],
         model_transform: models.DiffusionModel,
-        schedule: FloatSchedule,
-        sigma_transform: SigmaTransform,
-        noise: T | None = None,
-        previous: tuple[SKSamples[T], ...] = (),
+        schedule: SkrampleSchedule,
+        previous: Sequence[SKSamples[T]] = (),
     ) -> SKSamples[T]:
+        delta = packed.delta_point(schedule)
+
         if self.derivative_transform:
             convert = models.ModelConvert(model_transform, self.derivative_transform)
-            prediction = convert.output_to(sample, prediction, schedule[step][1], sigma_transform)
+            packed = replace(
+                packed,
+                prediction=convert.output_to(
+                    packed.sample,
+                    packed.prediction,
+                    delta.point_from.sigma,
+                    schedule.sigma_transform,
+                ),
+            )
             model_transform = convert.transform_to
 
         if previous:
-            offset_previous = tuple(
+            offset_previous: list[SKSamples[T]] = [
                 replace(p, prediction=pred)
-                for p, pred in zip(previous, (*(p.prediction for p in previous[1:]), prediction), strict=True)
-            )
-            prior = offset_previous[-1]
+                for p, pred in zip(previous, (*(p.prediction for p in previous[1:]), packed.prediction), strict=True)
+            ]
 
-            corrected = self.corrector.sample(
-                prior.sample,
-                prior.prediction,
-                step - 1,
+            corrected = self.corrector.sample_packed(
+                offset_previous.pop(),
                 model_transform,
                 schedule,
-                sigma_transform,
-                prior.noise,
                 offset_previous[:-1],
             ).final
 
             if self.adaptive:
-                p, c = common.get_sigma_uv(step, schedule, sigma_transform)
+                p, c = delta.uv(schedule.sigma_transform).uv_from
             else:
                 p, c = 0, 0
 
@@ -599,18 +627,12 @@ class SPC(StructuredSampler):
 
             if abs(self.power - 1) > 1e-8:  # short circuit because spowf is expensive
                 sample = spowf(
-                    spowf(sample, self.power) * p + spowf(corrected, self.power) * c,
+                    spowf(packed.sample, self.power) * p + spowf(corrected, self.power) * c,
                     1 / self.power,
-                )  # type: ignore
+                )
             else:
-                sample = sample * p + corrected * c  # type: ignore
-        return self.predictor.sample(
-            sample,
-            prediction,
-            step,
-            model_transform,
-            schedule,
-            sigma_transform,
-            noise,
-            previous,
-        )
+                sample = packed.sample * p + corrected * c
+
+            packed = replace(packed, sample=sample)
+
+        return self.predictor.sample_packed(packed, model_transform, schedule, previous)

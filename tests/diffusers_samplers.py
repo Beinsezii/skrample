@@ -12,7 +12,7 @@ from diffusers.schedulers.scheduling_heun_discrete import HeunDiscreteScheduler
 from diffusers.schedulers.scheduling_unipc_multistep import UniPCMultistepScheduler
 from testing_common import FLOW_CONFIG, SCALED_CONFIG, compare_tensors
 
-from skrample.common import SigmaTransform, sigma_complement, sigma_polar
+from skrample.common import SigmaTransform, Step, sigma_complement, sigma_polar
 from skrample.sampling.functional import RKUltra
 from skrample.sampling.models import DiffusionModel, FlowModel, NoiseModel, VelocityModel
 from skrample.sampling.structured import DPM, Euler, SKSamples, StructuredSampler, UniPC
@@ -69,6 +69,8 @@ def dual_sample(
 
     sigma_transform = sigma_complement if isinstance(model_transform, FlowModel) else sigma_polar
 
+    skrample_schedule = FixedSchedule(schedule.numpy(), sigma_transform)
+
     a_sample = a.merge_noise(a_sample, initial_noise, sigma.item(), sigma_transform)
 
     prior_steps: list[SKSamples] = []
@@ -80,7 +82,13 @@ def dual_sample(
 
         a_output = fake_model(a.scale_input(a_sample, sigma.item(), sigma_transform))
         sampled = a.sample(
-            a_sample, a_output, step, model_transform, schedule.numpy().tolist(), sigma_transform, noise, prior_steps
+            a_sample,
+            a_output,
+            Step.from_int(step, steps.stop),
+            model_transform,
+            skrample_schedule,
+            noise,
+            prior_steps,
         )
         a_sample = sampled.final
         prior_steps.append(sampled)

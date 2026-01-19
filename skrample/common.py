@@ -18,7 +18,7 @@ else:
     type Sample = float | NDArray[np.floating]
 
 
-type SigmaTransform = Callable[[float], tuple[float, float]]
+type SigmaTransform = Callable[[float], SigmaUV]
 "Transforms a single noise sigma into a pair"
 
 
@@ -32,9 +32,61 @@ type RNG[T: Sample] = Callable[[], T]
 "Distribution should match model, typically normal"
 
 
+class SigmaUV(NamedTuple):
+    u: float
+    v: float
+
+
+class DeltaUV(NamedTuple):
+    uv_from: SigmaUV
+    uv_to: SigmaUV
+
+    def dt(self) -> SigmaUV:
+        return SigmaUV(u=self.uv_to.u - self.uv_from.u, v=self.uv_to.v - self.uv_from.v)
+
+
 class Point(NamedTuple):
     timestep: float
     sigma: float
+
+
+class DeltaPoint(NamedTuple):
+    point_from: Point
+    point_to: Point
+
+    def dt(self) -> Point:
+        return Point(
+            timestep=self.point_to.timestep - self.point_from.timestep,
+            sigma=self.point_to.sigma - self.point_from.sigma,
+        )
+
+    def uv(self, transform: SigmaTransform) -> DeltaUV:
+        return DeltaUV(transform(self.point_from.sigma), transform(self.point_to.sigma))
+
+
+class Step(NamedTuple):
+    time_from: float
+    time_to: float
+
+    @staticmethod
+    def from_int(position: int, amount: int) -> "Step":
+        return Step(position / amount, (position + 1) / amount)
+
+    def distance(self) -> float:
+        return self.time_from - self.time_to
+
+    def offset(self, steps: int | float) -> "Step":
+        offset = self.distance() * steps
+        return Step(self.time_from - offset, self.time_to - offset)
+
+    def clamp(self) -> "Step":
+        return Step(clamp(self.time_from), clamp(self.time_to))
+
+    def position(self) -> float:
+        return self.time_from / abs(self.distance())
+
+    def amount(self) -> float:
+        return 1 / abs(self.distance())
 
 
 @enum.unique
@@ -70,13 +122,13 @@ class MergeStrategy(enum.StrEnum):  # str for easy UI options
                 return theirs + [i for i in ours if not any(map(cmp, theirs, repeat(i)))]
 
 
-def sigma_complement(sigma: float) -> tuple[float, float]:
-    return sigma, 1 - sigma
+def sigma_complement(sigma: float) -> SigmaUV:
+    return SigmaUV(sigma, 1 - sigma)
 
 
-def sigma_polar(sigma: float) -> tuple[float, float]:
+def sigma_polar(sigma: float) -> SigmaUV:
     theta = math.atan(sigma)
-    return math.sin(theta), math.cos(theta)
+    return SigmaUV(math.sin(theta), math.cos(theta))
 
 
 def get_sigma_uv(step: int, schedule: FloatSchedule, sigma_transform: SigmaTransform) -> tuple[float, float]:
@@ -188,6 +240,10 @@ def mean(x: Sample) -> float:
         return x
     else:
         return x.mean().item()
+
+
+def clamp[T: Sample](x: T, low: float | T = 0, high: float | T = 1) -> T:
+    return max(low, min(high, x))  # pyright: ignore[reportReturnType]
 
 
 @lru_cache

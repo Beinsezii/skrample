@@ -9,6 +9,7 @@ from transformers.models.clip import CLIPTextModel, CLIPTokenizer
 
 import skrample.sampling.structured as structured
 import skrample.scheduling as scheduling
+from skrample.common import Step
 from skrample.sampling import models
 
 with torch.inference_mode():
@@ -46,10 +47,10 @@ with torch.inference_mode():
     previous: list[structured.SKSamples[torch.Tensor]] = []
     float_schedule = schedule.schedule(steps)
 
-    for n, (timestep, sigma) in enumerate(tqdm(float_schedule)):
+    for n in tqdm(range(steps)):
         conditioned, unconditioned = model(
             sample.expand([sample.shape[0] * 2, *sample.shape[1:]]),
-            timestep,
+            schedule.ipoint(n / steps).timestep,
             torch.cat([text_embeds, torch.zeros_like(text_embeds)]),
         ).sample.chunk(2)
         model_output: torch.Tensor = conditioned + (cfg - 1) * (conditioned - unconditioned)
@@ -57,10 +58,9 @@ with torch.inference_mode():
         sampler_output = sampler.sample(
             sample=sample,
             prediction=model_output,
-            step=n,
+            step=Step.from_int(n, steps),
             model_transform=transform,
-            schedule=float_schedule,
-            sigma_transform=schedule.sigma_transform,
+            schedule=schedule,
             noise=torch.randn(sample.shape, generator=seed).to(dtype=sample.dtype, device=sample.device),
             previous=tuple(previous),
         )

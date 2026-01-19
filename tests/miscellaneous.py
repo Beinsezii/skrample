@@ -17,9 +17,9 @@ from testing_common import (
 from skrample.common import (
     MergeStrategy,
     SigmaTransform,
+    Step,
     bashforth,
     euler,
-    sigma_complement,
     sigmoid,
     softmax,
     spowf,
@@ -111,35 +111,41 @@ def test_model_convert(
 )
 def test_sampler_generics(sampler: StructuredSampler, schedule: ScheduleCommon) -> None:
     eps = 1e-12
-    i, o = random.random(), random.random()
+    i, o, n = random.random(), random.random(), random.random()
+    step = Step.from_int(4, 10)
     prev = [
-        SKSamples(random.random(), random.random(), random.random(), random.random(), random.random()) for _ in range(9)
+        SKSamples(
+            random.random(),
+            random.random(),
+            Step((a := random.random()), a * 2),
+            random.random(),
+            random.random(),
+        )
+        for _ in range(9)
     ]
 
-    scalar = sampler.sample(
-        i, o, 4, DataModel(), schedule.schedule(10), schedule.sigma_transform, previous=tuple(prev)
-    ).final
+    scalar = sampler.sample(i, o, step, DataModel(), schedule, n, previous=prev).final
 
     # Enforce FP64 as that should be equivalent to python scalar
     ndarr = sampler.sample(
         np.array([i], dtype=np.float64),
         np.array([o], dtype=np.float64),
-        4,
+        step,
         DataModel(),
-        schedule.schedule(10),
-        schedule.sigma_transform,
-        previous=prev,  # type: ignore
-    ).final.item()
+        schedule,
+        np.array([o], dtype=np.float64),
+        previous=prev,
+    ).final.item()  # type: ignore
 
     tensor = sampler.sample(
         torch.tensor([i], dtype=torch.float64),
         torch.tensor([o], dtype=torch.float64),
-        4,
+        step,
         DataModel(),
-        schedule.schedule(10),
-        schedule.sigma_transform,
-        previous=prev,  # type: ignore
-    ).final.item()
+        schedule,
+        torch.tensor([n], dtype=torch.float64),
+        previous=prev,
+    ).final.item()  # type: ignore
 
     assert abs(tensor - scalar) < eps
     assert abs(tensor - ndarr) < eps
@@ -166,25 +172,23 @@ def test_sampler_generics(sampler: StructuredSampler, schedule: ScheduleCommon) 
 def test_require_previous(sampler: StructuredSampler) -> None:
     sample = 1.5
     prediction = 0.5
-    previous = tuple(SKSamples(n / 2, n * 2, n * 1.5, 1 / (n + 1), n**0.5) for n in range(100))
+    previous = tuple(SKSamples(n / 2, n * 2, Step.from_int(n, 100), 1 / (n + 1), n * 1.5) for n in range(100))
 
     a = sampler.sample(
         sample,
         prediction,
-        31,
+        Step.from_int(31, 100),
         DataModel(),
-        Linear().schedule(100),
-        sigma_complement,
+        Linear(),
         None,
         previous,
     )
     b = sampler.sample(
         sample,
         prediction,
-        31,
+        Step.from_int(31, 100),
         DataModel(),
-        Linear().schedule(100),
-        sigma_complement,
+        Linear(),
         None,
         previous[len(previous) - sampler.require_previous :],
     )
@@ -214,26 +218,24 @@ def test_require_previous(sampler: StructuredSampler) -> None:
 def test_require_noise(sampler: StructuredSampler) -> None:
     sample = 1.5
     prediction = 0.5
-    previous = tuple(SKSamples(n / 2, n * 2, n * 1.5, 1 / (n + 1), n**0.5) for n in range(100))
+    previous = tuple(SKSamples(n / 2, n * 2, Step.from_int(n, 100), 1 / (n + 1), n * 1.5) for n in range(100))
     noise = -0.5
 
     a = sampler.sample(
         sample,
         prediction,
-        31,
+        Step.from_int(31, 100),
         DataModel(),
-        Linear().schedule(100),
-        sigma_complement,
+        Linear(),
         noise,
         previous,
     )
     b = sampler.sample(
         sample,
         prediction,
-        31,
+        Step.from_int(31, 100),
         DataModel(),
-        Linear().schedule(100),
-        sigma_complement,
+        Linear(),
         noise if sampler.require_noise else None,
         previous,
     )
@@ -272,12 +274,11 @@ def test_functional_adapter(sampler: StructuredSampler, schedule: ScheduleCommon
         results = sampler.sample(
             sample_s,
             fake_model(sample_s, t, s),
-            n,
+            Step.from_int(n, len(float_schedule)),
             model_transform,
-            float_schedule,
-            schedule.sigma_transform,
+            schedule,
             next(rng),
-            tuple(previous),
+            previous,
         )
         previous.append(results)
         sample_s = results.final
