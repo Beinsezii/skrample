@@ -134,7 +134,7 @@ def test_sampler_generics(sampler: StructuredSampler, schedule: ScheduleCommon) 
         DataModel(),
         schedule,
         np.array([o], dtype=np.float64),
-        previous=prev,
+        previous=prev,  # type: ignore
     ).final.item()  # type: ignore
 
     tensor = sampler.sample(
@@ -144,7 +144,7 @@ def test_sampler_generics(sampler: StructuredSampler, schedule: ScheduleCommon) 
         DataModel(),
         schedule,
         torch.tensor([n], dtype=torch.float64),
-        previous=prev,
+        previous=prev,  # type: ignore
     ).final.item()  # type: ignore
 
     assert abs(tensor - scalar) < eps
