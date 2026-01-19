@@ -6,7 +6,7 @@ from types import MappingProxyType
 from typing import Any
 
 from skrample import common, scheduling
-from skrample.common import RNG, DictOrProxy, FloatSchedule, Sample, SigmaTransform
+from skrample.common import RNG, DictOrProxy, FloatSchedule, Sample, SigmaTransform, Step
 
 from . import models, tableaux
 
@@ -22,7 +22,7 @@ def step_tableau[T: Sample](
     model: SampleableModel[T],
     model_transform: models.DiffusionModel,
     schedule: scheduling.SkrampleSchedule,
-    step: tuple[float, float],
+    step: Step,
     derivative_transform: models.DiffusionModel | None = None,
     epsilon: float = 1e-8,
 ) -> tuple[T, ...]:
@@ -151,7 +151,7 @@ class FunctionalSinglestep(FunctionalSampler):
         model: SampleableModel[T],
         model_transform: models.DiffusionModel,
         schedule: scheduling.SkrampleSchedule,
-        step: tuple[float, float],
+        step: Step,
         rng: RNG[T] | None = None,
     ) -> T: ...
 
@@ -167,7 +167,7 @@ class FunctionalSinglestep(FunctionalSampler):
         callback: SampleCallback | None = None,
     ) -> T:
         for n in list(range(steps))[include]:
-            sample = self.step(sample, model, model_transform, schedule, (n / steps, (n + 1) / steps), rng)
+            sample = self.step(sample, model, model_transform, schedule, Step.from_int(n, steps), rng)
 
             if callback:
                 callback(sample, n, *schedule.ipoint(n / steps))
@@ -235,7 +235,7 @@ class RKUltra(FunctionalDerivative, FunctionalSinglestep):
         model: SampleableModel[T],
         model_transform: models.DiffusionModel,
         schedule: scheduling.SkrampleSchedule,
-        step: tuple[float, float],
+        step: Step,
         rng: RNG[T] | None = None,
     ) -> T:
         return step_tableau(
@@ -270,7 +270,7 @@ class FastHeun(FunctionalAdaptive, FunctionalSinglestep, FunctionalHigher):
         model: SampleableModel[T],
         model_transform: models.DiffusionModel,
         schedule: scheduling.SkrampleSchedule,
-        step: tuple[float, float],
+        step: Step,
         rng: RNG[T] | None = None,
     ) -> T:
         [time_t, sig_t], [time_s, sig_s] = schedule.ipoints(step).tolist()
@@ -372,7 +372,7 @@ class RKMoire(FunctionalAdaptive, FunctionalDerivative):
                     model,
                     model_transform,
                     schedule,
-                    (step / steps, step_next / steps),
+                    Step(step / steps, step_next / steps),
                     self.derivative_transform,
                 )
 
@@ -401,7 +401,7 @@ class RKMoire(FunctionalAdaptive, FunctionalDerivative):
                     model,
                     model_transform,
                     schedule,
-                    (step / steps, 1),
+                    Step(step / steps, 1),
                     self.derivative_transform,
                 )[0]
 
