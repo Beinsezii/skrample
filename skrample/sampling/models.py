@@ -4,7 +4,7 @@ import math
 from collections.abc import Callable
 from functools import wraps
 
-from skrample.common import Sample, SigmaTransform
+from skrample.common import Sample, SigmaTransform, SigmaUV
 
 
 @dataclasses.dataclass(frozen=True)
@@ -153,40 +153,27 @@ class FakeModel(DiffusionModel):
 class ScaleX(FakeModel):
     "X / Sample prediction with sampling bias"
 
-    bias: float = 3
+    bias: float = 1
     """Bias for sample prediction.
     Higher values create a stronger image."""
 
-    def x_scale(self, sigma_t: float, alpha_t: float) -> float:
-        # Remap -∞ → 0 → ∞ » 0 → 1 → log(∞)
-        if self.bias < 0:
-            # -∞ → 0⁻ » 0⁺ → 1⁻
-            factor = 1 / math.log(math.e - self.bias)
-        else:
-            # 0 → ∞ » 1 → log(∞)
-            factor = math.log(math.e + self.bias)
-
-        # Rescale sigma_t to average bias scale on VP and NV schedules
-        sigma_mean = sigma_t / (sigma_t + alpha_t)
-        return factor**sigma_mean
+    def x_scale(self, uv: SigmaUV) -> float:
+        # > 0 increase data distance, < 0 increase noise distance
+        # Negative power since uv always < 1
+        return (uv.u if self.bias < 0 else uv.v) ** -math.log10(abs(self.bias) + 1)
 
     def to_x[T: Sample](self, sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
-        sigma_t, alpha_t = sigma_transform(sigma)
-        return output * self.x_scale(sigma_t, alpha_t)  # pyright: ignore [reportReturnType]
+        return output * self.x_scale(sigma_transform(sigma))  # pyright: ignore [reportReturnType]
 
     def from_x[T: Sample](self, sample: T, x: T, sigma: float, sigma_transform: SigmaTransform) -> T:
-        sigma_t, alpha_t = sigma_transform(sigma)
-        return x / self.x_scale(sigma_t, alpha_t)  # pyright: ignore [reportReturnType]
+        return x / self.x_scale(sigma_transform(sigma))  # pyright: ignore [reportReturnType]
 
     def gamma(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform) -> float:
-        sigma_t, _alpha_t = sigma_transform(sigma_from)
-        sigma_s, _alpha_s = sigma_transform(sigma_to)
-        return sigma_s / sigma_t
+        return sigma_transform(sigma_to).u / sigma_transform(sigma_from).u
 
     def delta(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform) -> float:
-        sigma_t, alpha_t = sigma_transform(sigma_from)
-        sigma_s, alpha_s = sigma_transform(sigma_to)
-        return (alpha_s - alpha_t * sigma_s / sigma_t) * self.x_scale(sigma_t, alpha_t)
+        uv_t, uv_s = sigma_transform(sigma_from), sigma_transform(sigma_to)
+        return (uv_s.v - uv_t.v * uv_s.u / uv_t.u) * self.x_scale(uv_t)
 
 
 @dataclasses.dataclass(frozen=True)
