@@ -16,13 +16,12 @@ from skrample.common import (
     Step,
     divf,
     ln,
-    merge_noise,
     softmax,
     spowf,
 )
 from skrample.scheduling import SkrampleSchedule
 
-from . import models
+from . import models, traits
 
 
 @dataclass(frozen=True)
@@ -34,7 +33,7 @@ class SampleInput[T: Sample]:
     "The model input"
 
     prediction: T
-    "The model prediction"
+    "The model output"
 
     step: Step
     "Time at which to evaluate"
@@ -56,7 +55,7 @@ class SKSamples[T: Sample](SampleInput[T]):
 
 
 @dataclass(frozen=True)
-class StructuredSampler(ABC):
+class StructuredSampler(ABC, traits.SamplingCommon):
     """Generic sampler structure with basic configurables and a stateless design.
     Abstract class not to be used directly.
 
@@ -92,16 +91,7 @@ class StructuredSampler(ABC):
         noise: T | None = None,
         previous: Sequence[SKSamples[T]] = (),
     ) -> SKSamples[T]:
-        """sigma_schedule is just the sigmas, IE SkrampleSchedule()[:, 1].
-
-        `sigma_transform` is a function for mapping an arbitrary sigma to more normalized coordinates.
-        Typically this is `sigma_complement` for flow models, othersie `sigma_polar`.
-        All SkrampleSchedules contain a `.sigma_transform` property with this defined.
-
-        `noise` is noise specific to this step for StochasticSampler or other schedulers that compute against noise.
-        This is NOT the input noise, which is added directly into the sample with `merge_noise()`
-
-        """
+        "Shorthand for `sample_packed`."
         return self.sample_packed(
             SampleInput(sample=sample, prediction=prediction, step=Step(*step), noise=noise),
             model_transform=model_transform,
@@ -110,10 +100,9 @@ class StructuredSampler(ABC):
         )
 
     def scale_input[T: Sample](self, sample: T, sigma: float, sigma_transform: SigmaTransform) -> T:
+        """Some old samplers used to have different implmenetations,
+        but now pretty for pretty much everything this is just a no-op."""
         return sample
-
-    def merge_noise[T: Sample](self, sample: T, noise: T, sigma: float, sigma_transform: SigmaTransform) -> T:
-        return merge_noise(sample, noise, sigma, sigma_transform)
 
 
 @dataclass(frozen=True)
@@ -151,20 +140,9 @@ class StatedSampler(StructuredSampler):
 
 
 @dataclass(frozen=True)
-class StructuredMultistep(StructuredSampler):
+class StructuredMultistep(StructuredSampler, traits.HigherOrder):
     """Samplers inheriting this trait support order > 1, and will require
     `prevous` be managed and passed to function accordingly."""
-
-    order: int = 2
-
-    @staticmethod
-    def min_order() -> int:
-        return 1
-
-    @staticmethod
-    @abstractmethod
-    def max_order() -> int:
-        pass
 
     @property
     def require_previous(self) -> int:
@@ -311,11 +289,8 @@ class DPM(StatedSampler, StructuredMultistep, StructuredStochastic):
 
 
 @dataclass(frozen=True)
-class Adams(StatedSampler, StructuredMultistep):
+class Adams(StatedSampler, StructuredMultistep, traits.DerivativeTransform):
     "Higher order extension to Euler using the Adams-Bashforth coefficients on the model prediction"
-
-    derivative_transform: models.DiffusionModel | None = models.DataModel()  # noqa: RUF009 # is immutable
-    "Transform model output to this space when computing the result"
 
     @staticmethod
     def max_order() -> int:
@@ -482,16 +457,13 @@ class UniP(StatedSampler, StructuredMultistep):
 
 
 @dataclass(frozen=True)
-class UniPC(UniP):
+class UniPC(UniP, traits.DerivativeTransform):
     """Unique sampler that can correct other samplers or its own prediction function.
     The additional correction essentially adds +1 order on top of what is set.
     https://arxiv.org/abs/2302.04867"""
 
     solver: StructuredSampler | None = None
     "If not set, defaults to `UniSolver(order=self.order)`"
-
-    derivative_transform: models.DiffusionModel | None = models.DataModel()  # noqa: RUF009 # is immutable
-    "Transform model output to this space when computing the result"
 
     @staticmethod
     def max_order() -> int:
@@ -551,7 +523,7 @@ class UniPC(UniP):
 
 
 @dataclass(frozen=True)
-class SPC(StructuredSampler):
+class SPC(StructuredSampler, traits.DerivativeTransform):
     """Simple predictor-corrector.
     Uses basic blended correction against the previous sample."""
 
@@ -568,9 +540,6 @@ class SPC(StructuredSampler):
     "Weight the predcition/correction ratio based on the sigma schedule"
     invert: bool = False
     "Invert the prediction/correction ratios"
-
-    derivative_transform: models.DiffusionModel | None = models.DataModel()  # noqa: RUF009 # is immutable
-    "Transform model output to this space when computing the result"
 
     @property
     def require_noise(self) -> bool:

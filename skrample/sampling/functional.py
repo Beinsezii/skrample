@@ -6,9 +6,9 @@ from types import MappingProxyType
 from typing import Any
 
 from skrample import common, scheduling
-from skrample.common import RNG, DictOrProxy, FloatSchedule, Sample, SigmaTransform, Step
+from skrample.common import RNG, DictOrProxy, FloatSchedule, Sample, Step
 
-from . import models, tableaux
+from . import models, tableaux, traits
 
 type SampleCallback[T: Sample] = Callable[[T, int, float, float], Any]
 "Return is ignored"
@@ -71,10 +71,7 @@ def step_tableau[T: Sample](
 
 
 @dataclasses.dataclass(frozen=True)
-class FunctionalSampler(ABC):
-    def merge_noise[T: Sample](self, sample: T, noise: T, sigma: float, sigma_transform: SigmaTransform) -> T:
-        return common.merge_noise(sample, noise, sigma, sigma_transform)
-
+class FunctionalSampler(ABC, traits.SamplingCommon):
     @abstractmethod
     def sample_model[T: Sample](
         self,
@@ -120,26 +117,10 @@ class FunctionalSampler(ABC):
 
 
 @dataclasses.dataclass(frozen=True)
-class FunctionalHigher(FunctionalSampler):
-    order: int = 2
-
-    @staticmethod
-    def min_order() -> int:
-        return 1
-
-    @staticmethod
-    @abstractmethod
-    def max_order() -> int: ...
-
+class FunctionalHigher(FunctionalSampler, traits.HigherOrder):
     def adjust_steps(self, steps: int) -> int:
         "Adjust the steps to approximate an equal amount of model calls"
         return round(steps / self.order)
-
-
-@dataclasses.dataclass(frozen=True)
-class FunctionalDerivative(FunctionalHigher):
-    derivative_transform: models.DiffusionModel | None = models.DataModel()  # noqa: RUF009 # is immutable
-    "Transform model to this space when computing higher order samples."
 
 
 @dataclasses.dataclass(frozen=True)
@@ -191,7 +172,7 @@ class FunctionalAdaptive(FunctionalSampler):
 
 
 @dataclasses.dataclass(frozen=True)
-class RKUltra(FunctionalDerivative, FunctionalSinglestep):
+class RKUltra(FunctionalHigher, traits.DerivativeTransform, FunctionalSinglestep):
     "Implements almost every single method from https://en.wikipedia.org/wiki/List_of_Runge–Kutta_methods"  # noqa: RUF002
 
     providers: DictOrProxy[int, tableaux.TableauProvider[tableaux.Tableau | tableaux.ExtendedTableau]] = (
@@ -289,7 +270,7 @@ class FastHeun(FunctionalAdaptive, FunctionalSinglestep, FunctionalHigher):
 
 
 @dataclasses.dataclass(frozen=True)
-class RKMoire(FunctionalAdaptive, FunctionalDerivative):
+class RKMoire(FunctionalAdaptive, FunctionalHigher, traits.DerivativeTransform):
     providers: DictOrProxy[int, tableaux.TableauProvider[tableaux.ExtendedTableau]] = MappingProxyType(
         {
             2: tableaux.RKE2.Heun,

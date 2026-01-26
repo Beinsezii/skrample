@@ -249,7 +249,7 @@ def test_require_noise(sampler: StructuredSampler) -> None:
 @pytest.mark.parametrize(
     ("sampler", "schedule", "steps"),
     itertools.product(
-        [DPM(n, o) for o in range(1, 4) for n in [False, True]],
+        [DPM(o, n) for o in range(1, 4) for n in [False, True]],
         (cls() for cls in ALL_SCHEDULES),
         [1, 3, 4, 9, 512, 999],
     ),
