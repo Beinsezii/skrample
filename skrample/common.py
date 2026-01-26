@@ -10,7 +10,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 if TYPE_CHECKING:
-    from torch.types import Tensor
+    from torch import Tensor
 
     type Sample = float | NDArray[np.floating] | Tensor
 else:
@@ -53,6 +53,14 @@ class Point(NamedTuple):
 class DeltaPoint(NamedTuple):
     point_from: Point
     point_to: Point
+
+    @property
+    def sigmas(self) -> tuple[float, float]:
+        return self.point_from.sigma, self.point_to.sigma
+
+    @property
+    def timesteps(self) -> tuple[float, float]:
+        return self.point_from.timestep, self.point_to.timestep
 
     def dt(self) -> Point:
         return Point(
