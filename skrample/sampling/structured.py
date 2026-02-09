@@ -519,7 +519,7 @@ class UniPC(traits.DerivativeTransform, UniP):
                 ),
             )
 
-        return (self.solver or super()).sample_packed(packed, model_transform, schedule, previous)
+        return (self.solver or super()).sample_packed(packed, model_transform, schedule, previous)  # pyright: ignore [reportAttributeAccessIssue] # Valid from L->R MRO, not sure why pyright is red?
 
 
 @dataclass(frozen=True)
