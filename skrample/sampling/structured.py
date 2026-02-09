@@ -519,7 +519,7 @@ class UniPC(UniP, traits.DerivativeTransform):
                 ),
             )
 
-        return (self.solver if self.solver else super()).sample_packed(packed, model_transform, schedule, previous)
+        return (self.solver or super()).sample_packed(packed, model_transform, schedule, previous)
 
 
 @dataclass(frozen=True)

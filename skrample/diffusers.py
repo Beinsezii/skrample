@@ -230,7 +230,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
     allow_dynamic: bool = True
     """Whether or not classes can be overridden during sampling.
     Currently only applies to FlowShift when `mu` is provided, IE "use_dynamic_shifting" in diffusers."""
-    fake_config: dict[str, Any] = dataclasses.field(default_factory=lambda: DEFAULT_FAKE_CONFIG.copy())
+    fake_config: dict[str, Any] = dataclasses.field(default_factory=DEFAULT_FAKE_CONFIG.copy)
     """Extra items presented in scheduler.config to the pipeline.
     It is recommended to use an actual diffusers scheduler config if one is available."""
 
