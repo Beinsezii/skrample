@@ -1,12 +1,12 @@
 import dataclasses
 import math
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from types import MappingProxyType
 from typing import Any
 
 from skrample import common, scheduling
-from skrample.common import RNG, DictOrProxy, FloatSchedule, Sample, SigmaTransform
+from skrample.common import RNG, FloatSchedule, Sample, SigmaTransform
 
 from . import models, tableaux
 
@@ -194,15 +194,13 @@ class FunctionalAdaptive(FunctionalSampler):
 class RKUltra(FunctionalDerivative, FunctionalSinglestep):
     "Implements almost every single method from https://en.wikipedia.org/wiki/List_of_Runge–Kutta_methods"  # noqa: RUF002
 
-    providers: DictOrProxy[int, tableaux.TableauProvider[tableaux.Tableau | tableaux.ExtendedTableau]] = (
-        MappingProxyType(
-            {
-                2: tableaux.RK2.Heun,
-                3: tableaux.RK3.Ralston,
-                4: tableaux.RK4.Ralston,
-                5: tableaux.RKE5.CashKarp,
-            }
-        )
+    providers: Mapping[int, tableaux.TableauProvider[tableaux.Tableau | tableaux.ExtendedTableau]] = MappingProxyType(
+        {
+            2: tableaux.RK2.Heun,
+            3: tableaux.RK3.Ralston,
+            4: tableaux.RK4.Ralston,
+            5: tableaux.RKE5.CashKarp,
+        }
     )
     """Providers for a given order, starting from 2.
     Order 1 is always the Euler method."""
@@ -290,7 +288,7 @@ class FastHeun(FunctionalAdaptive, FunctionalSinglestep, FunctionalHigher):
 
 @dataclasses.dataclass(frozen=True)
 class RKMoire(FunctionalAdaptive, FunctionalDerivative):
-    providers: DictOrProxy[int, tableaux.TableauProvider[tableaux.ExtendedTableau]] = MappingProxyType(
+    providers: Mapping[int, tableaux.TableauProvider[tableaux.ExtendedTableau]] = MappingProxyType(
         {
             2: tableaux.RKE2.Heun,
             3: tableaux.RKE3.BogackiShampine,

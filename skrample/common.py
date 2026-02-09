@@ -3,7 +3,6 @@ import math
 from collections.abc import Callable, Sequence
 from functools import lru_cache
 from itertools import repeat
-from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -21,9 +20,6 @@ else:
 type SigmaTransform = Callable[[float], tuple[float, float]]
 "Transforms a single noise sigma into a pair"
 
-
-type DictOrProxy[T, U] = MappingProxyType[T, U] | dict[T, U]  # Mapping does not implement __or__
-"Simple union type for a possibly immutable dictionary"
 
 type FloatSchedule = Sequence[tuple[float, float]]
 "Sequence of timestep, sigma"
