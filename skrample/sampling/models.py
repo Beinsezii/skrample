@@ -153,14 +153,15 @@ class FakeModel(DiffusionModel):
 class ScaleX(FakeModel):
     "X / Sample prediction with sampling bias"
 
-    bias: float = 1
+    bias: float = 3
     """Bias for sample prediction.
     Higher values create a stronger image."""
 
     def x_scale(self, uv: SigmaUV) -> float:
         # > 0 increase data distance, < 0 increase noise distance
         # Negative power since uv always < 1
-        return (uv.u if self.bias < 0 else uv.v) ** -math.log10(abs(self.bias) + 1)
+        # e^xt
+        return math.exp(-math.log10(abs(self.bias) + 1) * (uv.u if self.bias < 0 else uv.v))
 
     def to_x[T: Sample](self, sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
         return output * self.x_scale(sigma_transform(sigma))  # pyright: ignore [reportReturnType]
