@@ -581,7 +581,7 @@ class SPC(StructuredSampler, traits.DerivativeTransform):
                 offset_previous.pop(),
                 model_transform,
                 schedule,
-                offset_previous[:-1],
+                offset_previous,
             ).final
 
             if self.adaptive:
