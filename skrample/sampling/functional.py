@@ -117,7 +117,7 @@ class FunctionalSampler(ABC, traits.SamplingCommon):
 
 
 @dataclasses.dataclass(frozen=True)
-class FunctionalHigher(FunctionalSampler, traits.HigherOrder):
+class FunctionalHigher(traits.HigherOrder, FunctionalSampler):
     def adjust_steps(self, steps: int) -> int:
         "Adjust the steps to approximate an equal amount of model calls"
         return round(steps / self.order)
@@ -172,7 +172,7 @@ class FunctionalAdaptive(FunctionalSampler):
 
 
 @dataclasses.dataclass(frozen=True)
-class RKUltra(FunctionalHigher, traits.DerivativeTransform, FunctionalSinglestep):
+class RKUltra(traits.DerivativeTransform, FunctionalHigher, FunctionalSinglestep):
     "Implements almost every single method from https://en.wikipedia.org/wiki/List_of_Runge–Kutta_methods"  # noqa: RUF002
 
     providers: Mapping[int, tableaux.TableauProvider[tableaux.Tableau | tableaux.ExtendedTableau]] = MappingProxyType(
@@ -229,7 +229,7 @@ class RKUltra(FunctionalHigher, traits.DerivativeTransform, FunctionalSinglestep
 
 
 @dataclasses.dataclass(frozen=True)
-class FastHeun(FunctionalAdaptive, FunctionalSinglestep, FunctionalHigher):
+class FastHeun(FunctionalAdaptive, FunctionalHigher, FunctionalSinglestep):
     threshold: float = 5e-2
 
     @staticmethod
@@ -268,7 +268,7 @@ class FastHeun(FunctionalAdaptive, FunctionalSinglestep, FunctionalHigher):
 
 
 @dataclasses.dataclass(frozen=True)
-class RKMoire(FunctionalAdaptive, FunctionalHigher, traits.DerivativeTransform):
+class RKMoire(traits.DerivativeTransform, FunctionalAdaptive, FunctionalHigher):
     providers: Mapping[int, tableaux.TableauProvider[tableaux.ExtendedTableau]] = MappingProxyType(
         {
             2: tableaux.RKE2.Heun,

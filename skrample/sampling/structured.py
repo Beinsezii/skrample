@@ -140,7 +140,7 @@ class StatedSampler(StructuredSampler):
 
 
 @dataclass(frozen=True)
-class StructuredMultistep(StructuredSampler, traits.HigherOrder):
+class StructuredMultistep(traits.HigherOrder, StructuredSampler):
     """Samplers inheriting this trait support order > 1, and will require
     `prevous` be managed and passed to function accordingly."""
 
@@ -195,7 +195,7 @@ class Euler(StatedSampler):
 
 
 @dataclass(frozen=True)
-class DPM(StatedSampler, StructuredMultistep, StructuredStochastic):
+class DPM(StructuredStochastic, StructuredMultistep, StatedSampler):
     """Good sampler, supports basically everything. Recommended default.
 
     https://arxiv.org/abs/2211.01095
@@ -289,7 +289,7 @@ class DPM(StatedSampler, StructuredMultistep, StructuredStochastic):
 
 
 @dataclass(frozen=True)
-class Adams(StatedSampler, StructuredMultistep, traits.DerivativeTransform):
+class Adams(traits.DerivativeTransform, StructuredMultistep, StatedSampler):
     "Higher order extension to Euler using the Adams-Bashforth coefficients on the model prediction"
 
     @staticmethod
@@ -341,7 +341,7 @@ class Adams(StatedSampler, StructuredMultistep, traits.DerivativeTransform):
 
 
 @dataclass(frozen=True)
-class UniP(StatedSampler, StructuredMultistep):
+class UniP(StructuredMultistep, StatedSampler):
     "Just the solver from UniPC without any correction stages."
 
     fast_solve: bool = False
@@ -457,7 +457,7 @@ class UniP(StatedSampler, StructuredMultistep):
 
 
 @dataclass(frozen=True)
-class UniPC(UniP, traits.DerivativeTransform):
+class UniPC(traits.DerivativeTransform, UniP):
     """Unique sampler that can correct other samplers or its own prediction function.
     The additional correction essentially adds +1 order on top of what is set.
     https://arxiv.org/abs/2302.04867"""
@@ -523,7 +523,7 @@ class UniPC(UniP, traits.DerivativeTransform):
 
 
 @dataclass(frozen=True)
-class SPC(StructuredSampler, traits.DerivativeTransform):
+class SPC(traits.DerivativeTransform, StructuredSampler):
     """Simple predictor-corrector.
     Uses basic blended correction against the previous sample."""
 
