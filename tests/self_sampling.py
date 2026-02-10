@@ -1,12 +1,16 @@
+import itertools
 import math
 import random
+from dataclasses import replace
 
 import numpy as np
 import pytest
-from testing_common import compare_pp
+import torch
+from testing_common import ALL_FAKE_MODELS, ALL_MODELS, ALL_SCHEDULES, ALL_STRUCTURED, ALL_TRANSFROMS, compare_pp
 
 from skrample import scheduling
-from skrample.sampling import functional, interface, models, structured
+from skrample.common import SigmaTransform, Step, euler
+from skrample.sampling import functional, interface, models, structured, tableaux
 
 type SamplerTestKey = tuple[
     type[structured.StructuredSampler] | type[functional.FunctionalSampler],
@@ -77,10 +81,348 @@ MEASURED_SAMPLER_RESULTS: dict[SamplerTestKey, list[float]] = {
 
 
 @pytest.mark.parametrize(("key"), MEASURED_SAMPLER_RESULTS.keys())
-def test_self_schedules(key: SamplerTestKey) -> None:
+def test_self_samplers(key: SamplerTestKey) -> None:
     smp, sch, md = key
     compare_pp(
         np.asarray(capture(smp(), sch(), md()), dtype=np.float64),
         np.asarray(MEASURED_SAMPLER_RESULTS[key], dtype=np.float64),
         1e-3,
+    )
+
+
+@pytest.mark.parametrize(("model_type", "sigma_transform"), itertools.product(ALL_MODELS, ALL_TRANSFROMS))
+def test_model_transforms(model_type: type[models.DiffusionModel], sigma_transform: SigmaTransform) -> None:
+    model_transform = model_type()
+    sample = 0.8
+    output = 0.3
+    sigma = 0.2
+
+    x = model_transform.to_x(sample, output, sigma, sigma_transform)
+    o = model_transform.from_x(sample, x, sigma, sigma_transform)
+    assert abs(output - o) < 1e-12
+
+    sigma_next = 0.05
+    for sigma_next in 0.05, 0:  # extra 0 to validate X̂
+        snr = euler(
+            sample, model_transform.to_x(sample, output, sigma, sigma_transform), sigma, sigma_next, sigma_transform
+        )
+        df = model_transform.forward(sample, output, sigma, sigma_next, sigma_transform)
+        assert abs(snr - df) < 1e-12
+
+        ob = model_transform.backward(sample, df, sigma, sigma_next, sigma_transform)
+        assert abs(o - ob) < 1e-12
+
+
+@pytest.mark.parametrize(
+    ("model_from", "model_to", "sigma_transform", "sigma_to"),
+    itertools.product(ALL_MODELS, ALL_MODELS + ALL_FAKE_MODELS, ALL_TRANSFROMS, (0.05, 0.0)),
+)
+def test_model_convert(
+    model_from: type[models.DiffusionModel],
+    model_to: type[models.DiffusionModel],
+    sigma_transform: SigmaTransform,
+    sigma_to: float,
+) -> None:
+    convert = models.ModelConvert(model_from(), model_to())
+    sample = 0.8
+    output = 0.3
+    sigma_from = 0.2
+
+    def model(x: float, t: float, s: float) -> float:
+        return output
+
+    x_from = convert.transform_from.forward(
+        sample,
+        model(sample, sigma_from, sigma_from),
+        sigma_from,
+        sigma_to,
+        sigma_transform,
+    )
+    x_to = convert.transform_to.forward(
+        sample,
+        convert.wrap_model_call(model, sigma_transform)(sample, sigma_from, sigma_from),
+        sigma_from,
+        sigma_to,
+        sigma_transform,
+    )
+
+    assert abs(x_from - x_to) < 1e-12
+
+
+@pytest.mark.parametrize(
+    ("sampler", "schedule"),
+    itertools.product(
+        [
+            *(cls() for cls in ALL_STRUCTURED),
+            *(cls(order=cls.max_order()) for cls in ALL_STRUCTURED if issubclass(cls, structured.StructuredMultistep)),
+        ],
+        [scheduling.Scaled(), scheduling.FlowShift(scheduling.Linear())],
+    ),
+)
+def test_sampler_generics(sampler: structured.StructuredSampler, schedule: scheduling.ScheduleCommon) -> None:
+    eps = 1e-12
+    i, o, n = random.random(), random.random(), random.random()
+    step = Step.from_int(4, 10)
+    prev = [
+        structured.SKSamples(
+            random.random(),
+            random.random(),
+            Step((a := random.random()), a * 2),
+            random.random(),
+            random.random(),
+        )
+        for _ in range(9)
+    ]
+
+    scalar = sampler.sample(i, o, step, models.DataModel(), schedule, n, previous=prev).final
+
+    # Enforce FP64 as that should be equivalent to python scalar
+    ndarr = sampler.sample(
+        np.array([i], dtype=np.float64),
+        np.array([o], dtype=np.float64),
+        step,
+        models.DataModel(),
+        schedule,
+        np.array([o], dtype=np.float64),
+        previous=prev,  # type: ignore
+    ).final.item()  # type: ignore
+
+    tensor = sampler.sample(
+        torch.tensor([i], dtype=torch.float64),
+        torch.tensor([o], dtype=torch.float64),
+        step,
+        models.DataModel(),
+        schedule,
+        torch.tensor([n], dtype=torch.float64),
+        previous=prev,  # type: ignore
+    ).final.item()  # type: ignore
+
+    assert abs(tensor - scalar) < eps
+    assert abs(tensor - ndarr) < eps
+    assert abs(scalar - ndarr) < eps
+
+
+@pytest.mark.parametrize(
+    ("sampler"),
+    [
+        *(
+            sampler
+            for samplers in (
+                (cls(order=o + 1) for o in range(cls.min_order(), cls.max_order()))
+                if issubclass(cls, structured.StructuredMultistep)
+                else (cls(),)
+                for cls in ALL_STRUCTURED
+            )
+            for sampler in samplers
+        ),
+        *(structured.UniPC(order=o1, solver=structured.Adams(order=o2)) for o1 in range(1, 4) for o2 in range(1, 4)),
+        *(
+            structured.SPC(predictor=structured.Adams(order=o1), corrector=structured.Adams(order=o2))
+            for o1 in range(1, 4)
+            for o2 in range(1, 4)
+        ),
+    ],
+)
+def test_require_previous(sampler: structured.StructuredSampler) -> None:
+    sample = 1.5
+    prediction = 0.5
+    previous = tuple(
+        structured.SKSamples(n / 2, n * 2, Step.from_int(n, 100), 1 / (n + 1), n * 1.5) for n in range(100)
+    )
+
+    a = sampler.sample(
+        sample,
+        prediction,
+        Step.from_int(31, 100),
+        models.DataModel(),
+        scheduling.Linear(),
+        None,
+        previous,
+    )
+    b = sampler.sample(
+        sample,
+        prediction,
+        Step.from_int(31, 100),
+        models.DataModel(),
+        scheduling.Linear(),
+        None,
+        previous[len(previous) - sampler.require_previous :],
+    )
+
+    assert a == b
+
+
+@pytest.mark.parametrize(
+    ("sampler"),
+    [
+        *(
+            sampler
+            for samplers in (
+                (cls(add_noise=n) for n in (False, True))
+                if issubclass(cls, structured.StructuredStochastic)
+                else (cls(),)
+                for cls in ALL_STRUCTURED
+            )
+            for sampler in samplers
+        ),
+        *(structured.UniPC(solver=structured.DPM(add_noise=n1)) for n1 in (False, True)),
+        *(
+            structured.SPC(predictor=structured.DPM(add_noise=n1), corrector=structured.DPM(add_noise=n2))
+            for n1 in (False, True)
+            for n2 in (False, True)
+        ),
+    ],
+)
+def test_require_noise(sampler: structured.StructuredSampler) -> None:
+    sample = 1.5
+    prediction = 0.5
+    previous = tuple(
+        structured.SKSamples(n / 2, n * 2, Step.from_int(n, 100), 1 / (n + 1), n * 1.5) for n in range(100)
+    )
+    noise = -0.5
+
+    a = sampler.sample(
+        sample,
+        prediction,
+        Step.from_int(31, 100),
+        models.DataModel(),
+        scheduling.Linear(),
+        noise,
+        previous,
+    )
+    b = sampler.sample(
+        sample,
+        prediction,
+        Step.from_int(31, 100),
+        models.DataModel(),
+        scheduling.Linear(),
+        noise if sampler.require_noise else None,
+        previous,
+    )
+
+    # Don't compare stored noise since it's expected diff
+    b = replace(b, noise=a.noise)
+
+    assert a == b
+
+
+@pytest.mark.parametrize(
+    ("sampler", "schedule", "steps"),
+    itertools.product(
+        [structured.DPM(o, n) for o in range(1, 4) for n in [False, True]],
+        (cls() for cls in ALL_SCHEDULES),
+        [1, 3, 4, 9, 512, 999],
+    ),
+)
+def test_functional_adapter(
+    sampler: structured.StructuredSampler, schedule: scheduling.ScheduleCommon, steps: int
+) -> None:
+    def fake_model(x: float, _: float, s: float) -> float:
+        return x + math.sin(x) * s
+
+    sample = 1.5
+    adapter = interface.StructuredFunctionalAdapter(sampler)
+    noise = [random.random() for _ in range(steps)]
+
+    rng = iter(noise)
+    model_transform = models.FlowModel()
+    sample_f = adapter.sample_model(sample, fake_model, model_transform, schedule, steps, rng=lambda: next(rng))
+
+    rng = iter(noise)
+    float_schedule = schedule.schedule(steps)
+    sample_s = sample
+    previous: list[structured.SKSamples[float]] = []
+    for n, (t, s) in enumerate(float_schedule):
+        results = sampler.sample(
+            sample_s,
+            fake_model(sample_s, t, s),
+            Step.from_int(n, len(float_schedule)),
+            model_transform,
+            schedule,
+            next(rng),
+            previous,
+        )
+        previous.append(results)
+        sample_s = results.final
+
+    assert sample_s == sample_f
+
+
+@pytest.mark.parametrize(
+    ("provider"),
+    [
+        variant
+        for provider in [
+            tableaux.RK2,
+            tableaux.RK3,
+            tableaux.RK4,
+            tableaux.RKZ,
+            tableaux.RKE2,
+            tableaux.RKE3,
+            tableaux.RKE5,
+        ]
+        for variant in provider
+    ],
+)
+def test_tableau_providers(provider: tableaux.TableauProvider) -> None:
+    if error := tableaux.validate_tableau(provider.tableau()):
+        raise error
+
+
+def flat_tableau(t: tuple[float | tuple[float | tuple[float | tuple[float, ...], ...], ...], ...]) -> tuple[float, ...]:
+    return tuple(z for y in (flat_tableau(x) if isinstance(x, tuple) else (x,) for x in t) for z in y)
+
+
+def tableau_distance(a: tableaux.Tableau, b: tableaux.Tableau) -> float:
+    return abs(np.subtract(flat_tableau(a), flat_tableau(b))).max().item()
+
+
+def test_rk2_tableau() -> None:
+    assert (
+        tableau_distance(
+            (  # Ralston
+                (
+                    (0.0, ()),
+                    (2 / 3, (2 / 3,)),
+                ),
+                (1 / 4, 3 / 4),
+            ),
+            tableaux.rk2_tableau(2 / 3),
+        )
+        < 1e-20
+    )
+
+
+def test_rk3_tableau() -> None:
+    assert (
+        tableau_distance(
+            (  # Wray
+                (
+                    (0.0, ()),
+                    (8 / 15, (8 / 15,)),
+                    (2 / 3, (1 / 4, 5 / 12)),
+                ),
+                (1 / 4, 0.0, 3 / 4),
+            ),
+            tableaux.rk3_tableau(8 / 15, 2 / 3),
+        )
+        < 1e-15
+    )
+
+
+def test_rk4_tableau() -> None:
+    assert (
+        tableau_distance(
+            (  # Eighth
+                (
+                    (0, ()),
+                    (1 / 3, (1 / 3,)),
+                    (2 / 3, (-1 / 3, 1)),
+                    (1, (1, -1, 1)),
+                ),
+                (1 / 8, 3 / 8, 3 / 8, 1 / 8),
+            ),
+            tableaux.rk4_tableau(1 / 3, 2 / 3),
+        )
+        < 1e-12  # Something like 4x the amount of math as RK3
     )
