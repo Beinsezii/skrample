@@ -1,14 +1,14 @@
 import dataclasses
 import math
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from types import MappingProxyType
 from typing import Any
 
 from skrample import common, scheduling
-from skrample.common import RNG, DictOrProxy, FloatSchedule, Sample, SigmaTransform
+from skrample.common import RNG, FloatSchedule, Sample, Step
 
-from . import models, tableaux
+from . import models, tableaux, traits
 
 type SampleCallback[T: Sample] = Callable[[T, int, float, float], Any]
 "Return is ignored"
@@ -22,7 +22,7 @@ def step_tableau[T: Sample](
     model: SampleableModel[T],
     model_transform: models.DiffusionModel,
     schedule: scheduling.SkrampleSchedule,
-    step: tuple[float, float],
+    step: Step,
     derivative_transform: models.DiffusionModel | None = None,
     epsilon: float = 1e-8,
 ) -> tuple[T, ...]:
@@ -71,10 +71,7 @@ def step_tableau[T: Sample](
 
 
 @dataclasses.dataclass(frozen=True)
-class FunctionalSampler(ABC):
-    def merge_noise[T: Sample](self, sample: T, noise: T, sigma: float, sigma_transform: SigmaTransform) -> T:
-        return common.merge_noise(sample, noise, sigma, sigma_transform)
-
+class FunctionalSampler(ABC, traits.SamplingCommon):
     @abstractmethod
     def sample_model[T: Sample](
         self,
@@ -120,26 +117,10 @@ class FunctionalSampler(ABC):
 
 
 @dataclasses.dataclass(frozen=True)
-class FunctionalHigher(FunctionalSampler):
-    order: int = 2
-
-    @staticmethod
-    def min_order() -> int:
-        return 1
-
-    @staticmethod
-    @abstractmethod
-    def max_order() -> int: ...
-
+class FunctionalHigher(traits.HigherOrder, FunctionalSampler):
     def adjust_steps(self, steps: int) -> int:
         "Adjust the steps to approximate an equal amount of model calls"
         return round(steps / self.order)
-
-
-@dataclasses.dataclass(frozen=True)
-class FunctionalDerivative(FunctionalHigher):
-    derivative_transform: models.DiffusionModel | None = models.DataModel()  # noqa: RUF009 # is immutable
-    "Transform model to this space when computing higher order samples."
 
 
 @dataclasses.dataclass(frozen=True)
@@ -151,7 +132,7 @@ class FunctionalSinglestep(FunctionalSampler):
         model: SampleableModel[T],
         model_transform: models.DiffusionModel,
         schedule: scheduling.SkrampleSchedule,
-        step: tuple[float, float],
+        step: Step,
         rng: RNG[T] | None = None,
     ) -> T: ...
 
@@ -167,7 +148,7 @@ class FunctionalSinglestep(FunctionalSampler):
         callback: SampleCallback | None = None,
     ) -> T:
         for n in list(range(steps))[include]:
-            sample = self.step(sample, model, model_transform, schedule, (n / steps, (n + 1) / steps), rng)
+            sample = self.step(sample, model, model_transform, schedule, Step.from_int(n, steps), rng)
 
             if callback:
                 callback(sample, n, *schedule.ipoint(n / steps))
@@ -191,18 +172,16 @@ class FunctionalAdaptive(FunctionalSampler):
 
 
 @dataclasses.dataclass(frozen=True)
-class RKUltra(FunctionalDerivative, FunctionalSinglestep):
+class RKUltra(traits.DerivativeTransform, FunctionalHigher, FunctionalSinglestep):
     "Implements almost every single method from https://en.wikipedia.org/wiki/List_of_Runge–Kutta_methods"  # noqa: RUF002
 
-    providers: DictOrProxy[int, tableaux.TableauProvider[tableaux.Tableau | tableaux.ExtendedTableau]] = (
-        MappingProxyType(
-            {
-                2: tableaux.RK2.Heun,
-                3: tableaux.RK3.Ralston,
-                4: tableaux.RK4.Ralston,
-                5: tableaux.RKE5.CashKarp,
-            }
-        )
+    providers: Mapping[int, tableaux.TableauProvider[tableaux.Tableau | tableaux.ExtendedTableau]] = MappingProxyType(
+        {
+            2: tableaux.RK2.Heun,
+            3: tableaux.RK3.Ralston,
+            4: tableaux.RK4.Ralston,
+            5: tableaux.RKE5.CashKarp,
+        }
     )
     """Providers for a given order, starting from 2.
     Order 1 is always the Euler method."""
@@ -235,7 +214,7 @@ class RKUltra(FunctionalDerivative, FunctionalSinglestep):
         model: SampleableModel[T],
         model_transform: models.DiffusionModel,
         schedule: scheduling.SkrampleSchedule,
-        step: tuple[float, float],
+        step: Step,
         rng: RNG[T] | None = None,
     ) -> T:
         return step_tableau(
@@ -250,7 +229,7 @@ class RKUltra(FunctionalDerivative, FunctionalSinglestep):
 
 
 @dataclasses.dataclass(frozen=True)
-class FastHeun(FunctionalAdaptive, FunctionalSinglestep, FunctionalHigher):
+class FastHeun(FunctionalAdaptive, FunctionalHigher, FunctionalSinglestep):
     threshold: float = 5e-2
 
     @staticmethod
@@ -270,7 +249,7 @@ class FastHeun(FunctionalAdaptive, FunctionalSinglestep, FunctionalHigher):
         model: SampleableModel[T],
         model_transform: models.DiffusionModel,
         schedule: scheduling.SkrampleSchedule,
-        step: tuple[float, float],
+        step: Step,
         rng: RNG[T] | None = None,
     ) -> T:
         [time_t, sig_t], [time_s, sig_s] = schedule.ipoints(step).tolist()
@@ -289,8 +268,8 @@ class FastHeun(FunctionalAdaptive, FunctionalSinglestep, FunctionalHigher):
 
 
 @dataclasses.dataclass(frozen=True)
-class RKMoire(FunctionalAdaptive, FunctionalDerivative):
-    providers: DictOrProxy[int, tableaux.TableauProvider[tableaux.ExtendedTableau]] = MappingProxyType(
+class RKMoire(traits.DerivativeTransform, FunctionalAdaptive, FunctionalHigher):
+    providers: Mapping[int, tableaux.TableauProvider[tableaux.ExtendedTableau]] = MappingProxyType(
         {
             2: tableaux.RKE2.Heun,
             3: tableaux.RKE3.BogackiShampine,
@@ -372,7 +351,7 @@ class RKMoire(FunctionalAdaptive, FunctionalDerivative):
                     model,
                     model_transform,
                     schedule,
-                    (step / steps, step_next / steps),
+                    Step(step / steps, step_next / steps),
                     self.derivative_transform,
                 )
 
@@ -401,7 +380,7 @@ class RKMoire(FunctionalAdaptive, FunctionalDerivative):
                     model,
                     model_transform,
                     schedule,
-                    (step / steps, 1),
+                    Step(step / steps, 1),
                     self.derivative_transform,
                 )[0]
 

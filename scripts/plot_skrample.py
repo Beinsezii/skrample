@@ -14,7 +14,7 @@ from numpy.typing import NDArray
 
 from skrample import scheduling
 from skrample.common import SigmaTransform, sigma_complement, sigma_polar, spowf
-from skrample.sampling import functional, models, structured
+from skrample.sampling import functional, models, structured, traits
 from skrample.sampling.interface import StructuredFunctionalAdapter
 
 OKLAB_XYZ_M1 = np.array(
@@ -74,7 +74,7 @@ SAMPLERS: dict[str, structured.StructuredSampler | functional.FunctionalSampler]
     "fheun": functional.FastHeun(),
 }
 for k, v in list(SAMPLERS.items()):
-    if isinstance(v, structured.StructuredMultistep | functional.FunctionalHigher):
+    if isinstance(v, traits.HigherOrder):
         for o in range(v.min_order(), min(v.max_order() + 1, 9)):
             if o != v.order:
                 SAMPLERS[k + str(o)] = replace(v, order=o)
@@ -213,14 +213,14 @@ if args.command == "samplers":
 
         return timesteps, sampled_values
 
-    plt.plot(*sample_model(structured.Euler(), schedule.base_timesteps), label="Reference", color=next(COLORS))
+    ground_truth = sample_model(structured.Euler(), schedule.base_timesteps)
+    plt.plot(*ground_truth, label="Reference", color=next(COLORS))
+    ymin, ymax = min(ground_truth[1]), max(ground_truth[1])
+    plt.ylim(ymin - 0.1 * ymin, ymax + 0.1 * ymax)
 
     for sampler in [SAMPLERS[s] for s in args.sampler]:
         label = type(sampler).__name__
-        if (
-            isinstance(sampler, structured.StructuredMultistep | functional.FunctionalHigher)
-            and sampler.order != type(sampler).order
-        ):
+        if isinstance(sampler, traits.HigherOrder) and sampler.order != type(sampler).order:
             label += " " + str(sampler.order)
         plt.plot(*sample_model(sampler, args.steps), label=label, color=next(COLORS), linestyle="--")
 

@@ -7,8 +7,9 @@ from typing import Literal
 
 import numpy as np
 
-from skrample.common import (
+from .common import (
     FloatSchedule,
+    Point,
     SigmaTransform,
     normalize,
     regularize,
@@ -35,7 +36,7 @@ def np_schedule_lru(schedule: "SkrampleSchedule", steps: int) -> NPSchedule:
 def schedule_lru(schedule: "SkrampleSchedule", steps: int) -> FloatSchedule:
     """Globally cached function for SkrampleSchedule.schedule(steps).
     Prefer moving SkrampleScheudle.schedule() outside of any loops if possible."""
-    return tuple(map(tuple, np_schedule_lru(schedule, steps).tolist()))  # pyright: ignore [reportReturnType] # Size indeterminate???
+    return tuple(Point(*p) for p in np_schedule_lru(schedule, steps).tolist())
 
 
 @dataclass(frozen=True)
@@ -62,15 +63,15 @@ class SkrampleSchedule(ABC):
         0.0 is more noise, 1.0 is no noise."""
         return self._points(1 - np.asarray(t, dtype=np.float64).clip(0, 1))
 
-    def point(self, t: float) -> tuple[float, float]:
+    def point(self, t: float) -> Point:
         """Sample the schedule at T point in time.
         0.0 is more noise, 1.0 is no noise."""
-        return tuple(self._points(np.expand_dims(np.float64(t).clip(0, 1), 0))[0].tolist())
+        return Point(*self._points(np.expand_dims(np.float64(t).clip(0, 1), 0))[0].tolist())
 
-    def ipoint(self, t: float) -> tuple[float, float]:
+    def ipoint(self, t: float) -> Point:
         """Inverse of `point`, or `inference` points.
         0.0 is more noise, 1.0 is no noise."""
-        return tuple(self._points(np.expand_dims(1 - np.float64(t).clip(0, 1), 0))[0].tolist())
+        return Point(*self._points(np.expand_dims(1 - np.float64(t).clip(0, 1), 0))[0].tolist())
 
     def schedule_np(self, steps: int) -> NPSchedule:
         """Return the full noise schedule, timesteps stacked on top of sigmas.
@@ -88,7 +89,7 @@ class SkrampleSchedule(ABC):
     def schedule(self, steps: int) -> FloatSchedule:
         """Return the full noise schedule, [(timestep, sigma), ...)
         Excludes the trailing zero"""
-        return tuple(map(tuple, self.schedule_np(steps).tolist()))  # pyright: ignore [reportReturnType] # Size indeterminate???
+        return tuple(Point(*p) for p in self.schedule_np(steps).tolist())
 
     def timesteps(self, steps: int) -> Sequence[float]:
         "Just the timesteps component"

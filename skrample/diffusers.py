@@ -11,7 +11,7 @@ from torch import Tensor
 
 import skrample.sampling.structured as sampling
 from skrample import scheduling
-from skrample.common import FloatSchedule, MergeStrategy
+from skrample.common import FloatSchedule, MergeStrategy, Step
 from skrample.pytorch.noise import (
     BatchTensorNoise,
     Random,
@@ -20,7 +20,7 @@ from skrample.pytorch.noise import (
     schedule_to_ramp,
 )
 from skrample.sampling.models import DataModel, DiffusionModel, FlowModel, NoiseModel, VelocityModel
-from skrample.sampling.structured import SKSamples, StructuredSampler
+from skrample.sampling.structured import SampleInput, SKSamples, StructuredSampler
 from skrample.scheduling import ScheduleCommon, ScheduleModifier, SkrampleSchedule, SubSchedule
 
 if TYPE_CHECKING:
@@ -230,7 +230,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
     allow_dynamic: bool = True
     """Whether or not classes can be overridden during sampling.
     Currently only applies to FlowShift when `mu` is provided, IE "use_dynamic_shifting" in diffusers."""
-    fake_config: dict[str, Any] = dataclasses.field(default_factory=lambda: DEFAULT_FAKE_CONFIG.copy())
+    fake_config: dict[str, Any] = dataclasses.field(default_factory=DEFAULT_FAKE_CONFIG.copy)
     """Extra items presented in scheduler.config to the pipeline.
     It is recommended to use an actual diffusers scheduler config if one is available."""
 
@@ -427,20 +427,16 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
             noise = None
 
         sample_cast = sample.to(dtype=self.compute_scale)
-        prediction = self.model.to_x(
-            sample_cast,
-            model_output.to(dtype=self.compute_scale),
-            schedule[step, 1].item(),
-            self.schedule.sigma_transform,
-        )
-        sampled = self.sampler.sample(
-            sample=sample_cast,
-            prediction=prediction,
-            schedule=self.schedule_float,
-            step=step,
-            noise=noise,
-            previous=tuple(self._previous),
-            sigma_transform=self.schedule.sigma_transform,
+        sampled = self.sampler.sample_packed(
+            packed=SampleInput(
+                sample=sample_cast,
+                prediction=model_output.to(dtype=self.compute_scale),
+                step=Step.from_int(step, len(schedule)),
+                noise=noise,
+            ),
+            model_transform=self.model,
+            schedule=self.schedule,
+            previous=self._previous,
         )
         self._previous.append(sampled)
         self._previous = self._previous[max(len(self._previous) - self.sampler.require_previous, 0) :]
