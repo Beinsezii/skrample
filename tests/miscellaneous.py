@@ -1,7 +1,8 @@
 import numpy as np
+import pytest
 import torch
 
-from skrample.common import MergeStrategy, bashforth, sigmoid, softmax, spowf
+from skrample.common import MergeStrategy, Step, bashforth, sigmoid, softmax, spowf
 
 
 def test_bashforth() -> None:
@@ -47,3 +48,21 @@ def test_merge() -> None:
         ]
         for ours, theirs, ms, merged in tests:
             assert ms.merge(ours, theirs) == merged, f"{ours} {ms} {theirs} : {merged}"
+
+
+STEP_STEPS: int = 31
+
+
+@pytest.mark.parametrize("n", range(STEP_STEPS + 1))
+def test_step_range(n: int) -> None:
+    step = Step.from_int(n, STEP_STEPS)
+
+    assert abs(step.amount() - STEP_STEPS) < 1e-8
+    assert abs(step.position() - n) < 1e-8
+    assert Step(*reversed(step)).normal() == step
+
+    assert abs(step.offset(-4).position() - (n - 4)) < 1e-8
+    assert abs(step.offset(+4).position() - (n + 4)) < 1e-8
+
+    assert step.offset(STEP_STEPS / 2).clamp().position() + 1 <= STEP_STEPS + 1e-8
+    assert step.offset(STEP_STEPS / -2).clamp().position() >= 0

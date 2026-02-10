@@ -69,28 +69,48 @@ class DeltaPoint(NamedTuple):
 
 
 class Step(NamedTuple):
+    """Structured tuple representing two points in time, or one step of sampling.
+    Internally represented as a normal range 0.0..=1.0 for direct usage in scheduler.points
+    with many compatibility methods for adapting to/from integer ranges like `for n in range(steps)`"""
+
     time_from: float
+    "Time at which this sample was generated."
     time_to: float
+    "Time at which we are sampling to."
 
     @staticmethod
     def from_int(position: int, amount: int) -> "Step":
+        "Convert integer steps into a time based representation."
         return Step(position / amount, (position + 1) / amount)
 
     def distance(self) -> float:
-        return self.time_from - self.time_to
+        "Distance of time_from -> time_to"
+        return self.time_to - self.time_from
 
     def offset(self, steps: int | float) -> "Step":
+        """Roll this step forward or backward by some amount of steps
+        Does not perform bounds checking, add .clamp() if you need to ensure the position is never > amount"""
         offset = self.distance() * steps
-        return Step(self.time_from - offset, self.time_to - offset)
+        return Step(self.time_from + offset, self.time_to + offset)
 
     def clamp(self) -> "Step":
-        return Step(clamp(self.time_from), clamp(self.time_to))
+        """Ensures position is not less than zero or not more than amount-1
+        This ensures distance() will always be > 0, ie position < amount."""
+        return Step(clamp(self.time_from, high=1 - self.distance()), clamp(self.time_to, low=self.distance()))
 
     def position(self) -> float:
-        return self.time_from / abs(self.distance())
+        """Compute the denormalized position/index of this step in the total.
+        Roughly an inverse of `from_int`"""
+        return self.time_from / self.distance()
 
     def amount(self) -> float:
-        return 1 / abs(self.distance())
+        """Compute the denormalized total amount of steps.
+        Roughly an inverse of `from_int`"""
+        return 1 / self.distance()
+
+    def normal(self) -> "Step":
+        "Ensures the direction time_from -> time_to is positive, ie time is always moving forwards."
+        return Step(min(self), max(self))
 
 
 @enum.unique
