@@ -8,8 +8,8 @@ import pytest
 import torch
 from testing_common import ALL_FAKE_MODELS, ALL_MODELS, ALL_SCHEDULES, ALL_STRUCTURED, ALL_TRANSFROMS, compare_pp
 
-from skrample import scheduling
-from skrample.common import SigmaTransform, Step, euler
+from skrample import diffusers, scheduling
+from skrample.common import Point, SigmaTransform, Step, euler
 from skrample.sampling import functional, interface, models, structured, tableaux
 
 type SamplerTestKey = tuple[
@@ -346,6 +346,73 @@ def test_functional_adapter(
         sample_s = results.final
 
     assert sample_s == sample_f
+
+
+def test_rku_diffusers() -> None:
+    samples_ref: list[float] = []
+    samples_wrap: list[float] = []
+    points_ref: list[Point] = []
+    points_wrap: list[Point] = []
+
+    def fake_model(x: float, _: float, s: float) -> float:
+        return x + math.sin(x) * s
+
+    def fake_model_ref(x: float, t: float, s: float) -> float:
+        samples_ref.append(x)
+        points_ref.append(Point(t, s))
+        return fake_model(x, t, s)
+
+    def fake_model_wrap(x: float, t: float, s: float) -> float:
+        samples_wrap.append(x)
+        points_wrap.append(Point(t, s))
+        return fake_model(x, t, s)
+
+    model = models.FlowModel()
+    transform = None
+    schedule = scheduling.Sinner(scheduling.Linear())
+
+    sampler_wrap = diffusers.RKUltraWrapperScheduler(
+        schedule,
+        rk_order=3,
+        model=model,
+        derivative_transform=transform,
+        compute_scale=torch.float64,
+    )
+    sampler_ref = functional.RKUltra(
+        order=sampler_wrap.rk_order,
+        derivative_transform=transform,
+        providers=sampler_wrap._providers,
+    )
+
+    steps: int = 11
+
+    data_init = 1.5
+
+    data_ref = sampler_ref.sample_model(
+        data_init,
+        fake_model_ref,
+        sampler_wrap.model,
+        schedule,
+        steps,
+    )
+
+    sampler_wrap.set_timesteps(steps)
+
+    data_wrap: float = data_init
+    for n, (t, s) in enumerate(zip(sampler_wrap.timesteps, sampler_wrap.sigmas)):
+        output = fake_model_wrap(data_wrap, t.item(), s.item())
+
+        assert points_ref[n] == points_wrap[n], (points_ref[: n + 1], points_wrap)
+        assert samples_ref[n] == samples_wrap[n], (samples_ref[: n + 1], samples_wrap)
+
+        data_wrap = sampler_wrap.step(
+            torch.tensor(output, dtype=torch.float64),
+            t,
+            torch.tensor(data_wrap, dtype=torch.float64),
+            return_dict=False,
+        )[0].item()
+
+    assert data_ref == data_wrap
 
 
 @pytest.mark.parametrize(
