@@ -100,3 +100,6 @@ exclude = [
     "build",
     "tests/diffusers*.py"
 ]
+
+[tool.ty.src]
+exclude = [ "tests/diffusers*.py" ]
