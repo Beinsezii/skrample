@@ -1,3 +1,8 @@
+## 0.5.2
+### Fixes
+
+Fix ZSNR detection
+
 ## 0.5.1
 ### Changes
 
