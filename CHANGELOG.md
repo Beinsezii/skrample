@@ -18,6 +18,16 @@ Add functional examples
 ### Fixes
 Small bugs with plot_skrample.py
 
+## 0.5.2
+### Fixes
+
+Fix ZSNR detection
+
+## 0.5.1
+### Changes
+
+Set default order to 2 for all samplers
+
 ## 0.5.0
 ### Fixes
 Incorrect Brownian step sizes

@@ -138,7 +138,7 @@ def parse_diffusers_config(
     if not schedule:
         if isinstance(model, FlowModel):
             schedule = scheduling.Linear
-        elif remapped.get("rescale_betas_zero_snr", False):
+        elif config.get("rescale_betas_zero_snr", False):
             schedule = scheduling.ZSNR
         else:
             schedule = scheduling.Scaled
