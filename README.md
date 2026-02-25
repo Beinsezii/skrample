@@ -1,4 +1,4 @@
-# Skrample 0.5.2
+# Skrample 0.5.3
 Composable sampling functions for diffusion models
 
 ## Status
