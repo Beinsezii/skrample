@@ -193,7 +193,10 @@ class Pyramid(TensorNoiseCommon[PyramidProps]):
 
             # Reverse the permutation
             unpermuted_dims = torch.tensor(permuted_dims, dtype=torch.int).argsort().tolist()
-            variance = variance.reshape([compact_permuation_shape[0], *target]).permute(unpermuted_dims)
+            variance = variance.reshape(
+                # If there's no leading dims, compact[0] is an extra `1` size dim from prod([]) so it must be excluded
+                [compact_permuation_shape[0], *target] if leading > 0 else target
+            ).permute(unpermuted_dims)
 
             pyramid_steps.append(variance.reshape(self.shape) * self.props.strength**i)
 

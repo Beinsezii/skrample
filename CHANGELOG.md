@@ -18,6 +18,11 @@ Add functional examples
 ### Fixes
 Small bugs with plot_skrample.py
 
+## 0.5.3
+### Fixes
+
+Fix Pyramid noise when shape == dims
+
 ## 0.5.2
 ### Fixes
 
