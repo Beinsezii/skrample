@@ -5,7 +5,7 @@ from diffusers.pipelines.z_image.pipeline_z_image import ZImagePipeline
 
 from skrample.diffusers import RKUltraWrapperScheduler
 
-pipe: ZImagePipeline = ZImagePipeline.from_pretrained(  # type: ignore
+pipe: ZImagePipeline = ZImagePipeline.from_pretrained(
     "Tongyi-MAI/Z-Image-Turbo",
     torch_dtype=torch.bfloat16,
 )
@@ -27,4 +27,4 @@ imgs = pipe(
     guidance_scale=1,
     num_inference_steps=4,
 )
-imgs.images[0].save("wrapper_rku.png")  # type: ignore
+imgs.images[0].save("wrapper_rku.png")  # pyright: ignore [reportAttributeAccessIssue] # FrozenDict

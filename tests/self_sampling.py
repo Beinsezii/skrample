@@ -185,7 +185,7 @@ def test_sampler_generics(sampler: structured.StructuredSampler, schedule: sched
         schedule,
         np.array([o], dtype=np.float64),
         previous=prev,  # type: ignore
-    ).final.item()  # type: ignore
+    ).final.item()  # pyright: ignore[reportAttributeAccessIssue]  # not a float
 
     tensor = sampler.sample(
         torch.tensor([i], dtype=torch.float64),
@@ -195,7 +195,7 @@ def test_sampler_generics(sampler: structured.StructuredSampler, schedule: sched
         schedule,
         torch.tensor([n], dtype=torch.float64),
         previous=prev,  # type: ignore
-    ).final.item()  # type: ignore
+    ).final.item()  # pyright: ignore[reportAttributeAccessIssue]  # not a float
 
     assert abs(tensor - scalar) < eps
     assert abs(tensor - ndarr) < eps
@@ -415,7 +415,7 @@ def test_rku_diffusers(
         assert points_ref[n] == points_wrap[n], (points_ref[: n + 1], points_wrap)
         assert abs(samples_ref[n] - samples_wrap[n]) < 1e-8, (samples_ref[: n + 1], samples_wrap)
 
-        data_wrap = sampler_wrap.step(  # pyright: ignore [reportArgumentType] # return_dict shennanigans
+        data_wrap = sampler_wrap.step(  # type: ignore # return_dict shennanigans
             torch.tensor(output, dtype=torch.float64),
             t,
             torch.tensor(data_wrap, dtype=torch.float64),

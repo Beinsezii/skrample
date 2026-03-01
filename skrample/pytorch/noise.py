@@ -51,7 +51,7 @@ class TensorNoiseCommon[T: TensorNoiseProps | None](SkrampleTensorNoise):
         cls,
         shape: tuple[int, ...],
         seed: torch.Generator,
-        props: T = None,
+        props: T = None,  # ty: ignore # is ABC
         dtype: torch.dtype = torch.float32,
         ramp: NDArray[np.float64] = np.linspace(0, 1, 2, dtype=np.float64),
     ) -> Self:
@@ -288,7 +288,7 @@ class BatchTensorNoise[T: TensorNoiseProps | None](SkrampleTensorNoise):
     ) -> "BatchTensorNoise[U]":
         """Batched equivalent of TensorNoiseCommon.from_inputs
         `unit_shape` is the shape per batch, which means the final result will be size [len(seeds), *unit_shape]"""
-        return cls(
+        return cls(  # ty: ignore  # Safe from ABC
             [
                 subclass.from_inputs(unit_shape, seed, props, dtype, ramp)
                 if props is not None
@@ -297,7 +297,7 @@ class BatchTensorNoise[T: TensorNoiseProps | None](SkrampleTensorNoise):
                     seed,
                     dtype=dtype,
                     ramp=ramp,
-                )  # type: ignore  # Safe from ABC
+                )  # pyright: ignore  # Safe from ABC
                 for seed in seeds
             ]
         )

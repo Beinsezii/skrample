@@ -253,7 +253,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
         subschedule: type[SubSchedule] | None = None,
         schedule_modifiers: list[tuple[type[ScheduleModifier], dict[str, Any]]] = [],
         model: DiffusionModel | None = None,
-        noise_type: type[TensorNoiseCommon[N]] = Random,
+        noise_type: type[TensorNoiseCommon[N]] = Random,  # ty: ignore # generic solver woes
         compute_scale: torch.dtype | None = torch.float32,
         sampler_props: dict[str, Any] = {},
         noise_props: N | None = None,
@@ -279,12 +279,12 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
             ):
                 built_schedule = modifier(base=built_schedule, **modifier_props)
 
-        return cls(
+        return cls(  # ty: ignore # generic solver woes
             built_sampler,
             built_schedule,
             model or parsed.model,
-            noise_type=noise_type,  # type: ignore  # think these are weird because of the defaults?
-            noise_props=noise_props,  # type: ignore
+            noise_type=noise_type,  # pyright: ignore  # think these are weird because of the defaults?
+            noise_props=noise_props,  # pyright: ignore
             compute_scale=compute_scale,
             fake_config=config.copy() if isinstance(config, dict) else dict(config.config),
             allow_dynamic=allow_dynamic,
@@ -370,7 +370,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
 
     def scale_noise(self, sample: Tensor, timestep: Tensor, noise: Tensor) -> Tensor:
         schedule = self.schedule_np
-        step = schedule[:, 0].tolist().index(timestep.item())  # type: ignore  # np v2 Number
+        step = schedule[:, 0].tolist().index(timestep.item())
         sigma = schedule[step, 1].item()
         return self.sampler.merge_noise(sample, noise, sigma, sigma_transform=self.schedule.sigma_transform)
 
@@ -379,7 +379,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
 
     def scale_model_input(self, sample: Tensor, timestep: float | Tensor) -> Tensor:
         schedule = self.schedule_np
-        step = schedule[:, 0].tolist().index(timestep if isinstance(timestep, (int | float)) else timestep.item())  # type: ignore  # np v2 Number
+        step = schedule[:, 0].tolist().index(timestep if isinstance(timestep, (int | float)) else timestep.item())
         sigma = schedule[step, 1].item()
         return self.sampler.scale_input(sample, sigma, sigma_transform=self.schedule.sigma_transform)
 
@@ -396,7 +396,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
         return_dict: bool = True,
     ) -> tuple[Tensor, Tensor] | OrderedDict[str, Tensor]:
         schedule = self.schedule_np
-        step = schedule[:, 0].tolist().index(timestep if isinstance(timestep, int | float) else timestep.item())  # type: ignore  # np v2 Number
+        step = schedule[:, 0].tolist().index(timestep if isinstance(timestep, int | float) else timestep.item())
 
         if self.sampler.require_noise:
             if self._noise_generator is None:
@@ -418,7 +418,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
                 self._noise_generator = BatchTensorNoise.from_batch_inputs(
                     self.noise_type,
                     unit_shape=sample.shape[1:],
-                    seeds=seeds,
+                    seeds=seeds,  # ty: ignore # no clue
                     props=self.noise_props,
                     ramp=schedule_to_ramp(schedule),
                     dtype=torch.float32,
@@ -636,7 +636,7 @@ class RKUltraWrapperScheduler:
 
     def scale_noise(self, sample: Tensor, timestep: Tensor, noise: Tensor) -> Tensor:
         schedule = self.schedule_np
-        step = schedule[:, 0].tolist().index(timestep.item())  # type: ignore  # np v2 Number
+        step = schedule[:, 0].tolist().index(timestep.item())
         sigma = schedule[step, 1].item()
         return merge_noise(sample, noise, sigma, sigma_transform=self.schedule.sigma_transform)
 
@@ -663,9 +663,9 @@ class RKUltraWrapperScheduler:
         sample = self._sample
 
         if len(self._derivatives) == len(weights):
-            final: Tensor = model_transform.forward(  # pyright: ignore [reportAssignmentType]
+            final: Tensor = model_transform.forward(  # ty: ignore # output is a tensor
                 sample,
-                math.sumprod(self._derivatives, weights),  # pyright: ignore [reportArgumentType]
+                math.sumprod(self._derivatives, weights),  # type: ignore # it's a tensor
                 S0,
                 S1,
                 self.schedule.sigma_transform,
@@ -677,9 +677,9 @@ class RKUltraWrapperScheduler:
             return final
 
         elif (node := nodes[len(self._derivatives)])[1]:
-            X: Tensor = model_transform.forward(  # pyright: ignore [reportAssignmentType]
+            X: Tensor = model_transform.forward(  # ty: ignore # output is a tensor
                 sample,
-                math.sumprod(self._derivatives, node[1]) / math.fsum(node[1]),  # pyright: ignore [reportArgumentType]
+                math.sumprod(self._derivatives, node[1]) / math.fsum(node[1]),  # type: ignore # it's a tensor
                 S0,
                 SN,
                 self.schedule.sigma_transform,

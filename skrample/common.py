@@ -195,7 +195,7 @@ def euler_step[T: Sample](
 
 def merge_noise[T: Sample](sample: T, noise: T, sigma: float, sigma_transform: SigmaTransform) -> T:
     sigma_u, sigma_v = sigma_transform(sigma)
-    return sample * sigma_v + noise * sigma_u  # type: ignore
+    return sample * sigma_v + noise * sigma_u  # pyright: ignore [reportReturnType] # float rhs is always T
 
 
 def divf(lhs: float, rhs: float) -> float:
@@ -239,23 +239,23 @@ def rescale_subnormal(x: float) -> float:
 
 
 def exp[T: Sample](x: T) -> T:
-    return math.e**x  # type: ignore
+    return math.e**x  # pyright: ignore [reportReturnType] # float rhs is always T
 
 
 def sigmoid[T: Sample](array: T) -> T:
     arrexp: T = exp(array)
-    return arrexp / (1 + arrexp)  # type: ignore
+    return arrexp / (1 + arrexp)  # pyright: ignore [reportReturnType] # float rhs is always T
 
 
 def softmax[T: tuple[Sample, ...]](elems: T) -> T:
-    sm = sum(map(exp, elems))
-    return tuple(exp(e) / sm for e in elems)  # type: ignore
+    sm = sum(map(exp, elems))  # ty: ignore # tuple is always __iter__
+    return tuple(exp(e) / sm for e in elems)  # type: ignore # tuple always same len
 
 
 def spowf[T: Sample](x: T, f: float) -> T:
     """Computes x^f in absolute then re-applies the sign to stabilize chaotic inputs.
     More computationally expensive than plain `math.pow`"""
-    return abs(x) ** f * (-1 * (x < 0) | 1)  # type: ignore
+    return abs(x) ** f * (-1 * (x < 0) | 1)  # pyright: ignore [reportReturnType] # float rhs is always T
 
 
 def mean(x: Sample) -> float:
@@ -266,8 +266,8 @@ def mean(x: Sample) -> float:
         return x.mean().item()
 
 
-def clamp[T: Sample](x: T, low: float | T = 0, high: float | T = 1) -> T:
-    return max(low, min(high, x))  # pyright: ignore[reportReturnType]
+def clamp(x: float, low: float = 0, high: float = 1) -> float:
+    return max(low, min(high, x))
 
 
 @lru_cache
