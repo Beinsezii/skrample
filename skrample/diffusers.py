@@ -528,9 +528,14 @@ class RKUltraWrapperScheduler:
             allow_dynamic=allow_dynamic,
         )
 
-    @property
-    def tableau(self) -> tableaux.Tableau:
-        return (((0.0, ()),), (1.0,)) if self.rk_order < 2 else self._providers[self.rk_order].tableau()
+    def tableau(self, order: int | None = None) -> tableaux.Tableau:
+        if order is None:
+            order = self.rk_order
+
+        if order >= 2 and (morder := max(o for o in self._providers.keys() if o <= order)):
+            return self._providers[morder].tableau()[:2]
+        else:  # Euler / RK1
+            return tableaux.RK1
 
     @property
     def schedule_np(self) -> NDArray[np.float64]:
@@ -543,7 +548,7 @@ class RKUltraWrapperScheduler:
 
         for n in range(self._steps):
             functional.step_tableau(
-                self.tableau,
+                self.tableau(),
                 1,
                 record_call,
                 models.DataModel(),
@@ -578,7 +583,7 @@ class RKUltraWrapperScheduler:
 
     @property
     def order(self) -> int:
-        nodes, _weights = self.tableau
+        nodes, _weights = self.tableau()
         return len(nodes)
 
     @property
@@ -641,22 +646,21 @@ class RKUltraWrapperScheduler:
     def scale_model_input(self, sample: Tensor, timestep: float | Tensor) -> Tensor:
         return sample
 
-    def step_tableau_inside_out(self, sample: Tensor, output: Tensor, S0: float, S1: float, SN: float) -> Tensor:
-        nodes, weights = self.tableau
-
-        model_transform = self.model
+    def step_tableau_inside_out(
+        self,
+        sample: Tensor,
+        output: Tensor,
+        model_transform: DiffusionModel,
+        S0: float,
+        S1: float,
+        SN: float,
+    ) -> Tensor:
+        nodes, weights = self.tableau()
 
         self._derivatives.append(output)
         if self._sample is None:
             self._sample = sample
         sample = self._sample
-
-        # if self.derivative_transform:
-        #     output = models.ModelConvert(
-        #         self.model,
-        #         self.derivative_transform,
-        #     ).output_to(sample, output, SN, self.schedule.sigma_transform)
-        #     model_transform = self.derivative_transform
 
         if len(self._derivatives) == len(weights):
             final: Tensor = model_transform.forward(  # pyright: ignore [reportAssignmentType]
@@ -701,9 +705,19 @@ class RKUltraWrapperScheduler:
 
         assert timestep == schedule[self._index, 0].item()
 
+        if self.derivative_transform:
+            model_output = models.ModelConvert(
+                self.model,
+                self.derivative_transform,
+            ).output_to(sample, model_output, sigmas[self._index], self.schedule.sigma_transform)
+            model_transform = self.derivative_transform
+        else:
+            model_transform = self.model
+
         sampled = self.step_tableau_inside_out(
             sample=sample.to(dtype=self.compute_scale),
             output=model_output.to(dtype=self.compute_scale),
+            model_transform=model_transform,
             S0=sigmas[self._index - len(self._derivatives)],
             S1=sigmas[self._index + self.order - len(self._derivatives)],
             SN=sigmas[self._index + 1],

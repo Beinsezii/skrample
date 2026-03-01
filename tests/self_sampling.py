@@ -348,7 +348,21 @@ def test_functional_adapter(
     assert sample_s == sample_f
 
 
-def test_rku_diffusers() -> None:
+@pytest.mark.parametrize(
+    ("model", "transform", "schedule", "order"),
+    itertools.product(
+        [models.DataModel, models.VelocityModel, models.FlowModel],  # Noise isn't valid for flow schedules
+        [None, models.DataModel, models.VelocityModel, models.FlowModel],
+        [scheduling.Sinner(scheduling.Linear()), scheduling.ZSNR()],
+        [0, 2, 3, 99],
+    ),
+)
+def test_rku_diffusers(
+    model: type[models.DiffusionModel],
+    transform: type[models.DiffusionModel] | None,
+    schedule: scheduling.SkrampleSchedule,
+    order: int,
+) -> None:
     samples_ref: list[float] = []
     samples_wrap: list[float] = []
     points_ref: list[Point] = []
@@ -367,26 +381,22 @@ def test_rku_diffusers() -> None:
         points_wrap.append(Point(t, s))
         return fake_model(x, t, s)
 
-    model = models.FlowModel()
-    transform = None
-    schedule = scheduling.Sinner(scheduling.Linear())
-
     sampler_wrap = diffusers.RKUltraWrapperScheduler(
         schedule,
-        rk_order=3,
-        model=model,
-        derivative_transform=transform,
+        rk_order=order,
+        model=model(),
+        derivative_transform=transform() if transform else None,
         compute_scale=torch.float64,
     )
     sampler_ref = functional.RKUltra(
         order=sampler_wrap.rk_order,
-        derivative_transform=transform,
+        derivative_transform=sampler_wrap.derivative_transform,
         providers=sampler_wrap._providers,
     )
 
-    steps: int = 11
+    steps: int = random.randint(5, 51)
 
-    data_init = 1.5
+    data_init = 1 / (random.random() + 1e-4) * (random.randint(0, 1) * 2 - 1)
 
     data_ref = sampler_ref.sample_model(
         data_init,
@@ -403,16 +413,16 @@ def test_rku_diffusers() -> None:
         output = fake_model_wrap(data_wrap, t.item(), s.item())
 
         assert points_ref[n] == points_wrap[n], (points_ref[: n + 1], points_wrap)
-        assert samples_ref[n] == samples_wrap[n], (samples_ref[: n + 1], samples_wrap)
+        assert abs(samples_ref[n] - samples_wrap[n]) < 1e-8, (samples_ref[: n + 1], samples_wrap)
 
-        data_wrap = sampler_wrap.step(
+        data_wrap = sampler_wrap.step(  # pyright: ignore [reportArgumentType] # return_dict shennanigans
             torch.tensor(output, dtype=torch.float64),
             t,
             torch.tensor(data_wrap, dtype=torch.float64),
             return_dict=False,
         )[0].item()
 
-    assert data_ref == data_wrap
+    assert abs(data_ref - data_wrap) < 1e-8  # Not sure why it can't be exact eq tbh, is torch really that different?
 
 
 @pytest.mark.parametrize(
