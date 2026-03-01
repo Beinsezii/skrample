@@ -19,7 +19,10 @@ pipe.scheduler = RKUltraWrapperScheduler.from_diffusers_config(
 pipe.enable_model_cpu_offload()
 
 imgs = pipe(
-    prompt="bright high resolution dslr photograph of a kitten on a beach of rainbow pebbles",
+    prompt="Analogue portrait photograph of a woman in a stained glass church. "
+    "She is wearing gothic plate armor and has short, curly blonde hair. "
+    "The photo is softly lit, with the light in the image being provided "
+    "by multicolored rays coming from the church windows.",
     generator=torch.Generator("cpu").manual_seed(42),
     guidance_scale=1,
     num_inference_steps=4,
