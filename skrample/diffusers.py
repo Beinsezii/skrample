@@ -464,7 +464,7 @@ class RKUltraWrapperScheduler:
     schedule: SkrampleSchedule
     rk_order: int = 2
     model: DiffusionModel = NoiseModel()  # noqa: RUF009 # is immutable
-    derivative_transform: DiffusionModel | None = NoiseModel()  # noqa: RUF009 # is immutable
+    derivative_transform: DiffusionModel | None = DataModel()  # noqa: RUF009 # is immutable
     compute_scale: torch.dtype | None = torch.float32
     allow_dynamic: bool = True
     """Whether or not classes can be overridden during sampling.
