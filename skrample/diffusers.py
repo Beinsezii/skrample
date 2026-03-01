@@ -479,6 +479,7 @@ class RKUltraWrapperScheduler:
         self._index: int = 0
         self._device: torch.device = torch.device("cpu")
         self._derivatives: list[Tensor] = []
+        self._sample: Tensor | None = None
         self._schedule = self.schedule  # copy of original for restoration in set_timesteps
         self._providers: Mapping[int, tableaux.TableauProvider] = MappingProxyType(
             {
@@ -641,10 +642,14 @@ class RKUltraWrapperScheduler:
         return sample
 
     def step_tableau_inside_out(self, sample: Tensor, output: Tensor, S0: float, S1: float, SN: float) -> Tensor:
-        functional.step_tableau
         nodes, weights = self.tableau
 
         model_transform = self.model
+
+        self._derivatives.append(output)
+        if self._sample is None:
+            self._sample = sample
+        sample = self._sample
 
         # if self.derivative_transform:
         #     output = models.ModelConvert(
@@ -652,8 +657,6 @@ class RKUltraWrapperScheduler:
         #         self.derivative_transform,
         #     ).output_to(sample, output, SN, self.schedule.sigma_transform)
         #     model_transform = self.derivative_transform
-
-        self._derivatives.append(output)
 
         if len(self._derivatives) == len(weights):
             final: Tensor = model_transform.forward(  # pyright: ignore [reportAssignmentType]
@@ -665,6 +668,7 @@ class RKUltraWrapperScheduler:
             )
 
             self._derivatives.clear()
+            self._sample = None
 
             return final
 
@@ -702,7 +706,7 @@ class RKUltraWrapperScheduler:
             output=model_output.to(dtype=self.compute_scale),
             S0=sigmas[self._index - len(self._derivatives)],
             S1=sigmas[self._index + self.order - len(self._derivatives)],
-            SN=sigmas[self._index],
+            SN=sigmas[self._index + 1],
         )
 
         self._index += 1

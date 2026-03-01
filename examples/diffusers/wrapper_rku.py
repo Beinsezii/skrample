@@ -13,7 +13,7 @@ pipe: ZImagePipeline = ZImagePipeline.from_pretrained(  # type: ignore
 pipe.scheduler = RKUltraWrapperScheduler.from_diffusers_config(
     # Schedule, prediction, etc is auto detected
     pipe.scheduler.config,
-    rk_order=2,
+    rk_order=3,
 )
 
 pipe.enable_model_cpu_offload()
