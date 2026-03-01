@@ -42,9 +42,9 @@ def step_tableau[T: Sample](
     for frac_sc, icoeffs in zip(fractions, (t[1] for t in nodes), strict=True):
         sigma_i = frac_sc[1]
         if icoeffs:
-            X: T = model_transform.forward(  # pyright: ignore [reportAssignmentType]
+            X: T = model_transform.forward(  # type: ignore # sumprod is T
                 sample,
-                math.sumprod(derivatives, icoeffs) / math.fsum(icoeffs),  # pyright: ignore [reportArgumentType]
+                math.sumprod(derivatives, icoeffs) / math.fsum(icoeffs),  # type: ignore # sumprod is T
                 S0,
                 sigma_i,
                 schedule.sigma_transform,
@@ -58,10 +58,10 @@ def step_tableau[T: Sample](
         else:
             derivatives.append(model(X, *frac_sc))
 
-    return tuple(  # pyright: ignore [reportReturnType]
+    return tuple(  # type: ignore # sumprod is T
         model_transform.forward(
             sample,
-            math.sumprod(derivatives, w),  # pyright: ignore [reportArgumentType]
+            math.sumprod(derivatives, w),  # type: ignore # sumprod is T
             S0,
             S1,
             schedule.sigma_transform,
@@ -105,8 +105,8 @@ class FunctionalSampler(ABC, traits.SamplingCommon):
         if initial is None and include.start is None:  # Short circuit for common case
             sample: T = rng()
         else:
-            sample: T = self.merge_noise(
-                0 if initial is None else initial,  # type: ignore
+            sample: T = self.merge_noise(  # type: ignore # 0 should be valid here because it's added to RNG so it becomes T
+                0 if initial is None else initial,
                 rng(),
                 schedule.ipoint((include.start or 0) / steps)[1],
                 schedule.sigma_transform,
@@ -162,7 +162,7 @@ class FunctionalAdaptive(FunctionalSampler):
 
     @staticmethod
     def mse[T: Sample](a: T, b: T) -> float:
-        error: T = abs(a - b) ** 2  # type: ignore
+        error: T = abs(a - b) ** 2  # pyright: ignore [reportAssignmentType] # float rhs is always T
         return common.mean(error)
 
     evaluator: Evaluator = mse

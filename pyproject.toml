@@ -29,7 +29,7 @@ scripts = ["skrample[all]", "matplotlib>=3.10.1"]
 test = [
     "skrample[scripts]",
     "accelerate>=1.3",
-    "diffusers>=0.35",
+    "diffusers>=0.36",
     "protobuf>=5.29",
     "pyright>=1.1.407",
     "pytest-xdist>=3.6.1",
@@ -100,3 +100,6 @@ exclude = [
     "build",
     "tests/diffusers*.py"
 ]
+
+[tool.ty.src]
+exclude = [ "tests/diffusers*.py" ]

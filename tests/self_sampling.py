@@ -8,8 +8,8 @@ import pytest
 import torch
 from testing_common import ALL_FAKE_MODELS, ALL_MODELS, ALL_SCHEDULES, ALL_STRUCTURED, ALL_TRANSFROMS, compare_pp
 
-from skrample import scheduling
-from skrample.common import SigmaTransform, Step, euler
+from skrample import diffusers, scheduling
+from skrample.common import Point, SigmaTransform, Step, euler
 from skrample.sampling import functional, interface, models, structured, tableaux
 
 type SamplerTestKey = tuple[
@@ -185,7 +185,7 @@ def test_sampler_generics(sampler: structured.StructuredSampler, schedule: sched
         schedule,
         np.array([o], dtype=np.float64),
         previous=prev,  # type: ignore
-    ).final.item()  # type: ignore
+    ).final.item()  # pyright: ignore[reportAttributeAccessIssue]  # not a float
 
     tensor = sampler.sample(
         torch.tensor([i], dtype=torch.float64),
@@ -195,7 +195,7 @@ def test_sampler_generics(sampler: structured.StructuredSampler, schedule: sched
         schedule,
         torch.tensor([n], dtype=torch.float64),
         previous=prev,  # type: ignore
-    ).final.item()  # type: ignore
+    ).final.item()  # pyright: ignore[reportAttributeAccessIssue]  # not a float
 
     assert abs(tensor - scalar) < eps
     assert abs(tensor - ndarr) < eps
@@ -346,6 +346,83 @@ def test_functional_adapter(
         sample_s = results.final
 
     assert sample_s == sample_f
+
+
+@pytest.mark.parametrize(
+    ("model", "transform", "schedule", "order"),
+    itertools.product(
+        [models.DataModel, models.VelocityModel, models.FlowModel],  # Noise isn't valid for flow schedules
+        [None, models.DataModel, models.VelocityModel, models.FlowModel],
+        [scheduling.Sinner(scheduling.Linear()), scheduling.Scaled()],
+        [0, 2, 3, 99],
+    ),
+)
+def test_rku_diffusers(
+    model: type[models.DiffusionModel],
+    transform: type[models.DiffusionModel] | None,
+    schedule: scheduling.SkrampleSchedule,
+    order: int,
+) -> None:
+    samples_ref: list[float] = []
+    samples_wrap: list[float] = []
+    points_ref: list[Point] = []
+    points_wrap: list[Point] = []
+
+    def fake_model(x: float, _: float, s: float) -> float:
+        return x + math.sin(x) * s
+
+    def fake_model_ref(x: float, t: float, s: float) -> float:
+        samples_ref.append(x)
+        points_ref.append(Point(t, s))
+        return fake_model(x, t, s)
+
+    def fake_model_wrap(x: float, t: float, s: float) -> float:
+        samples_wrap.append(x)
+        points_wrap.append(Point(t, s))
+        return fake_model(x, t, s)
+
+    sampler_wrap = diffusers.RKUltraWrapperScheduler(
+        schedule,
+        rk_order=order,
+        model=model(),
+        derivative_transform=transform() if transform else None,
+        compute_scale=torch.float64,
+    )
+    sampler_ref = functional.RKUltra(
+        order=sampler_wrap.rk_order,
+        derivative_transform=sampler_wrap.derivative_transform,
+        providers=sampler_wrap._providers,
+    )
+
+    steps: int = random.randint(5, 51)
+
+    data_init = 1 / (random.random() + 1e-4) * (random.randint(0, 1) * 2 - 1)
+
+    data_ref = sampler_ref.sample_model(
+        data_init,
+        fake_model_ref,
+        sampler_wrap.model,
+        schedule,
+        steps,
+    )
+
+    sampler_wrap.set_timesteps(steps)
+
+    data_wrap: float = data_init
+    for n, (t, s) in enumerate(zip(sampler_wrap.timesteps, sampler_wrap.sigmas)):
+        output = fake_model_wrap(data_wrap, t.item(), s.item())
+
+        assert points_ref[n] == points_wrap[n], (points_ref[: n + 1], points_wrap)
+        assert abs(samples_ref[n] - samples_wrap[n]) < 1e-8, (samples_ref[: n + 1], samples_wrap)
+
+        data_wrap = sampler_wrap.step(  # type: ignore # return_dict shennanigans
+            torch.tensor(output, dtype=torch.float64),
+            t,
+            torch.tensor(data_wrap, dtype=torch.float64),
+            return_dict=False,
+        )[0].item()
+
+    assert abs(data_ref - data_wrap) < 1e-8  # Not sure why it can't be exact eq tbh, is torch really that different?
 
 
 @pytest.mark.parametrize(

@@ -9,7 +9,7 @@ import skrample.scheduling as scheduling
 from skrample.diffusers import SkrampleWrapperScheduler
 from skrample.sampling.models import FlowModel
 
-pipe: FluxPipeline = FluxPipeline.from_pretrained(  # type: ignore
+pipe: FluxPipeline = FluxPipeline.from_pretrained(
     "black-forest-labs/FLUX.1-dev",
     torch_dtype=torch.bfloat16,
 )
@@ -28,4 +28,4 @@ imgs = pipe(
     "bright high resolution dslr photograph of a kitten on a beach of rainbow pebbles",
     generator=torch.Generator("cpu").manual_seed(42),
 )
-imgs.images[0].save("wrapper.png")  # type: ignore
+imgs.images[0].save("wrapper.png")  # pyright: ignore [reportAttributeAccessIssue] # FrozenDict

@@ -40,7 +40,7 @@ def oklch_to_srgb(array: NDArray[np.float64]) -> list[float]:
     )
     lrgb = spowf((oklab @ np.linalg.inv(OKLAB_M2)), 3) @ np.linalg.inv(OKLAB_XYZ_M1)
     srgb = spowf(lrgb, 1 / 2.2)
-    return srgb.clip(0, 1).tolist()  # type: ignore
+    return srgb.clip(0, 1).tolist()
 
 
 def colors(hue_steps: int) -> Generator[list[float]]:
