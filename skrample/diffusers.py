@@ -731,7 +731,7 @@ class RKUltraWrapperScheduler:
 
         self._index += 1
 
-        if self._index < len(self._full) and (abs(self._full[self._index]) < 1e-8).any():
+        while self._index < len(self._full) and (abs(self._full[self._index]) < 1e-8).any():
             sampled = self.step_tableau_inside_out(
                 sample=sample.to(dtype=self.compute_scale),
                 output=model_transform.backward(
