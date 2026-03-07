@@ -1,4 +1,5 @@
 import dataclasses
+import functools
 import math
 from collections import OrderedDict
 from collections.abc import Hashable, Mapping
@@ -537,8 +538,9 @@ class RKUltraWrapperScheduler:
         else:  # Euler / RK1
             return tableaux.RK1
 
-    @property
-    def schedule_np(self) -> NDArray[np.float64]:
+    @staticmethod
+    @functools.lru_cache
+    def _schedule_np(steps: int, schedule: SkrampleSchedule, tableau: tableaux.Tableau) -> NDArray[np.float64]:
         recorded_points: list[Point] = []
 
         def record_call(x: float, t: float, s: float) -> float:
@@ -546,14 +548,14 @@ class RKUltraWrapperScheduler:
             recorded_points.append(Point(t, s))
             return x
 
-        for n in range(self._steps):
+        for n in range(steps):
             functional.step_tableau(
-                self.tableau(),
+                tableau,
                 1,
                 record_call,
                 models.DataModel(),
-                self.schedule,
-                Step.from_int(n, self._steps),
+                schedule,
+                Step.from_int(n, steps),
             )
 
         dedupe: list[Point] = []
@@ -562,6 +564,10 @@ class RKUltraWrapperScheduler:
             dedupe.append(x)
 
         return np.asarray(recorded_points, dtype=np.float64)
+
+    @property
+    def schedule_np(self) -> NDArray[np.float64]:
+        return self._schedule_np(self._steps, self.schedule, self.tableau()).copy()
 
     @property
     def schedule_pt(self) -> Tensor:
