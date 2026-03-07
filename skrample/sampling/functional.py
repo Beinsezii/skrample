@@ -178,9 +178,9 @@ class RKUltra(traits.DerivativeTransform, FunctionalHigher, FunctionalSinglestep
     providers: Mapping[int, tableaux.TableauProvider[tableaux.Tableau | tableaux.ExtendedTableau]] = MappingProxyType(
         {
             2: tableaux.RK2.Heun,
-            3: tableaux.RK3.Ralston,
-            4: tableaux.RK4.Ralston,
-            5: tableaux.RKE5.CashKarp,
+            3: tableaux.RK3.Wray,
+            4: tableaux.RK4.Classic,
+            5: tableaux.RKZ.Nystrom5,
         }
     )
     """Providers for a given order, starting from 2.
