@@ -3,7 +3,6 @@ import functools
 import math
 from collections import OrderedDict
 from collections.abc import Hashable, Mapping
-from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
@@ -463,9 +462,9 @@ class RKUltraWrapperScheduler:
     A general rule of thumb is it will always prioritize the skrample properties over the incoming properties."""
 
     schedule: SkrampleSchedule
-    rk_order: int = 2
+    rk_order: int = functional.RKUltra.order
     model: DiffusionModel = NoiseModel()  # noqa: RUF009 # is immutable
-    derivative_transform: DiffusionModel | None = DataModel()  # noqa: RUF009 # is immutable
+    derivative_transform: DiffusionModel | None = functional.RKUltra.derivative_transform
     compute_scale: torch.dtype | None = torch.float32
     allow_dynamic: bool = True
     """Whether or not classes can be overridden during sampling.
@@ -474,14 +473,7 @@ class RKUltraWrapperScheduler:
     """Extra items presented in scheduler.config to the pipeline.
     It is recommended to use an actual diffusers scheduler config if one is available."""
 
-    _providers: Mapping[int, tableaux.TableauProvider] = MappingProxyType(
-        {
-            **functional.RKUltra.providers,
-            # prioritize providers that don't sample T=0
-            2: tableaux.RK2.Ralston,
-            3: tableaux.RK3.Ralston,
-        }
-    )
+    providers: Mapping[int, tableaux.TableauProvider] = functional.RKUltra.providers
 
     def __post_init__(self) -> None:
         # State
@@ -498,11 +490,11 @@ class RKUltraWrapperScheduler:
         cls,
         config: "dict[str, Any] | ConfigMixin",
         schedule: type[SkrampleSchedule] | None = None,
-        rk_order: int = 2,
+        rk_order: int = functional.RKUltra.order,
         subschedule: type[SubSchedule] | None = None,
         schedule_modifiers: list[tuple[type[ScheduleModifier], dict[str, Any]]] = [],
         model: DiffusionModel | None = None,
-        derivative_transform: DiffusionModel | None = DataModel(),
+        derivative_transform: DiffusionModel | None = functional.RKUltra.derivative_transform,
         compute_scale: torch.dtype | None = torch.float32,
         schedule_props: dict[str, Any] = {},
         subschedule_props: dict[str, Any] = {},
@@ -536,13 +528,7 @@ class RKUltraWrapperScheduler:
         )
 
     def tableau(self, order: int | None = None) -> tableaux.Tableau:
-        if order is None:
-            order = self.rk_order
-
-        if order >= 2 and (morder := max(o for o in self._providers.keys() if o <= order)):
-            return self._providers[morder].tableau()[:2]
-        else:  # Euler / RK1
-            return tableaux.RK1
+        return functional.RKUltra(order=self.rk_order, providers=self.providers).tableau(order)
 
     @staticmethod
     @functools.lru_cache
@@ -701,6 +687,9 @@ class RKUltraWrapperScheduler:
             return X
 
         raise ValueError
+
+    def adjust_steps(self, steps: int) -> int:
+        return functional.RKUltra(order=self.rk_order, providers=self.providers).adjust_steps(steps)
 
     def step(
         self,

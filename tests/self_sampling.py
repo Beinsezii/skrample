@@ -391,7 +391,7 @@ def test_rku_diffusers(
     sampler_ref = functional.RKUltra(
         order=sampler_wrap.rk_order,
         derivative_transform=sampler_wrap.derivative_transform,
-        providers=sampler_wrap._providers,
+        providers=sampler_wrap.providers,
     )
 
     steps: int = random.randint(5, 51)
