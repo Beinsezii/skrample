@@ -474,6 +474,15 @@ class RKUltraWrapperScheduler:
     """Extra items presented in scheduler.config to the pipeline.
     It is recommended to use an actual diffusers scheduler config if one is available."""
 
+    _providers: Mapping[int, tableaux.TableauProvider] = MappingProxyType(
+        {
+            **functional.RKUltra.providers,
+            # prioritize providers that don't sample T=0
+            2: tableaux.RK2.Ralston,
+            3: tableaux.RK3.Ralston,
+        }
+    )
+
     def __post_init__(self) -> None:
         # State
         self._steps: int = 50
@@ -482,12 +491,7 @@ class RKUltraWrapperScheduler:
         self._derivatives: list[Tensor] = []
         self._sample: Tensor | None = None
         self._schedule = self.schedule  # copy of original for restoration in set_timesteps
-        self._providers: Mapping[int, tableaux.TableauProvider] = MappingProxyType(
-            {
-                2: tableaux.RK2.Ralston,
-                3: tableaux.RK3.Ralston,
-            }
-        )
+        self._full: scheduling.NPSchedule
 
     @classmethod
     def from_diffusers_config(  # pyright fails if you use the outer generic
@@ -540,7 +544,9 @@ class RKUltraWrapperScheduler:
 
     @staticmethod
     @functools.lru_cache
-    def _schedule_np(steps: int, schedule: SkrampleSchedule, tableau: tableaux.Tableau) -> NDArray[np.float64]:
+    def _schedule_np(
+        steps: int, schedule: SkrampleSchedule, tableau: tableaux.Tableau
+    ) -> tuple[scheduling.NPSchedule, scheduling.NPSchedule]:
         recorded_points: list[Point] = []
 
         def record_call(x: float, t: float, s: float) -> float:
@@ -556,18 +562,18 @@ class RKUltraWrapperScheduler:
                 models.DataModel(),
                 schedule,
                 Step.from_int(n, steps),
+                epsilon=-math.inf,  # ensure T=0 is always hit
             )
 
-        dedupe: list[Point] = []
-        for x in recorded_points:
-            assert x not in dedupe, x
-            dedupe.append(x)
-
-        return np.asarray(recorded_points, dtype=np.float64)
+        return (
+            np.asarray(recorded_points, dtype=np.float64),
+            np.asarray([p for p in recorded_points if all(abs(v) > 1e-8 for v in p)], dtype=np.float64),
+        )
 
     @property
     def schedule_np(self) -> NDArray[np.float64]:
-        return self._schedule_np(self._steps, self.schedule, self.tableau()).copy()
+        self._full, snp = self._schedule_np(self._steps, self.schedule, self.tableau())
+        return snp
 
     @property
     def schedule_pt(self) -> Tensor:
@@ -706,10 +712,9 @@ class RKUltraWrapperScheduler:
         generator: torch.Generator | list[torch.Generator] | None = None,
         return_dict: bool = True,
     ) -> tuple[Tensor, Tensor] | OrderedDict[str, Tensor]:
-        schedule = self.schedule_np
-        sigmas = np.concatenate([schedule[:, 1], [0]])
+        assert timestep == self._full[self._index, 0].item()
 
-        assert timestep == schedule[self._index, 0].item()
+        sigmas = np.concatenate([self._full[:, 1], [0]])
 
         if self.derivative_transform:
             model_output = models.ModelConvert(
@@ -720,16 +725,38 @@ class RKUltraWrapperScheduler:
         else:
             model_transform = self.model
 
+        S0_idx = self._index - len(self._derivatives)
+        S1_idx = self._index + self.order - len(self._derivatives)
+        SN_idx = self._index + 1
+
         sampled = self.step_tableau_inside_out(
             sample=sample.to(dtype=self.compute_scale),
             output=model_output.to(dtype=self.compute_scale),
             model_transform=model_transform,
-            S0=sigmas[self._index - len(self._derivatives)],
-            S1=sigmas[self._index + self.order - len(self._derivatives)],
-            SN=sigmas[self._index + 1],
+            S0=sigmas[S0_idx],
+            S1=sigmas[S1_idx],
+            SN=sigmas[SN_idx],
         )
 
         self._index += 1
+
+        if self._index < len(self._full) and (abs(self._full[self._index]) < 1e-8).any():
+            sampled = self.step_tableau_inside_out(
+                sample=sample.to(dtype=self.compute_scale),
+                output=model_transform.backward(
+                    sample.to(dtype=self.compute_scale),
+                    sampled,
+                    sigmas[S0_idx],
+                    sigmas[S1_idx],
+                    self.schedule.sigma_transform,
+                ),
+                model_transform=model_transform,
+                S0=sigmas[S0_idx],
+                S1=sigmas[S1_idx],
+                SN=sigmas[SN_idx + 1],
+            )
+
+            self._index += 1
 
         if return_dict:
             return attr_dict(

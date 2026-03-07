@@ -354,7 +354,7 @@ def test_functional_adapter(
         [models.DataModel, models.VelocityModel, models.FlowModel],  # Noise isn't valid for flow schedules
         [None, models.DataModel, models.VelocityModel, models.FlowModel],
         [scheduling.Sinner(scheduling.Linear()), scheduling.Scaled()],
-        [0, 2, 3, 99],
+        [0, *range(2, 6), 99],
     ),
 )
 def test_rku_diffusers(
