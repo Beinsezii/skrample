@@ -735,7 +735,7 @@ class RKUltraWrapperScheduler:
             sampled = self.step_tableau_inside_out(
                 sample=sample.to(dtype=self.compute_scale),
                 output=model_transform.backward(
-                    sample.to(dtype=self.compute_scale),
+                    (sample if self._sample is None else self._sample).to(dtype=self.compute_scale),
                     sampled,
                     sigmas[S0_idx],
                     sigmas[S1_idx],
