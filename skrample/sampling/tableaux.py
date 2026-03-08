@@ -17,6 +17,8 @@ type ExtendedTableau = tuple[
     TabWeight,
 ]
 
+V5 = math.sqrt(5)
+
 
 def validate_tableau(tab: Tableau | ExtendedTableau, tolerance: float = 1e-15) -> None | IndexError | ValueError:
     for index, node in enumerate(tab[0]):
@@ -188,7 +190,7 @@ class RK4(enum.Enum):
         (1 / 6, 1 / 3, 1 / 3, 1 / 6),
     )
     Eighth = rk4_tableau(1 / 3, 2 / 3)
-    Ralston = rk4_tableau(2 / 5, (14 - 3 * math.sqrt(5)) / 16)
+    Ralston = rk4_tableau(2 / 5, (14 - 3 * V5) / 16)
 
     def tableau(self) -> Tableau:
         return self.value
@@ -210,6 +212,22 @@ class RKZ(enum.Enum):
         ),
         (23 / 192, 0, 125 / 192, 0, -27 / 64, 125 / 192),
     )
+
+    Butcher6 = (
+        (
+            (0, ()),
+            ((5 - V5) / 10, ((5 - V5) / 10,)),
+            ((5 + V5) / 10, (-V5 / 10, (5 + 2 * V5) / 10)),
+            ((5 - V5) / 10, ((-15 + 7 * V5) / 20, (-1 + V5) / 4, (15 - 7 * V5) / 10)),
+            ((5 + V5) / 10, ((5 - V5) / 60, 0, 1 / 6, (15 + 7 * V5) / 60)),
+            ((5 - V5) / 10, ((5 + V5) / 60, 0, (9 - 5 * V5) / 12, 1 / 6, (-5 + 3 * V5) / 10)),
+            (1.0, (1 / 6, 0, (-55 + 25 * V5) / 12, (-25 - 7 * V5) / 12, 5 - 2 * V5, (5 + V5) / 2)),
+        ),
+        (1 / 12, 0, 0, 0, 5 / 12, 5 / 12, 1 / 12),
+    )
+    """On Runge-Kutta processes of high order, J. C. Butcher
+    https://www.cambridge.org/core/services/aop-cambridge-core/content/view/40DFE501CAB781C9AAE1439B6B8F481A/S1446788700023387a.pdf/on-runge-kutta-processes-of-high-order.pdf
+    Figure [15]"""
 
     def tableau(self) -> Tableau:
         return self.value
