@@ -462,7 +462,7 @@ class RKUltraWrapperScheduler:
     A general rule of thumb is it will always prioritize the skrample properties over the incoming properties."""
 
     schedule: SkrampleSchedule
-    rk_order: int = functional.RKUltra.order
+    sampler_order: int = functional.RKUltra.order
     model: DiffusionModel = NoiseModel()  # noqa: RUF009 # is immutable
     derivative_transform: DiffusionModel | None = functional.RKUltra.derivative_transform
     compute_scale: torch.dtype | None = torch.float32
@@ -490,7 +490,7 @@ class RKUltraWrapperScheduler:
         cls,
         config: "dict[str, Any] | ConfigMixin",
         schedule: type[SkrampleSchedule] | None = None,
-        rk_order: int = functional.RKUltra.order,
+        sampler_order: int = functional.RKUltra.order,
         subschedule: type[SubSchedule] | None = None,
         schedule_modifiers: list[tuple[type[ScheduleModifier], dict[str, Any]]] = [],
         model: DiffusionModel | None = None,
@@ -519,7 +519,7 @@ class RKUltraWrapperScheduler:
 
         return cls(
             built_schedule,
-            rk_order,
+            sampler_order,
             model or parsed.model,
             derivative_transform=derivative_transform,
             compute_scale=compute_scale,
@@ -528,7 +528,7 @@ class RKUltraWrapperScheduler:
         )
 
     def tableau(self, order: int | None = None) -> tableaux.Tableau:
-        return functional.RKUltra(order=self.rk_order, providers=self.providers).tableau(order)
+        return functional.RKUltra(order=self.sampler_order, providers=self.providers).tableau(order)
 
     @staticmethod
     @functools.lru_cache
@@ -690,7 +690,7 @@ class RKUltraWrapperScheduler:
         raise ValueError
 
     def adjust_steps(self, steps: int) -> int:
-        return functional.RKUltra(order=self.rk_order, providers=self.providers).adjust_steps(steps)
+        return functional.RKUltra(order=self.sampler_order, providers=self.providers).adjust_steps(steps)
 
     def step(
         self,

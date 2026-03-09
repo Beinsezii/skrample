@@ -383,13 +383,13 @@ def test_rku_diffusers(
 
     sampler_wrap = diffusers.RKUltraWrapperScheduler(
         schedule,
-        rk_order=order,
+        sampler_order=order,
         model=model(),
         derivative_transform=transform() if transform else None,
         compute_scale=torch.float64,
     )
     sampler_ref = functional.RKUltra(
-        order=sampler_wrap.rk_order,
+        order=sampler_wrap.sampler_order,
         derivative_transform=sampler_wrap.derivative_transform,
         providers=sampler_wrap.providers,
     )
