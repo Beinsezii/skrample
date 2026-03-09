@@ -182,7 +182,7 @@ class RK3(enum.Enum):
 class RK4(enum.Enum):
     "4th order, 4 calls"
 
-    Classic = (
+    Kutta = (
         (
             (0, ()),
             (1 / 2, (1 / 2,)),

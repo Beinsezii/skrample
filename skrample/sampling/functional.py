@@ -179,7 +179,7 @@ class RKUltra(traits.DerivativeTransform, FunctionalHigher, FunctionalSinglestep
         {
             2: tableaux.RK2.Heun,
             3: tableaux.RK3.Wray,
-            4: tableaux.RK4.Classic,
+            4: tableaux.RK4.Kutta,
             5: tableaux.RKZ.Nystrom5,
             6: tableaux.RKZ.Butcher6,
             7: tableaux.Shanks1965.RK7_9,
