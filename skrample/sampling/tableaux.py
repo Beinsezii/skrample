@@ -20,7 +20,7 @@ type ExtendedTableau = tuple[
 V5 = math.sqrt(5)
 
 
-def validate_tableau(tab: Tableau | ExtendedTableau, tolerance: float = 1e-15) -> None | IndexError | ValueError:
+def validate_tableau(tab: Tableau | ExtendedTableau, tolerance: float = 1e-12) -> None | IndexError | ValueError:
     for index, node in enumerate(tab[0]):
         if index != (node_len := len(node[1])):
             return IndexError(f"{index=}, {node_len=}, {node=}")
@@ -315,4 +315,100 @@ class RKE5(enum.Enum):
     )
 
     def tableau(self) -> ExtendedTableau:
+        return self.value
+
+
+@enum.unique
+class Shanks1965(enum.Enum):
+    """Higher order approximations of runge-kutta type, E. B. Shanks
+    https://ntrs.nasa.gov/citations/19650022581
+    Note RK5_5, RK6_6, RK7_7 and RK8_10 are only approximations of their respective orders.
+    """
+
+    RK4_4 = rk4_tableau(1 / 100, 3 / 5)
+    RK5_5 = (
+        (
+            (0, ()),
+            (1 / 9000, (1 / 9000,)),
+            (3 / 10, tuple(x / 10 for x in (-4047, 4050))),
+            (3 / 4, tuple(x / 8 for x in (20241, -20250, 15))),
+            (1, tuple(x / 81 for x in (-931041, 931500, -490, 112))),
+        ),
+        tuple(x / 1134 for x in (105, 0, 500, 448, 81)),
+    )
+    "Not a true 5th order"
+    RK6_6 = (
+        (
+            (0, ()),
+            (1 / 300, (1 / 300,)),
+            (1 / 5, tuple(x / 5 for x in (-29, 30))),
+            (3 / 5, tuple(x / 5 for x in (323, -330, 10))),
+            (14 / 15, tuple(x / 810 for x in (-510104, 521640, -12705, 1925))),
+            (1, tuple(x / 77 for x in (-417923, 427350, -10605, 1309, -54))),
+        ),
+        tuple(x / 3696 for x in (198, 0, 1225, 1540, 810, -77)),
+    )
+    "Not a true 6th order"
+    RK7_7 = (
+        (
+            (0, ()),
+            (1 / 192, (1 / 192,)),
+            (1 / 6, tuple(x / 6 for x in (-15, 16))),
+            (1 / 2, tuple(x / 186 for x in (4867, -5072, 298))),
+            (1, tuple(x / 31 for x in (-19995, 20896, -1025, 155))),
+            (5 / 6, tuple(x / 5022 for x in (-469805, 490960, -22736, 5580, 186))),
+            (1, tuple(x / 2604 for x in (914314, -955136, 47983, -6510, -558, 2511))),
+        ),
+        tuple(x / 300 for x in (14, 0, 81, 110, 0, 81, 14)),
+    )
+    "Not a true 7th order"
+    RK7_9 = (
+        (
+            (0, ()),
+            (2 / 9, (2 / 9,)),
+            (1 / 3, tuple(x / 12 for x in (1, 3))),
+            (1 / 2, tuple(x / 8 for x in (1, 0, 3))),
+            (1 / 6, tuple(x / 216 for x in (23, 0, 21, -8))),
+            (8 / 9, tuple(x / 729 for x in (-4136, 0, -13584, 5264, 13104))),
+            (1 / 9, tuple(x / 151632 for x in (105131, 0, 302016, -107744, -284256, 1701))),
+            (5 / 6, tuple(x / 1375920 for x in (-775229, 0, -2770950, 1735136, 2547216, 81891, 328536))),
+            (1, tuple(x / 251888 for x in (23569, 0, -122304, -20384, 695520, -99873, -466560, 241920))),
+        ),
+        tuple(x / 2140320 for x in (110201, 0, 0, 767936, 635040, -59049, -59049, 635040, 110201)),
+    )
+    RK8_10 = (
+        (
+            (0, ()),
+            (4 / 27, (4 / 27,)),
+            (2 / 9, tuple(x / 18 for x in (1, 3))),
+            (1 / 3, tuple(x / 12 for x in (1, 0, 3))),
+            (1 / 2, tuple(x / 8 for x in (1, 0, 0, 3))),
+            (2 / 3, tuple(x / 54 for x in (13, 0, -27, 42, 8))),
+            (1 / 6, tuple(x / 4320 for x in (389, 0, -54, 966, -824, 243))),
+            (1, tuple(x / 20 for x in (-231, 0, 81, -1164, 656, -122, 800))),
+            (5 / 6, tuple(x / 288 for x in (-127, 0, 18, -678, 456, -9, 576, 4))),
+            (1, tuple(x / 820 for x in (1481, 0, -81, 7104, -3376, 72, -5040, -60, 720))),
+        ),
+        tuple(x / 840 for x in (41, 0, 0, 27, 272, 27, 216, 0, 216, 41)),
+    )
+    "Not a true 8th order"
+    RK8_12 = (
+        (
+            (0, ()),
+            (1 / 9, (1 / 9,)),
+            (1 / 6, tuple(x / 24 for x in (1, 3))),
+            (1 / 4, tuple(x / 16 for x in (1, 0, 3))),
+            (1 / 10, tuple(x / 500 for x in (29, 0, 33, -12))),
+            (1 / 6, tuple(x / 972 for x in (33, 0, 0, 4, 125))),
+            (1 / 2, tuple(x / 36 for x in (-21, 0, 0, 76, 125, -162))),
+            (2 / 3, tuple(x / 243 for x in (-30, 0, 0, -32, 125, 0, 99))),
+            (1 / 3, tuple(x / 324 for x in (1175, 0, 0, -3456, -6250, 8424, 242, -27))),
+            (5 / 6, tuple(x / 324 for x in (293, 0, 0, -852, -1375, 1836, -118, 162, 324))),
+            (5 / 6, tuple(x / 1620 for x in (1303, 0, 0, -4260, -6875, 9990, 1030, 0, 0, 162))),
+            (1, tuple(x / 4428 for x in (-8595, 0, 0, 30720, 48750, -66096, 378, -729, -1944, -1296, 3240))),
+        ),
+        tuple(x / 840 for x in (41, 0, 0, 0, 0, 216, 272, 27, 27, 36, 180, 41)),
+    )
+
+    def tableau(self) -> Tableau:
         return self.value

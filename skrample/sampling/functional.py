@@ -182,6 +182,8 @@ class RKUltra(traits.DerivativeTransform, FunctionalHigher, FunctionalSinglestep
             4: tableaux.RK4.Classic,
             5: tableaux.RKZ.Nystrom5,
             6: tableaux.RKZ.Butcher6,
+            7: tableaux.Shanks1965.RK7_9,
+            8: tableaux.Shanks1965.RK8_12,
         }
     )
     """Providers for a given order, starting from 2.

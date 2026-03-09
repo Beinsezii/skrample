@@ -437,6 +437,7 @@ def test_rku_diffusers(
             tableaux.RKE2,
             tableaux.RKE3,
             tableaux.RKE5,
+            tableaux.Shanks1965,
         ]
         for variant in provider
     ],
