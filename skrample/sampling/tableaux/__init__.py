@@ -4,7 +4,7 @@ import enum
 import math
 from typing import Protocol
 
-from . import stepanov_10_15
+from . import ono_10_17, stepanov_10_15
 
 type TabNode = tuple[float, tuple[float, ...]]
 type TabWeight = tuple[float, ...]
@@ -234,6 +234,10 @@ class RKZ(enum.Enum):
     Stepanov10 = stepanov_10_15.TABLEAU
     """On Runge-Kutta methods of order 10, Misha Stepanov
     https://arxiv.org/pdf/2504.17329"""
+
+    Ono10 = ono_10_17.TABLEAU
+    """Hiroshi Ono's 17 stage order 10 Runge-Kutta scheme
+    http://www.peterstone.name/Maplepgs/Maple/nmthds/RKcoeff/Runge_Kutta_schemes/RK10/RKcoeff10f_1.pdf"""
 
     def tableau(self) -> Tableau:
         return self.value
