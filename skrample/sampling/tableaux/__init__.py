@@ -4,6 +4,8 @@ import enum
 import math
 from typing import Protocol
 
+from . import stepanov_10_15
+
 type TabNode = tuple[float, tuple[float, ...]]
 type TabWeight = tuple[float, ...]
 
@@ -228,6 +230,10 @@ class RKZ(enum.Enum):
     """On Runge-Kutta processes of high order, J. C. Butcher
     https://www.cambridge.org/core/services/aop-cambridge-core/content/view/40DFE501CAB781C9AAE1439B6B8F481A/S1446788700023387a.pdf/on-runge-kutta-processes-of-high-order.pdf
     Figure [15]"""
+
+    Stepanov10 = stepanov_10_15.TABLEAU
+    """On Runge-Kutta methods of order 10, Misha Stepanov
+    https://arxiv.org/pdf/2504.17329"""
 
     def tableau(self) -> Tableau:
         return self.value
