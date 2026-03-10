@@ -1,5 +1,3 @@
-#! /usr/bin/env python
-
 import math
 from typing import TYPE_CHECKING
 
