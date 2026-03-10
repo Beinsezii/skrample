@@ -183,7 +183,7 @@ class RKUltra(traits.DerivativeTransform, FunctionalHigher, FunctionalSinglestep
             5: tableaux.RKZ.Nystrom5,
             6: tableaux.RKZ.Butcher6,
             7: tableaux.Shanks1965.RK7_9,
-            8: tableaux.Shanks1965.RK8_12,
+            8: tableaux.Shanks1965.RK8_10,
             10: tableaux.RKZ.Stepanov10,
             12: tableaux.RKZ.Feagin12,
             # 14: tableaux.RKZ.Feagin14, # crunchy?
