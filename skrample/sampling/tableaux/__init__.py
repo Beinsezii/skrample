@@ -20,6 +20,7 @@ type ExtendedTableau = tuple[
 ]
 
 V5 = math.sqrt(5)
+V21 = math.sqrt(21)
 
 
 def validate_tableau(tab: Tableau | ExtendedTableau, tolerance: float = 1e-12) -> None | IndexError | ValueError:
@@ -231,6 +232,76 @@ class RKZ(enum.Enum):
     https://www.cambridge.org/core/services/aop-cambridge-core/content/view/40DFE501CAB781C9AAE1439B6B8F481A/S1446788700023387a.pdf/on-runge-kutta-processes-of-high-order.pdf
     Figure [15]"""
 
+    CV8 = (
+        (
+            (0, ()),
+            (1 / 2, (1 / 2,)),
+            (1 / 2, (1 / 4, 1 / 4)),
+            (1 / 2 + 1 / 14 * V21, (1 / 7, -1 / 14 - 3 / 98 * V21, 3 / 7 + 5 / 49 * V21)),
+            (1 / 2 + 1 / 14 * V21, (11 / 84 + 1 / 84 * V21, 0, 2 / 7 + 4 / 63 * V21, 1 / 12 - 1 / 252 * V21)),
+            (
+                1 / 2,
+                (5 / 48 + 1 / 48 * V21, 0, 1 / 4 + 1 / 36 * V21, -77 / 120 + 7 / 180 * V21, 63 / 80 - 7 / 80 * V21),
+            ),
+            (
+                1 / 2 - 1 / 14 * V21,
+                (
+                    5 / 21 - 1 / 42 * V21,
+                    0,
+                    -48 / 35 + 92 / 315 * V21,
+                    211 / 30 - 29 / 18 * V21,
+                    -36 / 5 + 23 / 14 * V21,
+                    9 / 5 - 13 / 35 * V21,
+                ),
+            ),
+            (1 / 2 - 1 / 14 * V21, (1 / 14, 0, 0, 0, 1 / 9 - 1 / 42 * V21, 13 / 63 - 1 / 21 * V21, 1 / 9)),
+            (
+                1 / 2,
+                (
+                    1 / 32,
+                    0,
+                    0,
+                    0,
+                    91 / 576 - 7 / 192 * V21,
+                    11 / 72,
+                    -385 / 1152 - 25 / 384 * V21,
+                    63 / 128 + 13 / 128 * V21,
+                ),
+            ),
+            (
+                1 / 2 + 1 / 14 * V21,
+                (
+                    1 / 14,
+                    0,
+                    0,
+                    0,
+                    1 / 9,
+                    -733 / 2205 - 1 / 15 * V21,
+                    515 / 504 + 37 / 168 * V21,
+                    -51 / 56 - 11 / 56 * V21,
+                    132 / 245 + 4 / 35 * V21,
+                ),
+            ),
+            (
+                1,
+                (
+                    0,
+                    0,
+                    0,
+                    0,
+                    -7 / 3 + 7 / 18 * V21,
+                    -2 / 5 + 28 / 45 * V21,
+                    -91 / 24 - 53 / 72 * V21,
+                    301 / 72 + 53 / 72 * V21,
+                    28 / 45 - 28 / 45 * V21,
+                    49 / 18 - 7 / 18 * V21,
+                ),
+            ),
+        ),
+        (1 / 20, 0, 0, 0, 0, 0, 0, 49 / 180, 16 / 45, 49 / 180, 1 / 20),
+    )
+    "Some Explicit Runge-Kutta Methods of High Order, G. J. Cooper & J. H. Verner (1972)"
+
     Stepanov10 = stepanov_10_15.TABLEAU
     """On Runge-Kutta methods of order 10, Misha Stepanov (2025)
     https://arxiv.org/pdf/2504.17329"""
@@ -435,3 +506,6 @@ class Shanks1965(enum.Enum):
 
     def tableau(self) -> Tableau:
         return self.value
+
+
+del V5, V21
