@@ -4,7 +4,7 @@ import enum
 import math
 from typing import Protocol
 
-from . import feagin_12_25, ono_10_17, stepanov_10_15
+from . import feagin_10_17, feagin_12_25, feagin_14_35, harrier_10_17, ono_10_17, stepanov_10_15, zhang_10_16
 
 type TabNode = tuple[float, tuple[float, ...]]
 type TabWeight = tuple[float, ...]
@@ -232,15 +232,25 @@ class RKZ(enum.Enum):
     Figure [15]"""
 
     Stepanov10 = stepanov_10_15.TABLEAU
-    """On Runge-Kutta methods of order 10, Misha Stepanov
+    """On Runge-Kutta methods of order 10, Misha Stepanov (2025)
     https://arxiv.org/pdf/2504.17329"""
 
     Ono10 = ono_10_17.TABLEAU
-    """Hiroshi Ono's 17 stage order 10 Runge-Kutta scheme
+    """Hiroshi Ono's 17 stage order 10 Runge-Kutta scheme (2003)
     http://www.peterstone.name/Maplepgs/Maple/nmthds/RKcoeff/Runge_Kutta_schemes/RK10/RKcoeff10f_1.pdf"""
+
+    Harrier10 = harrier_10_17.TABLEAU
+
+    Zhang10 = zhang_10_16.TABLEAU
+    """Discovering New Runge-Kutta Methods Using Unstructured Numerical Search, David Zhang (2019)
+    https://arxiv.org/pdf/1911.00318"""
+
+    Feagin10 = feagin_10_17.TABLEAU
 
     Feagin12 = feagin_12_25.TABLEAU
     """An Explicit Runge-Kutta Method Of Order Twelve, Terry Feagin (2007)"""
+
+    Feagin14 = feagin_14_35.TABLEAU
 
     def tableau(self) -> Tableau:
         return self.value
