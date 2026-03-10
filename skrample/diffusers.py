@@ -595,6 +595,7 @@ class RKUltraWrapperScheduler:
         return math.exp(mu) / (math.exp(mu) + (1 / t - 1) ** sigma)
 
     def set_begin_index(self, begin_index: int = 0) -> None:
+        assert begin_index % self.order == 0
         self._index = begin_index
         self.fake_config["begin_index"] = begin_index
 
