@@ -1,3 +1,4 @@
+import abc
 import dataclasses
 import functools
 import math
@@ -12,7 +13,7 @@ from torch import Tensor
 
 import skrample.sampling.structured as sampling
 from skrample import scheduling
-from skrample.common import FloatSchedule, MergeStrategy, Point, Step, merge_noise
+from skrample.common import MergeStrategy, Point, Step, merge_noise
 from skrample.pytorch.noise import (
     BatchTensorNoise,
     Random,
@@ -218,11 +219,88 @@ def as_diffusers_config(
 
 
 @dataclasses.dataclass
-class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
+class SkrampleWrapperCore(abc.ABC):
     """Wrapper class to present skrample types in a way that diffusers' DiffusionPipelines can handle.
     Best effort approach. Most of the items presented in .config are fake, and many function inputs are ignored.
     A general rule of thumb is it will always prioritize the skrample properties over the incoming properties."""
 
+    def __post_init__(self) -> None:
+        # State
+        self._steps: int = 50
+        self._device: torch.device = torch.device("cpu")
+
+    @property
+    @abc.abstractmethod
+    def schedule_np(self) -> NDArray[np.float64]: ...
+
+    @property
+    @abc.abstractmethod
+    def config(self) -> OrderedDict[str, Any]: ...
+
+    @property
+    def schedule_pt(self) -> Tensor:
+        return torch.from_numpy(self.schedule_np).to(self._device)
+
+    @property
+    def timesteps(self) -> Tensor:
+        return torch.from_numpy(self.schedule_np[:, 0]).to(self._device)
+
+    @property
+    def sigmas(self) -> Tensor:
+        sigmas = torch.from_numpy(self.schedule_np[:, 1]).to(self._device)
+        # diffusers expects the extra zero
+        return torch.cat([sigmas, torch.zeros([1], device=sigmas.device, dtype=sigmas.dtype)])
+
+    @property
+    def init_noise_sigma(self) -> float:
+        return 1
+
+    @property
+    def order(self) -> int:
+        return 1
+
+    @abc.abstractmethod
+    def scale_noise(self, sample: Tensor, timestep: Tensor, noise: Tensor) -> Tensor: ...
+
+    @abc.abstractmethod
+    def set_begin_index(self, begin_index: int = 0) -> None: ...
+
+    @abc.abstractmethod
+    def set_timesteps(
+        self,
+        num_inference_steps: int | None = None,
+        device: torch.device | str | None = None,
+        timesteps: Tensor | list[int] | None = None,
+        sigmas: Tensor | list[float] | None = None,
+        mu: float | None = None,
+    ) -> None: ...
+
+    @abc.abstractmethod
+    def step(
+        self,
+        model_output: Tensor,
+        timestep: float | Tensor,
+        sample: Tensor,
+        s_churn: float = 0.0,
+        s_tmin: float = 0.0,
+        s_tmax: float = float("inf"),
+        s_noise: float = 1.0,
+        generator: torch.Generator | list[torch.Generator] | None = None,
+        return_dict: bool = True,
+    ) -> tuple[Tensor, Tensor] | OrderedDict[str, Tensor]: ...
+
+    def add_noise(self, original_samples: Tensor, noise: Tensor, timesteps: Tensor) -> Tensor:
+        return self.scale_noise(original_samples, timesteps[0], noise)
+
+    def scale_model_input(self, sample: Tensor, timestep: float | Tensor) -> Tensor:
+        return sample
+
+    def time_shift(self, mu: float, sigma: float, t: Tensor) -> Tensor:
+        return math.exp(mu) / (math.exp(mu) + (1 / t - 1) ** sigma)
+
+
+@dataclasses.dataclass
+class SkrampleWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
     sampler: StructuredSampler
     schedule: SkrampleSchedule
     model: DiffusionModel = NoiseModel()  # noqa: RUF009 # is immutable
@@ -237,9 +315,8 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
     It is recommended to use an actual diffusers scheduler config if one is available."""
 
     def __post_init__(self) -> None:
+        super().__post_init__()
         # State
-        self._steps: int = 50
-        self._device: torch.device = torch.device("cpu")
         self._previous: list[SKSamples[Tensor]] = []
         self._noise_generator: BatchTensorNoise | None = None
         self._schedule = self.schedule  # copy of original for restoration in set_timesteps
@@ -291,30 +368,12 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
         )
 
     @property
-    def schedule_float(self) -> FloatSchedule:
-        return scheduling.schedule_lru(self.schedule, self._steps)
-
-    @property
     def schedule_np(self) -> NDArray[np.float64]:
         return scheduling.np_schedule_lru(self.schedule, self._steps)
 
     @property
-    def schedule_pt(self) -> Tensor:
-        return torch.from_numpy(self.schedule_np).to(self._device)
-
-    @property
-    def timesteps(self) -> Tensor:
-        return torch.from_numpy(self.schedule_np[:, 0]).to(self._device)
-
-    @property
-    def sigmas(self) -> Tensor:
-        sigmas = torch.from_numpy(self.schedule_np[:, 1]).to(self._device)
-        # diffusers expects the extra zero
-        return torch.cat([sigmas, torch.zeros([1], device=sigmas.device, dtype=sigmas.dtype)])
-
-    @property
     def init_noise_sigma(self) -> float:
-        return self.sampler.scale_input(1, self.schedule_float[0][1], sigma_transform=self.schedule.sigma_transform)
+        return self.sampler.scale_input(1, self.schedule_np[0][1].item(), sigma_transform=self.schedule.sigma_transform)
 
     @property
     def order(self) -> int:
@@ -324,9 +383,6 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
     def config(self) -> OrderedDict[str, Any]:
         # Diffusers expects the frozen shift value
         return attr_dict(**(self.fake_config | as_diffusers_config(self.sampler, self._schedule, self.model)))
-
-    def time_shift(self, mu: float, sigma: float, t: Tensor) -> Tensor:
-        return math.exp(mu) / (math.exp(mu) + (1 / t - 1) ** sigma)
 
     def set_begin_index(self, begin_index: int = 0) -> None:
         self.fake_config["begin_index"] = begin_index
@@ -373,9 +429,6 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
         step = schedule[:, 0].tolist().index(timestep.item())
         sigma = schedule[step, 1].item()
         return self.sampler.merge_noise(sample, noise, sigma, sigma_transform=self.schedule.sigma_transform)
-
-    def add_noise(self, original_samples: Tensor, noise: Tensor, timesteps: Tensor) -> Tensor:
-        return self.scale_noise(original_samples, timesteps[0], noise)
 
     def scale_model_input(self, sample: Tensor, timestep: float | Tensor) -> Tensor:
         schedule = self.schedule_np
@@ -456,11 +509,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
 
 
 @dataclasses.dataclass
-class RKUltraWrapperScheduler:
-    """Wrapper class to present skrample types in a way that diffusers' DiffusionPipelines can handle.
-    Best effort approach. Most of the items presented in .config are fake, and many function inputs are ignored.
-    A general rule of thumb is it will always prioritize the skrample properties over the incoming properties."""
-
+class RKUltraWrapperScheduler(SkrampleWrapperCore):
     schedule: SkrampleSchedule
     sampler_order: int = functional.RKUltra.order
     model: DiffusionModel = NoiseModel()  # noqa: RUF009 # is immutable
@@ -476,10 +525,9 @@ class RKUltraWrapperScheduler:
     providers: Mapping[int, tableaux.TableauProvider] = functional.RKUltra.providers
 
     def __post_init__(self) -> None:
+        super().__post_init__()
         # State
-        self._steps: int = 50
         self._index: int = 0
-        self._device: torch.device = torch.device("cpu")
         self._derivatives: list[Tensor] = []
         self._sample: Tensor | None = None
         self._schedule = self.schedule  # copy of original for restoration in set_timesteps
@@ -530,6 +578,9 @@ class RKUltraWrapperScheduler:
     def tableau(self, order: int | None = None) -> tableaux.Tableau:
         return functional.RKUltra(order=self.sampler_order, providers=self.providers).tableau(order)
 
+    def adjust_steps(self, steps: int) -> int:
+        return functional.RKUltra(order=self.sampler_order, providers=self.providers).adjust_steps(steps)
+
     @staticmethod
     @functools.lru_cache
     def _schedule_np(
@@ -564,24 +615,6 @@ class RKUltraWrapperScheduler:
         return snp
 
     @property
-    def schedule_pt(self) -> Tensor:
-        return torch.from_numpy(self.schedule_np).to(self._device)
-
-    @property
-    def timesteps(self) -> Tensor:
-        return torch.from_numpy(self.schedule_np[:, 0]).to(self._device)
-
-    @property
-    def sigmas(self) -> Tensor:
-        sigmas = torch.from_numpy(self.schedule_np[:, 1]).to(self._device)
-        # diffusers expects the extra zero
-        return torch.cat([sigmas, torch.zeros([1], device=sigmas.device, dtype=sigmas.dtype)])
-
-    @property
-    def init_noise_sigma(self) -> float:
-        return 1
-
-    @property
     def order(self) -> int:
         nodes, _weights = self.tableau()
         return len(nodes)
@@ -590,9 +623,6 @@ class RKUltraWrapperScheduler:
     def config(self) -> OrderedDict[str, Any]:
         # Diffusers expects the frozen shift value
         return attr_dict(**self.fake_config)
-
-    def time_shift(self, mu: float, sigma: float, t: Tensor) -> Tensor:
-        return math.exp(mu) / (math.exp(mu) + (1 / t - 1) ** sigma)
 
     def set_begin_index(self, begin_index: int = 0) -> None:
         assert begin_index % self.order == 0
@@ -642,12 +672,6 @@ class RKUltraWrapperScheduler:
         sigma = schedule[step, 1].item()
         return merge_noise(sample, noise, sigma, sigma_transform=self.schedule.sigma_transform)
 
-    def add_noise(self, original_samples: Tensor, noise: Tensor, timesteps: Tensor) -> Tensor:
-        return self.scale_noise(original_samples, timesteps[0], noise)
-
-    def scale_model_input(self, sample: Tensor, timestep: float | Tensor) -> Tensor:
-        return sample
-
     def step_tableau_inside_out(
         self,
         sample: Tensor,
@@ -689,9 +713,6 @@ class RKUltraWrapperScheduler:
             return X
 
         raise ValueError
-
-    def adjust_steps(self, steps: int) -> int:
-        return functional.RKUltra(order=self.sampler_order, providers=self.providers).adjust_steps(steps)
 
     def step(
         self,
