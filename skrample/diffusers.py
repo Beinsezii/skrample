@@ -509,6 +509,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
 class RKUltraWrapperScheduler(SkrampleWrapperCore):
     schedule: SkrampleSchedule
     sampler_order: int = functional.RKUltra.order
+    providers: Mapping[int, tableaux.TableauProvider] = functional.RKUltra.providers
     model: DiffusionModel = NoiseModel()  # noqa: RUF009 # is immutable
     derivative_transform: DiffusionModel | None = functional.RKUltra.derivative_transform
     compute_scale: torch.dtype | None = torch.float32
@@ -518,8 +519,6 @@ class RKUltraWrapperScheduler(SkrampleWrapperCore):
     fake_config: dict[str, Any] = dataclasses.field(default_factory=DEFAULT_FAKE_CONFIG.copy)
     """Extra items presented in scheduler.config to the pipeline.
     It is recommended to use an actual diffusers scheduler config if one is available."""
-
-    providers: Mapping[int, tableaux.TableauProvider] = functional.RKUltra.providers
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -538,6 +537,7 @@ class RKUltraWrapperScheduler(SkrampleWrapperCore):
         sampler_order: int = functional.RKUltra.order,
         subschedule: type[SubSchedule] | None = None,
         schedule_modifiers: list[tuple[type[ScheduleModifier], dict[str, Any]]] = [],
+        providers: Mapping[int, tableaux.TableauProvider] = functional.RKUltra.providers,
         model: DiffusionModel | None = None,
         derivative_transform: DiffusionModel | None = functional.RKUltra.derivative_transform,
         compute_scale: torch.dtype | None = torch.float32,
@@ -565,6 +565,7 @@ class RKUltraWrapperScheduler(SkrampleWrapperCore):
         return cls(
             built_schedule,
             sampler_order,
+            providers,
             model or parsed.model,
             derivative_transform=derivative_transform,
             compute_scale=compute_scale,
