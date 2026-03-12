@@ -61,9 +61,6 @@ DIFFUSERS_VALUE_MAP: dict[tuple[str, Any], tuple[str, Any]] = {
     # scheduling.Scaled
     ("beta_schedule", "linear"): ("beta_scale", 1),
     ("beta_schedule", "scaled_linear"): ("beta_scale", 2),
-    ("timestep_spacing", "leading"): ("uniform", False),
-    ("timestep_spacing", "linspace"): ("uniform", True),
-    ("timestep_spacing", "trailing"): ("uniform", True),
     # sampling.StochasticSampler
     ("algorithm_type", "dpmsolver"): ("add_noise", False),
     ("algorithm_type", "dpmsolver++"): ("add_noise", False),
@@ -150,7 +147,7 @@ def parse_diffusers_config(
     if "sigma_start" not in remapped and not isinstance(model, FlowModel) and issubclass(schedule, scheduling.Linear):
         scaled_keys = [f.name for f in dataclasses.fields(scheduling.Scaled)]
         # non-uniform misses a whole timestep
-        scaled = scheduling.Scaled(**{k: v for k, v in remapped.items() if k in scaled_keys} | {"uniform": True})
+        scaled = scheduling.Scaled(**{k: v for k, v in remapped.items() if k in scaled_keys})
         sigma_start: float = scaled.sigmas(1)[0]
         remapped["sigma_start"] = math.sqrt(sigma_start)
 
