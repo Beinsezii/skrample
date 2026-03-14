@@ -19,8 +19,27 @@ type ExtendedTableau = tuple[
     TabWeight,
 ]
 
+V2 = math.sqrt(2)
 V5 = math.sqrt(5)
 V21 = math.sqrt(21)
+
+
+def pretty_tableau(tableau: Tableau | ExtendedTableau, label: str | None = None) -> str:
+
+    def pretnum(x: float) -> str:
+        return f"{'+' if x >= 0 else '-'}{float(round(abs(x), 4)): <6}"
+
+    nodes: list[str] = [f"{pretnum(c)} | {' '.join(pretnum(x) for x in a)}" for c, a in tableau[0]]
+
+    weights: list[str] = ["        | " + " ".join(pretnum(x) for x in w) for w in tableau[1:]]
+
+    width = max(len(x) for x in (*weights, *nodes))
+
+    lines: list[str] = [label.rjust((width + len(label)) // 2)] if label is not None else []
+
+    lines.extend((*nodes, "-" * width, *weights))
+
+    return "\n".join(lines)
 
 
 def validate_tableau(tab: Tableau | ExtendedTableau, tolerance: float = 1e-12) -> None | IndexError | ValueError:
@@ -106,6 +125,53 @@ def rk4_tableau(c1: float, c2: float) -> Tableau:
     return (stages, b_vector)
 
 
+def ees25_tableau(x: float) -> Tableau:
+    """Create a 2nd order 3-stage EES Tableau.
+    Explicit and Effectively Symmetric Runge-Kutta Methods (2025)
+    https://arxiv.org/abs/2507.21006"""
+    return (
+        (
+            (0.0, ()),
+            ((1 + 2 * x) / (4 * (1 - x)), ((1 + 2 * x) / (4 * (1 - x)),)),
+            (3 / (4 * (1 - x)), ((4 * x - 1) ** 2 / (4 * (x - 1) * (1 - 4 * x**2)), (1 - x) / (1 - 4 * x**2))),
+        ),
+        (x, 1 / 2, 1 / 2 - x),
+    )
+
+
+def ees27_tableau(x: float) -> Tableau:
+    """Create a 2nd order 4-stage EES Tableau.
+    Explicit and Effectively Symmetric Runge-Kutta Methods (2025)
+    https://arxiv.org/abs/2507.21006"""
+    V2 = math.sqrt(2)
+    A = (2 * x + V2) / ((2 * x - 1) * (-2 * x - V2 + 1))
+    B = 1 / ((2 * x - 1) * (1 - V2 - 2 * x) * (2 - V2 - 2 * x))
+
+    a2 = ((-2 + V2 * (1 - 2 * x)) / (4 * (x - 1)),)
+    a3 = ((((2 * x + V2 - 2) * (4 * x + V2 - 2)) / (4 * V2 * (x - 1))) * A, (0.5 * (-1 + V2)) * A)
+    a4 = (
+        ((2 * x - V2) * (-40 * x**4 + (80 - 40 * V2) * x**3 - (88 - 60 * V2) * x**2 + (48 - 34 * V2) * x + 7 * V2 - 10))
+        / (4 * (x - 1) * (2 * x**2 - 1))
+        * B,
+        # WARN: This is the algo in the paper, but their tableau on (8.6)
+        # shows the A42 factor as exactly double what the algorithm would suggest.
+        # I'm not sure which one is actually correct.
+        (2 - V2) * x * (x - 1) * (4 * x + V2 - 2) * B,  # INFO: to match the (8.6) tableau
+        # 1 / 2 * (2 - V2) * x * (x - 1) * (4 * x + V2 - 2) * B,  # INFO: to match the algorithm
+        ((2 - V2) * (2 * x - V2) * (2 + V2 - 2 * x) * (x - 1) * (2 * x - 1))
+        / (4 * (2 * x**2 - 1) * (2 * x**2 - 4 * x + 1)),
+    )
+    return (
+        (
+            (0.0, ()),
+            (math.fsum(a2), a2),
+            (math.fsum(a3), a3),
+            (math.fsum(a4), a4),
+        ),
+        (x, 1 / 2 * (2 - V2) - (1 - V2) * x, (1 - V2) * (x - 1), 1 / 2 * (2 - V2) - x),
+    )
+
+
 class TableauProvider[T: Tableau | ExtendedTableau](Protocol):
     @abc.abstractmethod
     def tableau(self) -> T:
@@ -161,6 +227,27 @@ class RK2(enum.Enum):
     Mid = rk2_tableau(1 / 2)
     Ralston = rk2_tableau(2 / 3)
 
+    EES5_SYM = ees25_tableau(1 / 4)
+    """Explicit and Effectively Symmetric Runge-Kutta Methods (2025)
+    https://arxiv.org/abs/2507.21006
+    EES(2, 5; 1/4), Figure (8.3)"""
+    EES5_MIN = ees25_tableau(1 / 10)
+    """Explicit and Effectively Symmetric Runge-Kutta Methods (2025)
+    https://arxiv.org/abs/2507.21006
+    EES(2, 5; 1/10), Figure (8.4)"""
+
+    EES7_SYM = ees27_tableau(1 / 4 * (2 - V2))
+    """Explicit and Effectively Symmetric Runge-Kutta Methods (2025)
+    https://arxiv.org/abs/2507.21006
+    EES(2, 7; 1/4(2-√2)), Figure (8.5)"""
+    EES7_MIN = ees27_tableau(1 / 14 * (5 - 3 * V2))
+    """Explicit and Effectively Symmetric Runge-Kutta Methods (2025)
+    https://arxiv.org/abs/2507.21006
+    EES(2, 7; 1/14(5 - 3√2)), Figure (8.6)"""
+
+    def pretty(self) -> str:
+        return pretty_tableau(self.value, str(self))
+
     def tableau(self) -> Tableau:
         return self.value
 
@@ -172,8 +259,13 @@ class RK3(enum.Enum):
     Kutta = rk3_tableau(1 / 2, 1)
     Heun = rk3_tableau(1 / 3, 2 / 3)
     Ralston = rk3_tableau(1 / 2, 3 / 4)
+    """Runge-Kutta Methods With Minimum Error Bounds, Anthony Ralston (1962)
+    https://www.ams.org/journals/mcom/1962-16-080/S0025-5718-1962-0150954-0/S0025-5718-1962-0150954-0.pdf"""
     Wray = rk3_tableau(8 / 15, 2 / 3)
     SSPRK3 = rk3_tableau(1, 1 / 2)
+
+    def pretty(self) -> str:
+        return pretty_tableau(self.value, str(self))
 
     def tableau(self) -> Tableau:
         return self.value
@@ -194,6 +286,11 @@ class RK4(enum.Enum):
     )
     Eighth = rk4_tableau(1 / 3, 2 / 3)
     Ralston = rk4_tableau(2 / 5, (14 - 3 * V5) / 16)
+    """Runge-Kutta Methods With Minimum Error Bounds, Anthony Ralston (1962)
+    https://www.ams.org/journals/mcom/1962-16-080/S0025-5718-1962-0150954-0/S0025-5718-1962-0150954-0.pdf"""
+
+    def pretty(self) -> str:
+        return pretty_tableau(self.value, str(self))
 
     def tableau(self) -> Tableau:
         return self.value
@@ -323,6 +420,9 @@ class RKZ(enum.Enum):
 
     Feagin14 = feagin_14_35.TABLEAU
 
+    def pretty(self) -> str:
+        return pretty_tableau(self.value, str(self))
+
     def tableau(self) -> Tableau:
         return self.value
 
@@ -347,6 +447,9 @@ class RKE2(enum.Enum):
         (1 / 256, 255 / 256, 0),
     )
 
+    def pretty(self) -> str:
+        return pretty_tableau(self.value, str(self))
+
     def tableau(self) -> ExtendedTableau:
         return self.value
 
@@ -363,6 +466,9 @@ class RKE3(enum.Enum):
         (2 / 9, 1 / 3, 4 / 9, 0),
         (7 / 24, 1 / 4, 1 / 3, 1 / 8),
     )
+
+    def pretty(self) -> str:
+        return pretty_tableau(self.value, str(self))
 
     def tableau(self) -> ExtendedTableau:
         return self.value
@@ -407,6 +513,9 @@ class RKE5(enum.Enum):
         (35 / 384, 0, 500 / 1113, 125 / 192, -2187 / 6784, 11 / 84, 0),
         (5179 / 57600, 0, 7571 / 16695, 393 / 640, -92097 / 339200, 187 / 2100, 1 / 40),
     )
+
+    def pretty(self) -> str:
+        return pretty_tableau(self.value, str(self))
 
     def tableau(self) -> ExtendedTableau:
         return self.value
@@ -504,8 +613,11 @@ class Shanks1965(enum.Enum):
         tuple(x / 840 for x in (41, 0, 0, 0, 0, 216, 272, 27, 27, 36, 180, 41)),
     )
 
+    def pretty(self) -> str:
+        return pretty_tableau(self.value, str(self))
+
     def tableau(self) -> Tableau:
         return self.value
 
 
-del V5, V21
+del V2, V5, V21

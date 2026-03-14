@@ -84,7 +84,14 @@ MEASURED_SAMPLER_RESULTS: dict[SamplerTestKey, list[float]] = {
 def test_self_samplers(key: SamplerTestKey) -> None:
     smp, sch, md = key
     compare_pp(
-        np.asarray(capture(smp(), sch(), md()), dtype=np.float64),
+        np.asarray(
+            capture(
+                smp(providers={2: tableaux.RK2.Heun}) if issubclass(smp, functional.RKUltra) else smp(),
+                sch(),
+                md(),
+            ),
+            dtype=np.float64,
+        ),
         np.asarray(MEASURED_SAMPLER_RESULTS[key], dtype=np.float64),
         1e-3,
     )
@@ -503,4 +510,40 @@ def test_rk4_tableau() -> None:
             tableaux.rk4_tableau(1 / 3, 2 / 3),
         )
         < 1e-12  # Something like 4x the amount of math as RK3
+    )
+
+
+def test_ees25_tableau() -> None:
+    assert (
+        tableau_distance(
+            (  # EES(2, 5; 1/10), https://arxiv.org/abs/2507.21006 (8.4)
+                (
+                    (0, ()),
+                    (1 / 3, (1 / 3,)),
+                    (5 / 6, (-5 / 48, 15 / 16)),
+                ),
+                (1 / 10, 1 / 2, 2 / 5),
+            ),
+            tableaux.ees25_tableau(1 / 10),
+        )
+        < 1e-15
+    )
+
+
+def test_ees27_tableau() -> None:
+    V2 = math.sqrt(2)
+    assert (
+        tableau_distance(
+            (  # EES(2, 7; 1/14 (5 - 3√2)), https://arxiv.org/abs/2507.21006 (8.6)
+                (
+                    (0, ()),
+                    (1 / 3 * (2 - V2), (1 / 3 * (2 - V2),)),
+                    (1 / 6 * (2 + V2), (1 / 24 * (-4 + V2), 1 / 8 * (4 + V2))),
+                    (1 / 6 * (4 + V2), (1 / 168 * (-176 + 145 * V2), 3 / 56 * (8 - 5 * V2), 3 / 7 * (3 - V2))),
+                ),
+                (1 / 14 * (5 - 3 * V2), 1 / 14 * (3 + V2), 3 / 14 * (-1 + 2 * V2), 1 / 14 * (9 - 4 * V2)),
+            ),
+            tableaux.ees27_tableau(1 / 14 * (5 - 3 * V2)),
+        )
+        < 1e-15
     )

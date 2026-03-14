@@ -15,6 +15,34 @@ type SampleCallback[T: Sample] = Callable[[T, int, float, float], Any]
 type SampleableModel[T: Sample] = Callable[[T, float, float], T]
 "sample, timestep, sigma"
 
+DEFAULT_PROVIDERS: Mapping[int, tableaux.TableauProvider[tableaux.Tableau | tableaux.ExtendedTableau]] = {
+    2: tableaux.RK2.Mid,
+    3: tableaux.RK3.Kutta,
+    4: tableaux.RK4.Kutta,
+    5: tableaux.RKZ.Nystrom5,
+    6: tableaux.RKZ.Butcher6,
+    7: tableaux.Shanks1965.RK7_9,
+    8: tableaux.RKZ.CV8,
+    10: tableaux.RKZ.Stepanov10,
+    12: tableaux.RKZ.Feagin12,
+    # 14: tableaux.RKZ.Feagin14, # crunchy?
+}
+"""Default RK tableau providers.
+Mostly a popularity contest."""
+STABLE_PROVIDERS: Mapping[int, tableaux.TableauProvider[tableaux.Tableau | tableaux.ExtendedTableau]] = {
+    2: tableaux.RK2.Heun,
+    3: tableaux.RK3.SSPRK3,
+}
+"""SSP RK providers.
+Prioritizes stability"""
+CONVERGENT_PROVIDERS: Mapping[int, tableaux.TableauProvider[tableaux.Tableau | tableaux.ExtendedTableau]] = {
+    2: tableaux.RK2.Ralston,
+    3: tableaux.RK2.EES5_MIN,
+    4: tableaux.RK2.EES7_MIN,
+}
+"""Minimal error providers.
+Prioritizes Convergence"""
+
 
 def step_tableau[T: Sample](
     tableau: tableaux.Tableau | tableaux.ExtendedTableau,
@@ -176,18 +204,7 @@ class RKUltra(traits.DerivativeTransform, FunctionalHigher, FunctionalSinglestep
     "Implements almost every single method from https://en.wikipedia.org/wiki/List_of_Runge–Kutta_methods"  # noqa: RUF002
 
     providers: Mapping[int, tableaux.TableauProvider[tableaux.Tableau | tableaux.ExtendedTableau]] = MappingProxyType(
-        {
-            2: tableaux.RK2.Heun,
-            3: tableaux.RK3.Wray,
-            4: tableaux.RK4.Kutta,
-            5: tableaux.RKZ.Nystrom5,
-            6: tableaux.RKZ.Butcher6,
-            7: tableaux.Shanks1965.RK7_9,
-            8: tableaux.RKZ.CV8,
-            10: tableaux.RKZ.Stepanov10,
-            12: tableaux.RKZ.Feagin12,
-            # 14: tableaux.RKZ.Feagin14, # crunchy?
-        }
+        DEFAULT_PROVIDERS
     )
     """Providers for a given order, starting from 2.
     Order 1 is always the Euler method."""
