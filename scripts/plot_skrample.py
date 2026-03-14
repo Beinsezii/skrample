@@ -70,6 +70,8 @@ SAMPLERS: dict[str, structured.StructuredSampler | functional.FunctionalSampler]
     "unipc": structured.UniPC(),
     "spc": structured.SPC(),
     "rku": functional.RKUltra(),
+    "ssprk": functional.RKUltra(providers={**functional.DEFAULT_PROVIDERS, **functional.STABLE_PROVIDERS}),
+    "essrk": functional.RKUltra(providers={**functional.DEFAULT_PROVIDERS, **functional.CONVERGENT_PROVIDERS}),
     "rkm": functional.RKMoire(),
     "fheun": functional.FastHeun(),
 }
