@@ -174,31 +174,15 @@ class StructuredStochastic(StructuredSampler):
 
 
 @dataclass(frozen=True)
-class Euler(StatedSampler):
+class Euler(StatedSampler, StructuredStochastic):
     """Basic sampler, the "safe" choice."""
 
-    def _sample_packed[T: Sample](
-        self,
-        packed: SampleInput[T],
-        model_transform: models.DiffusionModel,
-        schedule: SkrampleSchedule,
-        previous: Sequence[SKSamples[T]],
-    ) -> T:
-        delta = packed.delta_point(schedule)
-        return model_transform.forward(
-            packed.sample,
-            packed.prediction,
-            delta.point_from.sigma,
-            delta.point_to.sigma,
-            schedule.sigma_transform,
-        )
+    add_noise: bool = True  # true by default because of eta check
+    eta: float = 0
 
-
-@dataclass(frozen=True)
-class Maruyama(StatedSampler):
     @property
     def require_noise(self) -> bool:
-        return True
+        return self.add_noise and abs(self.eta) > 1e-8
 
     def _sample_packed[T: Sample](
         self,
@@ -208,7 +192,6 @@ class Maruyama(StatedSampler):
         previous: Sequence[SKSamples[T]],
     ) -> T:
         delta = packed.delta_point(schedule)
-
         if packed.noise is None:  # just Euler method when no stochastic noise passed
             return model_transform.forward(
                 packed.sample,
@@ -225,7 +208,7 @@ class Maruyama(StatedSampler):
                 delta.point_from.sigma,
                 delta.point_to.sigma,
                 schedule.sigma_transform,
-                eta=1,
+                eta=self.eta,
             )
 
 
