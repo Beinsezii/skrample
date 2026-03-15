@@ -177,6 +177,9 @@ class TableauProvider[T: Tableau | ExtendedTableau](Protocol):
     def tableau(self) -> T:
         raise NotImplementedError
 
+    def pretty(self) -> str:
+        return pretty_tableau(self.tableau())
+
 
 RK1: Tableau = (
     ((0, ()),),
@@ -194,7 +197,7 @@ class CustomTableau[T: Tableau | ExtendedTableau](TableauProvider[T]):
 
 
 @dataclasses.dataclass(frozen=True)
-class RK2Custom(TableauProvider):
+class RK2Custom(TableauProvider[Tableau]):
     c1: float = 1.0
 
     def tableau(self) -> Tableau:
@@ -202,7 +205,7 @@ class RK2Custom(TableauProvider):
 
 
 @dataclasses.dataclass(frozen=True)
-class RK3Custom(TableauProvider):
+class RK3Custom(TableauProvider[Tableau]):
     c1: float = 1 / 2
     c2: float = 1.0
 
@@ -211,7 +214,7 @@ class RK3Custom(TableauProvider):
 
 
 @dataclasses.dataclass(frozen=True)
-class RK4Custom(TableauProvider):
+class RK4Custom(TableauProvider[Tableau]):
     c1: float = 1 / 3
     c2: float = 2 / 3
 
