@@ -191,7 +191,7 @@ def test_sampler_generics(sampler: structured.StructuredSampler, schedule: sched
         models.DataModel(),
         schedule,
         np.array([o], dtype=np.float64),
-        previous=prev,
+        previous=prev,  # pyright: ignore[reportArgumentType]  # float is compatible
     ).final.item()  # type: ignore  # not a float
 
     tensor = sampler.sample(
@@ -201,7 +201,7 @@ def test_sampler_generics(sampler: structured.StructuredSampler, schedule: sched
         models.DataModel(),
         schedule,
         torch.tensor([n], dtype=torch.float64),
-        previous=prev,
+        previous=prev,  # pyright: ignore[reportArgumentType]  # float is compatible
     ).final.item()  # type: ignore  # not a float
 
     assert abs(tensor - scalar) < eps
