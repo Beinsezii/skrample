@@ -13,7 +13,7 @@ from torch import Tensor
 
 import skrample.sampling.structured as sampling
 from skrample import scheduling
-from skrample.common import MergeStrategy, Point, Step, merge_noise
+from skrample.common import MergeStrategy, Point, Sample, Step, merge_noise
 from skrample.pytorch.noise import (
     BatchTensorNoise,
     Random,
@@ -21,7 +21,7 @@ from skrample.pytorch.noise import (
     TensorNoiseProps,
     schedule_to_ramp,
 )
-from skrample.sampling import functional, models, tableaux
+from skrample.sampling import functional, interface, models, tableaux
 from skrample.sampling.models import DataModel, DiffusionModel, FlowModel, NoiseModel, VelocityModel
 from skrample.sampling.structured import SampleInput, SKSamples, StructuredSampler
 from skrample.scheduling import ScheduleCommon, ScheduleModifier, SkrampleSchedule, SubSchedule
@@ -257,6 +257,38 @@ class SkrampleWrapperCore(abc.ABC):
         return 1
 
     @abc.abstractmethod
+    def functional_interface(
+        self,
+    ) -> tuple[functional.FunctionalSampler, scheduling.SkrampleSchedule, models.DiffusionModel]:
+        "Construct an equivalent functional sampler from the wrapper settings"
+
+    def functional_sample_model[T: Sample](
+        self,
+        sample: T,
+        model: functional.SampleableModel[T],
+        steps: int,
+        include: slice = slice(None),
+        rng: functional.RNG[T] | None = None,
+        callback: functional.SampleCallback | None = None,
+    ) -> T:
+        "See `functional.FunctionalSampler.sample_model`"
+        sampler, schedule, transform = self.functional_interface()
+        return sampler.sample_model(sample, model, transform, schedule, steps, include, rng, callback)
+
+    def functional_generate_model[T: Sample](
+        self,
+        model: functional.SampleableModel[T],
+        rng: functional.RNG[T],
+        steps: int,
+        include: slice = slice(None),
+        initial: T | None = None,
+        callback: functional.SampleCallback | None = None,
+    ) -> T:
+        "See `functional.FunctionalSampler.generate_model`"
+        sampler, schedule, transform = self.functional_interface()
+        return sampler.generate_model(model, transform, schedule, rng, steps, include, initial, callback)
+
+    @abc.abstractmethod
     def scale_noise(self, sample: Tensor, timestep: Tensor, noise: Tensor) -> Tensor: ...
 
     @abc.abstractmethod
@@ -363,6 +395,11 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
             fake_config=config.copy() if isinstance(config, dict) else dict(config.config),
             allow_dynamic=allow_dynamic,
         )
+
+    def functional_interface(
+        self,
+    ) -> tuple[interface.StructuredFunctionalAdapter, scheduling.SkrampleSchedule, models.DiffusionModel]:
+        return interface.StructuredFunctionalAdapter(self.sampler), self._schedule, self.model
 
     @property
     def schedule_np(self) -> NDArray[np.float64]:
@@ -573,11 +610,22 @@ class RKUltraWrapperScheduler(SkrampleWrapperCore):
             allow_dynamic=allow_dynamic,
         )
 
+    def functional_interface(self) -> tuple[functional.RKUltra, scheduling.SkrampleSchedule, models.DiffusionModel]:
+        return (
+            functional.RKUltra(
+                order=self.sampler_order,
+                derivative_transform=self.derivative_transform,
+                providers=self.providers,
+            ),
+            self._schedule,
+            self.model,
+        )
+
     def tableau(self, order: int | None = None) -> tableaux.Tableau:
-        return functional.RKUltra(order=self.sampler_order, providers=self.providers).tableau(order)
+        return self.functional_interface()[0].tableau(order)
 
     def adjust_steps(self, steps: int) -> int:
-        return functional.RKUltra(order=self.sampler_order, providers=self.providers).adjust_steps(steps)
+        return self.functional_interface()[0].adjust_steps(steps)
 
     @staticmethod
     @functools.lru_cache
