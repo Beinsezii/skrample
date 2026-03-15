@@ -314,15 +314,16 @@ def test_require_noise(sampler: structured.StructuredSampler) -> None:
 
 
 @pytest.mark.parametrize(
-    ("model", "schedule"),
+    ("model", "schedule", "noise"),
     itertools.product(
         [models.DataModel, models.VelocityModel, models.FlowModel],  # Noise isn't valid for flow schedules
         [scheduling.Sinner(scheduling.Linear()), scheduling.Scaled()],
+        [False, True],
     ),
 )
-def test_maruyama(model: type[models.DiffusionModel], schedule: scheduling.SkrampleSchedule) -> None:
-    dpm = interface.StructuredFunctionalAdapter(structured.DPM(order=1, add_noise=True))
-    maru = interface.StructuredFunctionalAdapter(structured.Maruyama())
+def test_maruyama(model: type[models.DiffusionModel], schedule: scheduling.SkrampleSchedule, noise: bool) -> None:
+    dpm = interface.StructuredFunctionalAdapter(structured.DPM(order=1, add_noise=noise))
+    maru = interface.StructuredFunctionalAdapter(structured.Euler(eta=int(noise)))
     samples_dpm: list[float] = []
     samples_maru: list[float] = []
 
