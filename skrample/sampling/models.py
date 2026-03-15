@@ -3,8 +3,14 @@ import dataclasses
 import math
 from collections.abc import Callable
 from functools import wraps
+from typing import NamedTuple
 
 from skrample.common import Sample, SigmaTransform, SigmaUV
+
+
+class SigmaTS(NamedTuple):
+    t: SigmaUV
+    s: SigmaUV
 
 
 @dataclasses.dataclass(frozen=True)
@@ -20,64 +26,59 @@ class DiffusionModel(abc.ABC):
         "X̂ -> output"
 
     @abc.abstractmethod
-    def gamma(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform) -> float:
-        "σₜ, σₛ -> Γ"
+    def gamma(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 0) -> float:
+        "σₜ, σₛ, η -> Γ"
 
     @abc.abstractmethod
-    def delta(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform) -> float:
-        "σₜ, σₛ -> Δ"
+    def delta(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 0) -> float:
+        "σₜ, σₛ, η -> Δ"
 
-    @abc.abstractmethod
-    def gamma_stochastic(
-        self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 1.0
-    ) -> float:
-        "σₜ, σₛ, η -> Γ_{stoch}"
-
-    @abc.abstractmethod
-    def delta_stochastic(
-        self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 1.0
-    ) -> float:
-        "σₜ, σₛ, η -> Δ_{stoch}"
-
-    def sigma_up(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 1.0) -> float:
-        "σₜ, σₛ, η -> σ_{up} (noise scale for ancestral sampling)"
-        sigma_t, alpha_t = sigma_transform(sigma_from)
-        sigma_s, alpha_s = sigma_transform(sigma_to)
+    def zeta_ts(self, sigma_ts: SigmaTS, eta: float = 1.0) -> float:
+        "Co-authored by Gemini 3.1 Pro"
+        (sigma_t, alpha_t), (sigma_s, alpha_s) = sigma_ts
 
         # Universal conditional variance mapping
         ratio = (alpha_t * sigma_s) / (alpha_s * sigma_t)
         variance = (sigma_s**2) * (1.0 - ratio**2)
         return eta * math.sqrt(max(0.0, variance))
 
-    def sigma_dir(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 1.0) -> float:
-        "σₜ, σₛ, η -> σ_{dir} (directed scale adjusted for noise injection)"
-        sigma_s, _alpha_s = sigma_transform(sigma_to)
-        sigma_up = self.sigma_up(sigma_from, sigma_to, sigma_transform, eta)
-        return math.sqrt(max(0.0, sigma_s**2 - sigma_up**2))
+    def zeta(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 1.0) -> float:
+        "σₜ, σₛ, η -> ζ"
+        return self.zeta_ts(SigmaTS(sigma_transform(sigma_from), sigma_transform(sigma_to)), eta)
+
+    def sigma_transform_eta(
+        self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 0
+    ) -> SigmaTS:
+        "Co-authored by Gemini 3.1 Pro"
+        uv_t = sigma_transform(sigma_from)
+        uv_s = sigma_transform(sigma_to)
+
+        if abs(eta) > 1e-8:
+            zeta = self.zeta_ts(SigmaTS(uv_t, uv_s), eta)
+            uv_s = SigmaUV(math.sqrt(max(0.0, uv_s.u**2 - zeta**2)), uv_s.v)
+
+        return SigmaTS(uv_t, uv_s)
 
     def forward[T: Sample](
-        self, sample: T, output: T, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform
-    ) -> T:
-        "sample * Γ + output * Δ"
-        gamma = self.gamma(sigma_from, sigma_to, sigma_transform)
-        delta = self.delta(sigma_from, sigma_to, sigma_transform)
-        return math.sumprod((sample, output), (gamma, delta))  # type: ignore # sumprod is always T
-
-    def forward_stochastic[T: Sample](
         self,
         sample: T,
         output: T,
-        noise: T,
         sigma_from: float,
         sigma_to: float,
         sigma_transform: SigmaTransform,
-        eta: float = 1.0,
+        noise: T | None = None,
+        eta: float = 0,
     ) -> T:
-        "sample * Γ_{stoch} + output * Δ_{stoch} + noise * σ_{up}"
-        gamma = self.gamma_stochastic(sigma_from, sigma_to, sigma_transform, eta)
-        delta = self.delta_stochastic(sigma_from, sigma_to, sigma_transform, eta)
-        sigma_up = self.sigma_up(sigma_from, sigma_to, sigma_transform, eta)
-        return math.sumprod((sample, output, noise), (gamma, delta, sigma_up))  # type: ignore
+        "sample * Γ + output * Δ + noise * ζ"
+        if noise is None or abs(eta) < 1e-8:
+            gamma = self.gamma(sigma_from, sigma_to, sigma_transform, 0)
+            delta = self.delta(sigma_from, sigma_to, sigma_transform, 0)
+            return math.sumprod((sample, output), (gamma, delta))  # type: ignore # sumprod is always T
+        else:
+            gamma = self.gamma(sigma_from, sigma_to, sigma_transform, eta)
+            delta = self.delta(sigma_from, sigma_to, sigma_transform, eta)
+            zeta = self.zeta(sigma_from, sigma_to, sigma_transform, eta)
+            return math.sumprod((sample, output, noise), (gamma, delta, zeta))  # type: ignore # sumprod is always T
 
     def backward[T: Sample](
         self, sample: T, result: T, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform
@@ -102,32 +103,13 @@ class DataModel(DiffusionModel):
         "X̂ -> output"
         return x
 
-    def gamma(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform) -> float:
-        "σₜ, σₛ -> Γ"
-        sigma_t, _alpha_t = sigma_transform(sigma_from)
-        sigma_s, _alpha_s = sigma_transform(sigma_to)
+    def gamma(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 0) -> float:
+        (sigma_t, _alpha_t), (sigma_s, _alpha_s) = self.sigma_transform_eta(sigma_from, sigma_to, sigma_transform, eta)
         return sigma_s / sigma_t
 
-    def delta(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform) -> float:
-        "σₜ, σₛ -> Δ"
-        sigma_t, alpha_t = sigma_transform(sigma_from)
-        sigma_s, alpha_s = sigma_transform(sigma_to)
+    def delta(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 0) -> float:
+        (sigma_t, alpha_t), (sigma_s, alpha_s) = self.sigma_transform_eta(sigma_from, sigma_to, sigma_transform, eta)
         return alpha_s - (alpha_t * sigma_s) / sigma_t
-
-    def gamma_stochastic(
-        self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 1.0
-    ) -> float:
-        sigma_t, _alpha_t = sigma_transform(sigma_from)
-        sigma_dir = self.sigma_dir(sigma_from, sigma_to, sigma_transform, eta)
-        return sigma_dir / sigma_t
-
-    def delta_stochastic(
-        self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 1.0
-    ) -> float:
-        sigma_t, alpha_t = sigma_transform(sigma_from)
-        _sigma_s, alpha_s = sigma_transform(sigma_to)
-        sigma_dir = self.sigma_dir(sigma_from, sigma_to, sigma_transform, eta)
-        return alpha_s - (alpha_t * sigma_dir) / sigma_t
 
 
 @dataclasses.dataclass(frozen=True)
@@ -144,30 +126,14 @@ class NoiseModel(DiffusionModel):
         sigma_t, alpha_t = sigma_transform(sigma)
         return (sample - alpha_t * x) / sigma_t  # pyright: ignore [reportReturnType]
 
-    def gamma(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform) -> float:
+    def gamma(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 0) -> float:
         _sigma_t, alpha_t = sigma_transform(sigma_from)
         _sigma_s, alpha_s = sigma_transform(sigma_to)
         return alpha_s / alpha_t
 
-    def delta(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform) -> float:
-        sigma_t, alpha_t = sigma_transform(sigma_from)
-        sigma_s, alpha_s = sigma_transform(sigma_to)
+    def delta(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 0) -> float:
+        (sigma_t, alpha_t), (sigma_s, alpha_s) = self.sigma_transform_eta(sigma_from, sigma_to, sigma_transform, eta)
         return sigma_s - (alpha_s * sigma_t) / alpha_t
-
-    def gamma_stochastic(
-        self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 1.0
-    ) -> float:
-        _sigma_t, alpha_t = sigma_transform(sigma_from)
-        _sigma_s, alpha_s = sigma_transform(sigma_to)
-        return alpha_s / alpha_t  # Noise prediction gamma does not rely on sigma directly
-
-    def delta_stochastic(
-        self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 1.0
-    ) -> float:
-        sigma_t, alpha_t = sigma_transform(sigma_from)
-        _sigma_s, alpha_s = sigma_transform(sigma_to)
-        sigma_dir = self.sigma_dir(sigma_from, sigma_to, sigma_transform, eta)
-        return sigma_dir - (alpha_s * sigma_t) / alpha_t
 
 
 @dataclasses.dataclass(frozen=True)
@@ -183,31 +149,13 @@ class FlowModel(DiffusionModel):
         sigma_t, alpha_t = sigma_transform(sigma)
         return (sample - (alpha_t + sigma_t) * x) / sigma_t  # pyright: ignore [reportReturnType]
 
-    def gamma(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform) -> float:
-        sigma_t, alpha_t = sigma_transform(sigma_from)
-        sigma_s, alpha_s = sigma_transform(sigma_to)
+    def gamma(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 0) -> float:
+        (sigma_t, alpha_t), (sigma_s, alpha_s) = self.sigma_transform_eta(sigma_from, sigma_to, sigma_transform, eta)
         return (sigma_s + alpha_s) / (sigma_t + alpha_t)
 
-    def delta(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform) -> float:
-        sigma_t, alpha_t = sigma_transform(sigma_from)
-        sigma_s, alpha_s = sigma_transform(sigma_to)
+    def delta(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 0) -> float:
+        (sigma_t, alpha_t), (sigma_s, alpha_s) = self.sigma_transform_eta(sigma_from, sigma_to, sigma_transform, eta)
         return (alpha_t * sigma_s - alpha_s * sigma_t) / (alpha_t + sigma_t)
-
-    def gamma_stochastic(
-        self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 1.0
-    ) -> float:
-        sigma_t, alpha_t = sigma_transform(sigma_from)
-        _sigma_s, alpha_s = sigma_transform(sigma_to)
-        sigma_dir = self.sigma_dir(sigma_from, sigma_to, sigma_transform, eta)
-        return (sigma_dir + alpha_s) / (sigma_t + alpha_t)
-
-    def delta_stochastic(
-        self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 1.0
-    ) -> float:
-        sigma_t, alpha_t = sigma_transform(sigma_from)
-        _sigma_s, alpha_s = sigma_transform(sigma_to)
-        sigma_dir = self.sigma_dir(sigma_from, sigma_to, sigma_transform, eta)
-        return (alpha_t * sigma_dir - alpha_s * sigma_t) / (alpha_t + sigma_t)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -223,31 +171,13 @@ class VelocityModel(DiffusionModel):
         sigma_t, alpha_t = sigma_transform(sigma)
         return (alpha_t * sample - x) / sigma_t  # pyright: ignore [reportReturnType]
 
-    def gamma(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform) -> float:
-        sigma_t, alpha_t = sigma_transform(sigma_from)
-        sigma_s, alpha_s = sigma_transform(sigma_to)
+    def gamma(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 0) -> float:
+        (sigma_t, alpha_t), (sigma_s, alpha_s) = self.sigma_transform_eta(sigma_from, sigma_to, sigma_transform, eta)
         return (sigma_s / sigma_t) * (1 - alpha_t * alpha_t) + alpha_s * alpha_t
 
-    def delta(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform) -> float:
-        sigma_t, alpha_t = sigma_transform(sigma_from)
-        sigma_s, alpha_s = sigma_transform(sigma_to)
+    def delta(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 0) -> float:
+        (sigma_t, alpha_t), (sigma_s, alpha_s) = self.sigma_transform_eta(sigma_from, sigma_to, sigma_transform, eta)
         return alpha_t * sigma_s - alpha_s * sigma_t
-
-    def gamma_stochastic(
-        self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 1.0
-    ) -> float:
-        sigma_t, alpha_t = sigma_transform(sigma_from)
-        _sigma_s, alpha_s = sigma_transform(sigma_to)
-        sigma_dir = self.sigma_dir(sigma_from, sigma_to, sigma_transform, eta)
-        return (sigma_dir / sigma_t) * (1 - alpha_t * alpha_t) + alpha_s * alpha_t
-
-    def delta_stochastic(
-        self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 1.0
-    ) -> float:
-        sigma_t, alpha_t = sigma_transform(sigma_from)
-        _sigma_s, alpha_s = sigma_transform(sigma_to)
-        sigma_dir = self.sigma_dir(sigma_from, sigma_to, sigma_transform, eta)
-        return alpha_t * sigma_dir - alpha_s * sigma_t
 
 
 @dataclasses.dataclass(frozen=True)
@@ -275,11 +205,12 @@ class ScaleX(FakeModel):
     def from_x[T: Sample](self, sample: T, x: T, sigma: float, sigma_transform: SigmaTransform) -> T:
         return x / self.x_scale(sigma_transform(sigma))  # pyright: ignore [reportReturnType]
 
-    def gamma(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform) -> float:
-        return sigma_transform(sigma_to).u / sigma_transform(sigma_from).u
+    def gamma(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 0) -> float:
+        uv_t, uv_s = self.sigma_transform_eta(sigma_from, sigma_to, sigma_transform, eta)
+        return uv_s.u / uv_t.u
 
-    def delta(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform) -> float:
-        uv_t, uv_s = sigma_transform(sigma_from), sigma_transform(sigma_to)
+    def delta(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 0) -> float:
+        uv_t, uv_s = self.sigma_transform_eta(sigma_from, sigma_to, sigma_transform, eta)
         return (uv_s.v - uv_t.v * uv_s.u / uv_t.u) * self.x_scale(uv_t)
 
 

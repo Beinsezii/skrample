@@ -201,14 +201,14 @@ class Euler(StatedSampler, StructuredStochastic):
                 schedule.sigma_transform,
             )
         else:
-            return model_transform.forward_stochastic(
+            return model_transform.forward(
                 packed.sample,
                 packed.prediction,
-                packed.noise,
                 delta.point_from.sigma,
                 delta.point_to.sigma,
                 schedule.sigma_transform,
-                eta=self.eta,
+                packed.noise,
+                self.eta,
             )
 
 
