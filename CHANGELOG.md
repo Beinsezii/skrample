@@ -4,6 +4,8 @@ Moved all previous sampling code -> sampling.structured
 
 Removed sampling.common.Predictor and functions
 
+Separated Karras/Beta/Exponential/SigmoidCDf into new SubSchedule type
+
 Lots of other small improvements
 
 ### Additions
@@ -14,6 +16,10 @@ Add sampling.tableaux
 Add sampling.models
 
 Add functional examples
+
+Add SkrampleWrapperCore, RKUltraWrapperScheduler
+
+Add Sinner modifier
 
 ### Fixes
 Small bugs with plot_skrample.py
