@@ -33,7 +33,7 @@ class DiffusionModel(abc.ABC):
         "sample * Γ + output * Δ"
         gamma = self.gamma(sigma_from, sigma_to, sigma_transform)
         delta = self.delta(sigma_from, sigma_to, sigma_transform)
-        return math.sumprod((sample, output), (gamma, delta))  # pyright: ignore [reportReturnType, reportArgumentType]
+        return math.sumprod((sample, output), (gamma, delta))  # type: ignore # sumprod is always T
 
     def backward[T: Sample](
         self, sample: T, result: T, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform

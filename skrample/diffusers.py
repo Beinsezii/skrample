@@ -1,7 +1,9 @@
+import abc
 import dataclasses
+import functools
 import math
 from collections import OrderedDict
-from collections.abc import Hashable
+from collections.abc import Hashable, Mapping
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
@@ -11,7 +13,7 @@ from torch import Tensor
 
 import skrample.sampling.structured as sampling
 from skrample import scheduling
-from skrample.common import FloatSchedule, MergeStrategy, Step
+from skrample.common import MergeStrategy, Point, Sample, Step, merge_noise
 from skrample.pytorch.noise import (
     BatchTensorNoise,
     Random,
@@ -19,6 +21,7 @@ from skrample.pytorch.noise import (
     TensorNoiseProps,
     schedule_to_ramp,
 )
+from skrample.sampling import functional, interface, models, tableaux
 from skrample.sampling.models import DataModel, DiffusionModel, FlowModel, NoiseModel, VelocityModel
 from skrample.sampling.structured import SampleInput, SKSamples, StructuredSampler
 from skrample.scheduling import ScheduleCommon, ScheduleModifier, SkrampleSchedule, SubSchedule
@@ -58,9 +61,6 @@ DIFFUSERS_VALUE_MAP: dict[tuple[str, Any], tuple[str, Any]] = {
     # scheduling.Scaled
     ("beta_schedule", "linear"): ("beta_scale", 1),
     ("beta_schedule", "scaled_linear"): ("beta_scale", 2),
-    ("timestep_spacing", "leading"): ("uniform", False),
-    ("timestep_spacing", "linspace"): ("uniform", True),
-    ("timestep_spacing", "trailing"): ("uniform", True),
     # sampling.StochasticSampler
     ("algorithm_type", "dpmsolver"): ("add_noise", False),
     ("algorithm_type", "dpmsolver++"): ("add_noise", False),
@@ -147,7 +147,7 @@ def parse_diffusers_config(
     if "sigma_start" not in remapped and not isinstance(model, FlowModel) and issubclass(schedule, scheduling.Linear):
         scaled_keys = [f.name for f in dataclasses.fields(scheduling.Scaled)]
         # non-uniform misses a whole timestep
-        scaled = scheduling.Scaled(**{k: v for k, v in remapped.items() if k in scaled_keys} | {"uniform": True})
+        scaled = scheduling.Scaled(**{k: v for k, v in remapped.items() if k in scaled_keys})
         sigma_start: float = scaled.sigmas(1)[0]
         remapped["sigma_start"] = math.sqrt(sigma_start)
 
@@ -216,11 +216,120 @@ def as_diffusers_config(
 
 
 @dataclasses.dataclass
-class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
+class SkrampleWrapperCore(abc.ABC):
     """Wrapper class to present skrample types in a way that diffusers' DiffusionPipelines can handle.
     Best effort approach. Most of the items presented in .config are fake, and many function inputs are ignored.
     A general rule of thumb is it will always prioritize the skrample properties over the incoming properties."""
 
+    def __post_init__(self) -> None:
+        # State
+        self._steps: int = 50
+        self._device: torch.device = torch.device("cpu")
+
+    @property
+    @abc.abstractmethod
+    def schedule_np(self) -> NDArray[np.float64]: ...
+
+    @property
+    @abc.abstractmethod
+    def config(self) -> OrderedDict[str, Any]: ...
+
+    @property
+    def schedule_pt(self) -> Tensor:
+        return torch.from_numpy(self.schedule_np).to(self._device)
+
+    @property
+    def timesteps(self) -> Tensor:
+        return torch.from_numpy(self.schedule_np[:, 0]).to(self._device)
+
+    @property
+    def sigmas(self) -> Tensor:
+        sigmas = torch.from_numpy(self.schedule_np[:, 1]).to(self._device)
+        # diffusers expects the extra zero
+        return torch.cat([sigmas, torch.zeros([1], device=sigmas.device, dtype=sigmas.dtype)])
+
+    @property
+    def init_noise_sigma(self) -> float:
+        return 1
+
+    @property
+    def order(self) -> int:
+        return 1
+
+    @abc.abstractmethod
+    def functional_interface(
+        self,
+    ) -> tuple[functional.FunctionalSampler, scheduling.SkrampleSchedule, models.DiffusionModel]:
+        "Construct an equivalent functional sampler from the wrapper settings"
+
+    def functional_sample_model[T: Sample](
+        self,
+        sample: T,
+        model: functional.SampleableModel[T],
+        steps: int,
+        include: slice = slice(None),
+        rng: functional.RNG[T] | None = None,
+        callback: functional.SampleCallback | None = None,
+    ) -> T:
+        "See `functional.FunctionalSampler.sample_model`"
+        sampler, schedule, transform = self.functional_interface()
+        return sampler.sample_model(sample, model, transform, schedule, steps, include, rng, callback)
+
+    def functional_generate_model[T: Sample](
+        self,
+        model: functional.SampleableModel[T],
+        rng: functional.RNG[T],
+        steps: int,
+        include: slice = slice(None),
+        initial: T | None = None,
+        callback: functional.SampleCallback | None = None,
+    ) -> T:
+        "See `functional.FunctionalSampler.generate_model`"
+        sampler, schedule, transform = self.functional_interface()
+        return sampler.generate_model(model, transform, schedule, rng, steps, include, initial, callback)
+
+    @abc.abstractmethod
+    def scale_noise(self, sample: Tensor, timestep: Tensor, noise: Tensor) -> Tensor: ...
+
+    @abc.abstractmethod
+    def set_begin_index(self, begin_index: int = 0) -> None: ...
+
+    @abc.abstractmethod
+    def set_timesteps(
+        self,
+        num_inference_steps: int | None = None,
+        device: torch.device | str | None = None,
+        timesteps: Tensor | list[int] | None = None,
+        sigmas: Tensor | list[float] | None = None,
+        mu: float | None = None,
+    ) -> None: ...
+
+    @abc.abstractmethod
+    def step(
+        self,
+        model_output: Tensor,
+        timestep: float | Tensor,
+        sample: Tensor,
+        s_churn: float = 0.0,
+        s_tmin: float = 0.0,
+        s_tmax: float = float("inf"),
+        s_noise: float = 1.0,
+        generator: torch.Generator | list[torch.Generator] | None = None,
+        return_dict: bool = True,
+    ) -> tuple[Tensor, Tensor] | OrderedDict[str, Tensor]: ...
+
+    def add_noise(self, original_samples: Tensor, noise: Tensor, timesteps: Tensor) -> Tensor:
+        return self.scale_noise(original_samples, timesteps[0], noise)
+
+    def scale_model_input(self, sample: Tensor, timestep: float | Tensor) -> Tensor:
+        return sample
+
+    def time_shift(self, mu: float, sigma: float, t: Tensor) -> Tensor:
+        return math.exp(mu) / (math.exp(mu) + (1 / t - 1) ** sigma)
+
+
+@dataclasses.dataclass
+class SkrampleWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
     sampler: StructuredSampler
     schedule: SkrampleSchedule
     model: DiffusionModel = NoiseModel()  # noqa: RUF009 # is immutable
@@ -235,9 +344,8 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
     It is recommended to use an actual diffusers scheduler config if one is available."""
 
     def __post_init__(self) -> None:
+        super().__post_init__()
         # State
-        self._steps: int = 50
-        self._device: torch.device = torch.device("cpu")
         self._previous: list[SKSamples[Tensor]] = []
         self._noise_generator: BatchTensorNoise | None = None
         self._schedule = self.schedule  # copy of original for restoration in set_timesteps
@@ -251,7 +359,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
         subschedule: type[SubSchedule] | None = None,
         schedule_modifiers: list[tuple[type[ScheduleModifier], dict[str, Any]]] = [],
         model: DiffusionModel | None = None,
-        noise_type: type[TensorNoiseCommon[N]] = Random,
+        noise_type: type[TensorNoiseCommon[N]] = Random,  # ty: ignore # generic solver woes
         compute_scale: torch.dtype | None = torch.float32,
         sampler_props: dict[str, Any] = {},
         noise_props: N | None = None,
@@ -277,42 +385,29 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
             ):
                 built_schedule = modifier(base=built_schedule, **modifier_props)
 
-        return cls(
+        return cls(  # ty: ignore # generic solver woes
             built_sampler,
             built_schedule,
             model or parsed.model,
-            noise_type=noise_type,  # type: ignore  # think these are weird because of the defaults?
-            noise_props=noise_props,  # type: ignore
+            noise_type=noise_type,  # pyright: ignore  # think these are weird because of the defaults?
+            noise_props=noise_props,  # pyright: ignore
             compute_scale=compute_scale,
             fake_config=config.copy() if isinstance(config, dict) else dict(config.config),
             allow_dynamic=allow_dynamic,
         )
 
-    @property
-    def schedule_float(self) -> FloatSchedule:
-        return scheduling.schedule_lru(self.schedule, self._steps)
+    def functional_interface(
+        self,
+    ) -> tuple[interface.StructuredFunctionalAdapter, scheduling.SkrampleSchedule, models.DiffusionModel]:
+        return interface.StructuredFunctionalAdapter(self.sampler), self._schedule, self.model
 
     @property
     def schedule_np(self) -> NDArray[np.float64]:
         return scheduling.np_schedule_lru(self.schedule, self._steps)
 
     @property
-    def schedule_pt(self) -> Tensor:
-        return torch.from_numpy(self.schedule_np).to(self._device)
-
-    @property
-    def timesteps(self) -> Tensor:
-        return torch.from_numpy(self.schedule_np[:, 0]).to(self._device)
-
-    @property
-    def sigmas(self) -> Tensor:
-        sigmas = torch.from_numpy(self.schedule_np[:, 1]).to(self._device)
-        # diffusers expects the extra zero
-        return torch.cat([sigmas, torch.zeros([1], device=sigmas.device, dtype=sigmas.dtype)])
-
-    @property
     def init_noise_sigma(self) -> float:
-        return self.sampler.scale_input(1, self.schedule_float[0][1], sigma_transform=self.schedule.sigma_transform)
+        return self.sampler.scale_input(1, self.schedule_np[0][1].item(), sigma_transform=self.schedule.sigma_transform)
 
     @property
     def order(self) -> int:
@@ -322,9 +417,6 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
     def config(self) -> OrderedDict[str, Any]:
         # Diffusers expects the frozen shift value
         return attr_dict(**(self.fake_config | as_diffusers_config(self.sampler, self._schedule, self.model)))
-
-    def time_shift(self, mu: float, sigma: float, t: Tensor) -> Tensor:
-        return math.exp(mu) / (math.exp(mu) + (1 / t - 1) ** sigma)
 
     def set_begin_index(self, begin_index: int = 0) -> None:
         self.fake_config["begin_index"] = begin_index
@@ -368,16 +460,13 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
 
     def scale_noise(self, sample: Tensor, timestep: Tensor, noise: Tensor) -> Tensor:
         schedule = self.schedule_np
-        step = schedule[:, 0].tolist().index(timestep.item())  # type: ignore  # np v2 Number
+        step = schedule[:, 0].tolist().index(timestep.item())
         sigma = schedule[step, 1].item()
         return self.sampler.merge_noise(sample, noise, sigma, sigma_transform=self.schedule.sigma_transform)
 
-    def add_noise(self, original_samples: Tensor, noise: Tensor, timesteps: Tensor) -> Tensor:
-        return self.scale_noise(original_samples, timesteps[0], noise)
-
     def scale_model_input(self, sample: Tensor, timestep: float | Tensor) -> Tensor:
         schedule = self.schedule_np
-        step = schedule[:, 0].tolist().index(timestep if isinstance(timestep, (int | float)) else timestep.item())  # type: ignore  # np v2 Number
+        step = schedule[:, 0].tolist().index(timestep if isinstance(timestep, (int | float)) else timestep.item())
         sigma = schedule[step, 1].item()
         return self.sampler.scale_input(sample, sigma, sigma_transform=self.schedule.sigma_transform)
 
@@ -394,7 +483,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
         return_dict: bool = True,
     ) -> tuple[Tensor, Tensor] | OrderedDict[str, Tensor]:
         schedule = self.schedule_np
-        step = schedule[:, 0].tolist().index(timestep if isinstance(timestep, int | float) else timestep.item())  # type: ignore  # np v2 Number
+        step = schedule[:, 0].tolist().index(timestep if isinstance(timestep, int | float) else timestep.item())
 
         if self.sampler.require_noise:
             if self._noise_generator is None:
@@ -416,7 +505,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
                 self._noise_generator = BatchTensorNoise.from_batch_inputs(
                     self.noise_type,
                     unit_shape=sample.shape[1:],
-                    seeds=seeds,
+                    seeds=seeds,  # ty: ignore # no clue
                     props=self.noise_props,
                     ramp=schedule_to_ramp(schedule),
                     dtype=torch.float32,
@@ -450,4 +539,292 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None]:
             return (
                 sampled.final.to(device=model_output.device, dtype=model_output.dtype),
                 sampled.prediction.to(device=model_output.device, dtype=model_output.dtype),
+            )
+
+
+@dataclasses.dataclass
+class RKUltraWrapperScheduler(SkrampleWrapperCore):
+    schedule: SkrampleSchedule
+    sampler_order: int = functional.RKUltra.order
+    providers: Mapping[int, tableaux.TableauProvider] = functional.RKUltra.providers
+    model: DiffusionModel = NoiseModel()  # noqa: RUF009 # is immutable
+    derivative_transform: DiffusionModel | None = functional.RKUltra.derivative_transform
+    compute_scale: torch.dtype | None = torch.float32
+    allow_dynamic: bool = True
+    """Whether or not classes can be overridden during sampling.
+    Currently only applies to FlowShift when `mu` is provided, IE "use_dynamic_shifting" in diffusers."""
+    fake_config: dict[str, Any] = dataclasses.field(default_factory=DEFAULT_FAKE_CONFIG.copy)
+    """Extra items presented in scheduler.config to the pipeline.
+    It is recommended to use an actual diffusers scheduler config if one is available."""
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        # State
+        self._index: int = 0
+        self._derivatives: list[Tensor] = []
+        self._sample: Tensor | None = None
+        self._schedule = self.schedule  # copy of original for restoration in set_timesteps
+        self._full: scheduling.NPSchedule
+
+    @classmethod
+    def from_diffusers_config(  # pyright fails if you use the outer generic
+        cls,
+        config: "dict[str, Any] | ConfigMixin",
+        schedule: type[SkrampleSchedule] | None = None,
+        sampler_order: int = functional.RKUltra.order,
+        subschedule: type[SubSchedule] | None = None,
+        schedule_modifiers: list[tuple[type[ScheduleModifier], dict[str, Any]]] = [],
+        providers: Mapping[int, tableaux.TableauProvider] = functional.RKUltra.providers,
+        model: DiffusionModel | None = None,
+        derivative_transform: DiffusionModel | None = functional.RKUltra.derivative_transform,
+        compute_scale: torch.dtype | None = torch.float32,
+        schedule_props: dict[str, Any] = {},
+        subschedule_props: dict[str, Any] = {},
+        modifier_merge_strategy: MergeStrategy = MergeStrategy.UniqueBefore,
+        allow_dynamic: bool = True,
+    ) -> "RKUltraWrapperScheduler":
+        "Thin sugar over `parse_diffusers_config` to make a complete wrapper with arbitrary customizations"
+        parsed = parse_diffusers_config(config=config, sampler=None, schedule=schedule)
+
+        built_schedule = (schedule or parsed.schedule)(**parsed.schedule_props | schedule_props)
+
+        if (sub := subschedule or parsed.subschedule) is not None and isinstance(built_schedule, ScheduleCommon):
+            built_schedule = sub(built_schedule, **parsed.subschedule_props | subschedule_props)
+
+        if isinstance(built_schedule, ScheduleCommon | SubSchedule | ScheduleModifier):
+            for modifier, modifier_props in modifier_merge_strategy.merge(
+                ours=schedule_modifiers,
+                theirs=parsed.schedule_modifiers,
+                cmp=lambda a, b: a[0] is b[0],
+            ):
+                built_schedule = modifier(base=built_schedule, **modifier_props)
+
+        return cls(
+            built_schedule,
+            sampler_order,
+            providers,
+            model or parsed.model,
+            derivative_transform=derivative_transform,
+            compute_scale=compute_scale,
+            fake_config=config.copy() if isinstance(config, dict) else dict(config.config),
+            allow_dynamic=allow_dynamic,
+        )
+
+    def functional_interface(self) -> tuple[functional.RKUltra, scheduling.SkrampleSchedule, models.DiffusionModel]:
+        return (
+            functional.RKUltra(
+                order=self.sampler_order,
+                derivative_transform=self.derivative_transform,
+                providers=self.providers,
+            ),
+            self._schedule,
+            self.model,
+        )
+
+    def tableau(self, order: int | None = None) -> tableaux.Tableau:
+        return self.functional_interface()[0].tableau(order)
+
+    def adjust_steps(self, steps: int) -> int:
+        return self.functional_interface()[0].adjust_steps(steps)
+
+    @staticmethod
+    @functools.lru_cache
+    def _schedule_np(
+        steps: int, schedule: SkrampleSchedule, tableau: tableaux.Tableau
+    ) -> tuple[scheduling.NPSchedule, scheduling.NPSchedule]:
+        recorded_points: list[Point] = []
+
+        def record_call(x: float, t: float, s: float) -> float:
+            nonlocal recorded_points
+            recorded_points.append(Point(t, s))
+            return x
+
+        for n in range(steps):
+            functional.step_tableau(
+                tableau,
+                1,
+                record_call,
+                models.DataModel(),
+                schedule,
+                Step.from_int(n, steps),
+                epsilon=-math.inf,  # ensure T=0 is always hit
+            )
+
+        return (
+            np.asarray(recorded_points, dtype=np.float64),
+            np.asarray([p for p in recorded_points if all(abs(v) > 1e-8 for v in p)], dtype=np.float64),
+        )
+
+    @property
+    def schedule_np(self) -> NDArray[np.float64]:
+        self._full, snp = self._schedule_np(self._steps, self.schedule, self.tableau())
+        return snp
+
+    @property
+    def order(self) -> int:
+        nodes, _weights = self.tableau()
+        return len(nodes)
+
+    @property
+    def config(self) -> OrderedDict[str, Any]:
+        # Diffusers expects the frozen shift value
+        return attr_dict(**self.fake_config)
+
+    def set_begin_index(self, begin_index: int = 0) -> None:
+        assert begin_index % self.order == 0
+        self._index = begin_index
+        self.fake_config["begin_index"] = begin_index
+
+    def set_timesteps(
+        self,
+        num_inference_steps: int | None = None,
+        device: torch.device | str | None = None,
+        timesteps: Tensor | list[int] | None = None,
+        sigmas: Tensor | list[float] | None = None,
+        mu: float | None = None,
+    ) -> None:
+        self._index = 0
+        self._derivatives.clear()
+
+        self.schedule = self._schedule  # Restore any replaced props
+
+        if num_inference_steps is None:
+            if timesteps is not None:
+                num_inference_steps = len(timesteps)
+            elif sigmas is not None:
+                num_inference_steps = len(sigmas)
+            else:
+                return
+
+        self._steps = num_inference_steps
+
+        if (
+            self.allow_dynamic
+            and mu is not None
+            and isinstance(self.schedule, scheduling.ScheduleModifier)
+            and (found := self.schedule.find_split(scheduling.FlowShift)) is not None
+        ):
+            before, flow, after, sub, base = found
+            self.schedule = self.schedule.stack(
+                [*before, dataclasses.replace(flow, shift=math.exp(mu)), *after], sub, base
+            )
+
+        if device is not None:
+            self._device = torch.device(device)
+
+    def scale_noise(self, sample: Tensor, timestep: Tensor, noise: Tensor) -> Tensor:
+        schedule = self.schedule_np
+        step = schedule[:, 0].tolist().index(timestep.item())
+        sigma = schedule[step, 1].item()
+        return merge_noise(sample, noise, sigma, sigma_transform=self.schedule.sigma_transform)
+
+    def step_tableau_inside_out(
+        self,
+        sample: Tensor,
+        output: Tensor,
+        model_transform: DiffusionModel,
+        S0: float,
+        S1: float,
+        SN: float,
+    ) -> Tensor:
+        nodes, weights = self.tableau()
+
+        self._derivatives.append(output)
+        if self._sample is None:
+            self._sample = sample
+        sample = self._sample
+
+        if len(self._derivatives) == len(weights):
+            final: Tensor = model_transform.forward(  # ty: ignore # output is a tensor
+                sample,
+                math.sumprod(self._derivatives, weights),  # type: ignore # it's a tensor
+                S0,
+                S1,
+                self.schedule.sigma_transform,
+            )
+
+            self._derivatives.clear()
+            self._sample = None
+
+            return final
+
+        elif (node := nodes[len(self._derivatives)])[1]:
+            X: Tensor = model_transform.forward(  # ty: ignore # output is a tensor
+                sample,
+                math.sumprod(self._derivatives, node[1]) / math.fsum(node[1]),  # type: ignore # it's a tensor
+                S0,
+                SN,
+                self.schedule.sigma_transform,
+            )
+            return X
+
+        raise ValueError
+
+    def step(
+        self,
+        model_output: Tensor,
+        timestep: float | Tensor,
+        sample: Tensor,
+        s_churn: float = 0.0,
+        s_tmin: float = 0.0,
+        s_tmax: float = float("inf"),
+        s_noise: float = 1.0,
+        generator: torch.Generator | list[torch.Generator] | None = None,
+        return_dict: bool = True,
+    ) -> tuple[Tensor, Tensor] | OrderedDict[str, Tensor]:
+        assert timestep == self._full[self._index, 0].item()
+
+        sigmas = np.concatenate([self._full[:, 1], [0]])
+
+        if self.derivative_transform:
+            model_output = models.ModelConvert(
+                self.model,
+                self.derivative_transform,
+            ).output_to(sample, model_output, sigmas[self._index], self.schedule.sigma_transform)
+            model_transform = self.derivative_transform
+        else:
+            model_transform = self.model
+
+        S0_idx = self._index - len(self._derivatives)
+        S1_idx = self._index + self.order - len(self._derivatives)
+        SN_idx = self._index + 1
+
+        sampled = self.step_tableau_inside_out(
+            sample=sample.to(dtype=self.compute_scale),
+            output=model_output.to(dtype=self.compute_scale),
+            model_transform=model_transform,
+            S0=sigmas[S0_idx],
+            S1=sigmas[S1_idx],
+            SN=sigmas[SN_idx],
+        )
+
+        self._index += 1
+
+        while self._index < len(self._full) and (abs(self._full[self._index]) < 1e-8).any():
+            sampled = self.step_tableau_inside_out(
+                sample=sample.to(dtype=self.compute_scale),
+                output=model_transform.backward(
+                    (sample if self._sample is None else self._sample).to(dtype=self.compute_scale),
+                    sampled,
+                    sigmas[S0_idx],
+                    sigmas[S1_idx],
+                    self.schedule.sigma_transform,
+                ),
+                model_transform=model_transform,
+                S0=sigmas[S0_idx],
+                S1=sigmas[S1_idx],
+                SN=sigmas[SN_idx + 1],
+            )
+
+            self._index += 1
+
+        if return_dict:
+            return attr_dict(
+                prev_sample=sampled.to(device=model_output.device, dtype=model_output.dtype),
+                pred_original_sample=model_output.to(device=model_output.device, dtype=model_output.dtype),
+            )
+        else:
+            return (
+                sampled.to(device=model_output.device, dtype=model_output.dtype),
+                model_output.to(device=model_output.device, dtype=model_output.dtype),
             )

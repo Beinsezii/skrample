@@ -58,7 +58,7 @@ class FunctionalDenoise(FluxDenoiseStep):
                 i=i,
                 t=sample.new_tensor([timestep] * len(sample)),
             )
-            return block_state["noise_pred"]  # type: ignore
+            return block_state["noise_pred"]  # pyright: ignore [reportIndexIssue] # It's still a dict
 
         def sample_callback(x: torch.Tensor, n: int, t: float, s: float) -> None:
             nonlocal i
@@ -93,11 +93,11 @@ pipe.load_components(["vae"], repo=model_id, subfolder="vae", torch_dtype=torch.
 pipe.register_components(scheduler=wrapper)
 
 
-pipe(  # type: ignore
+pipe(
     prompt="sharp, high dynamic range photograph of a kitten on a beach of rainbow pebbles",
     generator=torch.Generator("cpu").manual_seed(42),
     width=1024,
     height=1024,
     num_inference_steps=25,
     guidance_scale=2.5,
-).get("images")[0].save("diffusers_functional.png")
+).get("images")[0].save("diffusers_functional.png")  # pyright: ignore [reportOptionalSubscript] # FrozenDict

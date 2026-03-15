@@ -5,7 +5,7 @@ import math
 import random
 
 from skrample import scheduling
-from skrample.sampling import functional, interface, models, structured
+from skrample.sampling import functional, interface, models, structured, tableaux
 
 type SamplerTestKey = tuple[
     type[structured.StructuredSampler] | type[functional.FunctionalSampler],
@@ -14,7 +14,7 @@ type SamplerTestKey = tuple[
 ]
 
 MEASURED_SAMPLERS: list[structured.StructuredSampler | functional.FunctionalSampler] = [
-    functional.RKUltra(),
+    functional.RKUltra(providers={2: tableaux.RK2.Heun}),
     structured.Adams(),
     structured.SPC(),
 ]

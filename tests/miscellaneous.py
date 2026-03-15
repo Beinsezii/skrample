@@ -3,6 +3,7 @@ import pytest
 import torch
 
 from skrample.common import MergeStrategy, Step, bashforth, sigmoid, softmax, spowf
+from skrample.diffusers import DIFFUSERS_CLASS_MAP
 
 
 def test_bashforth() -> None:
@@ -66,3 +67,8 @@ def test_step_range(n: int) -> None:
 
     assert step.offset(STEP_STEPS / 2).clamp().position() + 1 <= STEP_STEPS + 1e-8
     assert step.offset(STEP_STEPS / -2).clamp().position() >= 0
+
+
+@pytest.mark.parametrize(("cls", "data"), DIFFUSERS_CLASS_MAP.values())
+def test_diffusers_class_map(cls: type, data: dict) -> None:
+    cls(**data)

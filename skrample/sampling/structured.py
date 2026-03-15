@@ -285,7 +285,7 @@ class DPM(StructuredStochastic, StructuredMultistep, StatedSampler):
             else:  # 2nd order. using this in O3 produces valid images but not going to risk correctness
                 final -= (0.5 * sigma_v_next * exp2) * D1_0
 
-        return final  # type: ignore
+        return final  # pyright: ignore [reportReturnType] # float RHS is always T
 
 
 @dataclass(frozen=True)
@@ -326,8 +326,8 @@ class Adams(traits.DerivativeTransform, StructuredMultistep, StatedSampler):
         else:
             predictions = [packed.prediction, *reversed([p.prediction for p in previous[-effective_order + 1 :]])]
 
-        weighted_prediction: T = math.sumprod(
-            predictions[:effective_order],  # type: ignore
+        weighted_prediction: T = math.sumprod(  # ty: ignore # sumprod is T
+            predictions[:effective_order],  # pyright: ignore # sumprod is T
             common.bashforth(effective_order),
         )
 
@@ -444,7 +444,7 @@ class UniP(StructuredMultistep, StatedSampler):
         #     x_t_ = alpha_t / alpha_s0 * x - sigma_t * h_phi_1 * m0
         #     x_t = x_t_ - sigma_t * B_h * pred_res
 
-        return final  # type: ignore
+        return final  # pyright: ignore [reportReturnType] # float RHS is always T
 
     def _sample_packed[T: Sample](
         self,

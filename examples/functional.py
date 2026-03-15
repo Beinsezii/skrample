@@ -35,10 +35,10 @@ with torch.inference_mode():
     text_encoder: CLIPTextModel = CLIPTextModel.from_pretrained(
         url, subfolder="text_encoder", device_map=device, torch_dtype=dtype
     )
-    model: UNet2DConditionModel = UNet2DConditionModel.from_pretrained(  # type: ignore
+    model: UNet2DConditionModel = UNet2DConditionModel.from_pretrained(
         url, subfolder="unet", device_map=device, torch_dtype=dtype
     )
-    image_encoder: AutoencoderKL = AutoencoderKL.from_pretrained(  # type: ignore
+    image_encoder: AutoencoderKL = AutoencoderKL.from_pretrained(
         url, subfolder="vae", device_map=device, torch_dtype=dtype
     )
 

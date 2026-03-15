@@ -347,7 +347,7 @@ class ScheduleModifier(_PartialSchedule):
         If `exact` is True, requires an exact type match instead of any subclass."""
         for schedule in self.all_split[0]:
             if type(schedule) is skrample_schedule or (not exact and isinstance(schedule, skrample_schedule)):
-                return schedule
+                return schedule  # ty: ignore # doesn't have a `type(obj) is` guard?
 
     def find_split[T: "ScheduleModifier"](
         self,
@@ -364,7 +364,7 @@ class ScheduleModifier(_PartialSchedule):
 
         for schedule in mods:
             if type(schedule) is skrample_schedule or (not exact and isinstance(schedule, skrample_schedule)):
-                found = schedule
+                found = schedule  # ty: ignore # doesn't have a `type(obj) is` guard?
             elif found is None:
                 before.append(schedule)
             else:

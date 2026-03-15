@@ -15,6 +15,34 @@ type SampleCallback[T: Sample] = Callable[[T, int, float, float], Any]
 type SampleableModel[T: Sample] = Callable[[T, float, float], T]
 "sample, timestep, sigma"
 
+DEFAULT_PROVIDERS: Mapping[int, tableaux.TableauProvider[tableaux.Tableau | tableaux.ExtendedTableau]] = {
+    2: tableaux.RK2.Mid,
+    3: tableaux.RK3.Kutta,
+    4: tableaux.RK4.Kutta,
+    5: tableaux.RKZ.Nystrom5,
+    6: tableaux.RKZ.Butcher6,
+    7: tableaux.Shanks1965.RK7_9,
+    8: tableaux.RKZ.CV8,
+    10: tableaux.RKZ.Stepanov10,
+    12: tableaux.RKZ.Feagin12,
+    # 14: tableaux.RKZ.Feagin14, # crunchy?
+}
+"""Default RK tableau providers.
+Mostly a popularity contest."""
+STABLE_PROVIDERS: Mapping[int, tableaux.TableauProvider[tableaux.Tableau | tableaux.ExtendedTableau]] = {
+    2: tableaux.RK2.Heun,
+    3: tableaux.RK3.SSPRK3,
+}
+"""SSP RK providers.
+Prioritizes stability"""
+CONVERGENT_PROVIDERS: Mapping[int, tableaux.TableauProvider[tableaux.Tableau | tableaux.ExtendedTableau]] = {
+    2: tableaux.RK2.Ralston,
+    3: tableaux.RK2.EES5_MIN,
+    4: tableaux.RK2.EES7_MIN,
+}
+"""Minimal error providers.
+Prioritizes Convergence"""
+
 
 def step_tableau[T: Sample](
     tableau: tableaux.Tableau | tableaux.ExtendedTableau,
@@ -42,9 +70,9 @@ def step_tableau[T: Sample](
     for frac_sc, icoeffs in zip(fractions, (t[1] for t in nodes), strict=True):
         sigma_i = frac_sc[1]
         if icoeffs:
-            X: T = model_transform.forward(  # pyright: ignore [reportAssignmentType]
+            X: T = model_transform.forward(  # type: ignore # sumprod is T
                 sample,
-                math.sumprod(derivatives, icoeffs) / math.fsum(icoeffs),  # pyright: ignore [reportArgumentType]
+                math.sumprod(derivatives, icoeffs) / math.fsum(icoeffs),  # type: ignore # sumprod is T
                 S0,
                 sigma_i,
                 schedule.sigma_transform,
@@ -58,10 +86,10 @@ def step_tableau[T: Sample](
         else:
             derivatives.append(model(X, *frac_sc))
 
-    return tuple(  # pyright: ignore [reportReturnType]
+    return tuple(  # type: ignore # sumprod is T
         model_transform.forward(
             sample,
-            math.sumprod(derivatives, w),  # pyright: ignore [reportArgumentType]
+            math.sumprod(derivatives, w),  # type: ignore # sumprod is T
             S0,
             S1,
             schedule.sigma_transform,
@@ -105,8 +133,8 @@ class FunctionalSampler(ABC, traits.SamplingCommon):
         if initial is None and include.start is None:  # Short circuit for common case
             sample: T = rng()
         else:
-            sample: T = self.merge_noise(
-                0 if initial is None else initial,  # type: ignore
+            sample: T = self.merge_noise(  # type: ignore # 0 should be valid here because it's added to RNG so it becomes T
+                0 if initial is None else initial,
                 rng(),
                 schedule.ipoint((include.start or 0) / steps)[1],
                 schedule.sigma_transform,
@@ -162,7 +190,7 @@ class FunctionalAdaptive(FunctionalSampler):
 
     @staticmethod
     def mse[T: Sample](a: T, b: T) -> float:
-        error: T = abs(a - b) ** 2  # type: ignore
+        error: T = abs(a - b) ** 2  # pyright: ignore [reportAssignmentType] # float rhs is always T
         return common.mean(error)
 
     evaluator: Evaluator = mse
@@ -176,12 +204,7 @@ class RKUltra(traits.DerivativeTransform, FunctionalHigher, FunctionalSinglestep
     "Implements almost every single method from https://en.wikipedia.org/wiki/List_of_Runge–Kutta_methods"  # noqa: RUF002
 
     providers: Mapping[int, tableaux.TableauProvider[tableaux.Tableau | tableaux.ExtendedTableau]] = MappingProxyType(
-        {
-            2: tableaux.RK2.Heun,
-            3: tableaux.RK3.Ralston,
-            4: tableaux.RK4.Ralston,
-            5: tableaux.RKE5.CashKarp,
-        }
+        DEFAULT_PROVIDERS
     )
     """Providers for a given order, starting from 2.
     Order 1 is always the Euler method."""
