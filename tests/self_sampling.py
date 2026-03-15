@@ -341,8 +341,10 @@ def test_maruyama(model: type[models.DiffusionModel], schedule: scheduling.Skram
 
     data_init = 1 / (random.random() + 1e-4) * (random.randint(0, 1) * 2 - 1)
 
-    data_dpm = dpm.sample_model(data_init, fake_model_dpm, model(), schedule, steps)
-    data_maru = maru.sample_model(data_init, fake_model_maru, model(), schedule, steps)
+    random.seed(0)
+    data_dpm = dpm.sample_model(data_init, fake_model_dpm, model(), schedule, steps, rng=random.random)
+    random.seed(0)
+    data_maru = maru.sample_model(data_init, fake_model_maru, model(), schedule, steps, rng=random.random)
 
     for sample_dpm, sample_maru in zip(samples_dpm, samples_maru, strict=True):
         assert abs(sample_dpm - sample_maru) < 1e-8
