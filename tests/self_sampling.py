@@ -314,6 +314,43 @@ def test_require_noise(sampler: structured.StructuredSampler) -> None:
 
 
 @pytest.mark.parametrize(
+    ("model", "schedule"),
+    itertools.product(
+        [models.DataModel, models.VelocityModel, models.FlowModel],  # Noise isn't valid for flow schedules
+        [scheduling.Sinner(scheduling.Linear()), scheduling.Scaled()],
+    ),
+)
+def test_maruyama(model: type[models.DiffusionModel], schedule: scheduling.SkrampleSchedule) -> None:
+    dpm = interface.StructuredFunctionalAdapter(structured.DPM(order=1, add_noise=True))
+    maru = interface.StructuredFunctionalAdapter(structured.Maruyama())
+    samples_dpm: list[float] = []
+    samples_maru: list[float] = []
+
+    def fake_model(x: float, _: float, s: float) -> float:
+        return x + math.sin(x) * s
+
+    def fake_model_dpm(x: float, t: float, s: float) -> float:
+        samples_dpm.append(x)
+        return fake_model(x, t, s)
+
+    def fake_model_maru(x: float, t: float, s: float) -> float:
+        samples_maru.append(x)
+        return fake_model(x, t, s)
+
+    steps: int = random.randint(5, 51)
+
+    data_init = 1 / (random.random() + 1e-4) * (random.randint(0, 1) * 2 - 1)
+
+    data_dpm = dpm.sample_model(data_init, fake_model_dpm, model(), schedule, steps)
+    data_maru = maru.sample_model(data_init, fake_model_maru, model(), schedule, steps)
+
+    for sample_dpm, sample_maru in zip(samples_dpm, samples_maru, strict=True):
+        assert abs(sample_dpm - sample_maru) < 1e-8
+
+    assert abs(data_dpm - data_maru) < 1e-8
+
+
+@pytest.mark.parametrize(
     ("sampler", "schedule", "steps"),
     itertools.product(
         [structured.DPM(o, n) for o in range(1, 4) for n in [False, True]],

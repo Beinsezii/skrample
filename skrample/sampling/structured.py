@@ -195,6 +195,41 @@ class Euler(StatedSampler):
 
 
 @dataclass(frozen=True)
+class Maruyama(StatedSampler):
+    @property
+    def require_noise(self) -> bool:
+        return True
+
+    def _sample_packed[T: Sample](
+        self,
+        packed: SampleInput[T],
+        model_transform: models.DiffusionModel,
+        schedule: SkrampleSchedule,
+        previous: Sequence[SKSamples[T]],
+    ) -> T:
+        delta = packed.delta_point(schedule)
+
+        if packed.noise is None:  # just Euler method when no stochastic noise passed
+            return model_transform.forward(
+                packed.sample,
+                packed.prediction,
+                delta.point_from.sigma,
+                delta.point_to.sigma,
+                schedule.sigma_transform,
+            )
+        else:
+            return model_transform.forward_stochastic(
+                packed.sample,
+                packed.prediction,
+                packed.noise,
+                delta.point_from.sigma,
+                delta.point_to.sigma,
+                schedule.sigma_transform,
+                eta=1,
+            )
+
+
+@dataclass(frozen=True)
 class DPM(StructuredStochastic, StructuredMultistep, StatedSampler):
     """Good sampler, supports basically everything. Recommended default.
 
