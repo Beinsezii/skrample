@@ -395,23 +395,12 @@ def test_rku_diffusers(
         derivative_transform=transform() if transform else None,
         compute_scale=torch.float64,
     )
-    sampler_ref = functional.RKUltra(
-        order=sampler_wrap.sampler_order,
-        derivative_transform=sampler_wrap.derivative_transform,
-        providers=sampler_wrap.providers,
-    )
 
     steps: int = random.randint(5, 51)
 
     data_init = 1 / (random.random() + 1e-4) * (random.randint(0, 1) * 2 - 1)
 
-    data_ref = sampler_ref.sample_model(
-        data_init,
-        fake_model_ref,
-        sampler_wrap.model,
-        schedule,
-        steps,
-    )
+    data_ref = sampler_wrap.functional_sample_model(data_init, fake_model_ref, steps)
 
     sampler_wrap.set_timesteps(steps)
 
