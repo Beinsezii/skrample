@@ -191,8 +191,8 @@ def test_sampler_generics(sampler: structured.StructuredSampler, schedule: sched
         models.DataModel(),
         schedule,
         np.array([o], dtype=np.float64),
-        previous=prev,  # type: ignore
-    ).final.item()  # pyright: ignore[reportAttributeAccessIssue]  # not a float
+        previous=prev,
+    ).final.item()  # type: ignore  # not a float
 
     tensor = sampler.sample(
         torch.tensor([i], dtype=torch.float64),
@@ -201,8 +201,8 @@ def test_sampler_generics(sampler: structured.StructuredSampler, schedule: sched
         models.DataModel(),
         schedule,
         torch.tensor([n], dtype=torch.float64),
-        previous=prev,  # type: ignore
-    ).final.item()  # pyright: ignore[reportAttributeAccessIssue]  # not a float
+        previous=prev,
+    ).final.item()  # type: ignore  # not a float
 
     assert abs(tensor - scalar) < eps
     assert abs(tensor - ndarr) < eps
