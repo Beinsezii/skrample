@@ -9,7 +9,7 @@ import torch
 from testing_common import ALL_FAKE_MODELS, ALL_MODELS, ALL_SCHEDULES, ALL_STRUCTURED, ALL_TRANSFROMS, compare_pp
 
 from skrample import diffusers, scheduling
-from skrample.common import Point, SigmaTransform, Step, euler
+from skrample.common import Point, SigmaTransform, Step, euler, sigma_complement
 from skrample.sampling import functional, interface, models, structured, tableaux
 
 type SamplerTestKey = tuple[
@@ -266,7 +266,7 @@ def test_require_previous(sampler: structured.StructuredSampler) -> None:
             sampler
             for samplers in (
                 (cls(add_noise=n) for n in (False, True))
-                if issubclass(cls, structured.StructuredStochastic)
+                if issubclass(cls, structured.StructuredStochasticToggled)
                 else (cls(),)
                 for cls in ALL_STRUCTURED
             )
@@ -311,6 +311,49 @@ def test_require_noise(sampler: structured.StructuredSampler) -> None:
     b = replace(b, noise=a.noise)
 
     assert a == b
+
+
+@pytest.mark.parametrize(
+    ("model", "schedule", "noise"),
+    itertools.product(
+        [models.DataModel, models.NoiseModel, models.VelocityModel, models.FlowModel],
+        [scheduling.Sinner(scheduling.Linear()), scheduling.Scaled()],
+        [False, True],
+    ),
+)
+def test_maruyama(model: type[models.DiffusionModel], schedule: scheduling.SkrampleSchedule, noise: bool) -> None:
+    if model is models.NoiseModel and schedule.sigma_transform is sigma_complement:
+        return  # Noise / zero for compliment sigma=1
+
+    dpm = interface.StructuredFunctionalAdapter(structured.DPM(order=1, add_noise=noise))
+    maru = interface.StructuredFunctionalAdapter(structured.Euler(noise_scale=int(noise)))
+    samples_dpm: list[float] = []
+    samples_maru: list[float] = []
+
+    def fake_model(x: float, _: float, s: float) -> float:
+        return x + math.sin(x) * s
+
+    def fake_model_dpm(x: float, t: float, s: float) -> float:
+        samples_dpm.append(x)
+        return fake_model(x, t, s)
+
+    def fake_model_maru(x: float, t: float, s: float) -> float:
+        samples_maru.append(x)
+        return fake_model(x, t, s)
+
+    steps: int = random.randint(5, 51)
+
+    data_init = 1 / (random.random() + 1e-4) * (random.randint(0, 1) * 2 - 1)
+
+    random.seed(0)
+    data_dpm = dpm.sample_model(data_init, fake_model_dpm, model(), schedule, steps, rng=random.random)
+    random.seed(0)
+    data_maru = maru.sample_model(data_init, fake_model_maru, model(), schedule, steps, rng=random.random)
+
+    for sample_dpm, sample_maru in zip(samples_dpm, samples_maru, strict=True):
+        assert abs(sample_dpm - sample_maru) < 1e-12
+
+    assert abs(data_dpm - data_maru) < 1e-12
 
 
 @pytest.mark.parametrize(
@@ -359,7 +402,7 @@ def test_functional_adapter(
     ("model", "transform", "schedule", "order"),
     itertools.product(
         [models.DataModel, models.VelocityModel, models.FlowModel],  # Noise isn't valid for flow schedules
-        [None, models.DataModel, models.VelocityModel, models.FlowModel],
+        [None, models.DataModel, models.VelocityModel, models.FlowModel, models.ScaleX],
         [scheduling.Sinner(scheduling.Linear()), scheduling.Scaled()],
         [0, *range(2, 6), 99],
     ),

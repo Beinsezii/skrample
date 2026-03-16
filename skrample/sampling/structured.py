@@ -9,10 +9,10 @@ import numpy as np
 from skrample import common
 from skrample.common import (
     DeltaPoint,
-    DeltaUV,
     Point,
     Sample,
     SigmaTransform,
+    SigmaTS,
     Step,
     divf,
     ln,
@@ -44,8 +44,8 @@ class SampleInput[T: Sample]:
     def delta_point(self, schedule: SkrampleSchedule) -> DeltaPoint:
         return DeltaPoint(*(Point(*p) for p in schedule.ipoints(self.step).tolist()))
 
-    def delta_uv(self, schedule: SkrampleSchedule) -> DeltaUV:
-        return self.delta_point(schedule).uv(schedule.sigma_transform)
+    def delta_uv(self, schedule: SkrampleSchedule) -> SigmaTS:
+        return self.delta_point(schedule).sigma_ts(schedule.sigma_transform)
 
 
 @dataclass(frozen=True)
@@ -164,17 +164,21 @@ class StructuredMultistep(traits.HigherOrder, StructuredSampler):
 
 
 @dataclass(frozen=True)
-class StructuredStochastic(StructuredSampler):
-    add_noise: bool = False
-    "Flag for whether or not to add the given noise"
-
+class StructuredStochasticToggled(traits.StochasticToggled, StructuredSampler):
     @property
     def require_noise(self) -> bool:
         return self.add_noise
 
 
 @dataclass(frozen=True)
-class Euler(StatedSampler):
+class StructuredStochasticScaled(traits.StochasticScaled, StructuredSampler):
+    @property
+    def require_noise(self) -> bool:
+        return abs(self.noise_scale) > 1e-8
+
+
+@dataclass(frozen=True)
+class Euler(StructuredStochasticScaled, StatedSampler):
     """Basic sampler, the "safe" choice."""
 
     def _sample_packed[T: Sample](
@@ -191,11 +195,13 @@ class Euler(StatedSampler):
             delta.point_from.sigma,
             delta.point_to.sigma,
             schedule.sigma_transform,
+            packed.noise,
+            self.noise_scale,
         )
 
 
 @dataclass(frozen=True)
-class DPM(StructuredStochastic, StructuredMultistep, StatedSampler):
+class DPM(StructuredStochasticToggled, StructuredMultistep, StatedSampler):
     """Good sampler, supports basically everything. Recommended default.
 
     https://arxiv.org/abs/2211.01095
@@ -214,7 +220,7 @@ class DPM(StructuredStochastic, StructuredMultistep, StatedSampler):
         previous: Sequence[SKSamples[T]],
     ) -> T:
         delta = packed.delta_point(schedule)
-        (sigma_u, sigma_v), (sigma_u_next, sigma_v_next) = delta.uv(schedule.sigma_transform)
+        (sigma_u, sigma_v), (sigma_u_next, sigma_v_next) = delta.sigma_ts(schedule.sigma_transform)
 
         lambda_ = ln(divf(sigma_v, sigma_u))
         lambda_next = ln(divf(sigma_v_next, sigma_u_next))
@@ -364,7 +370,7 @@ class UniP(StructuredMultistep, StatedSampler):
         "Passing `prediction_next` is equivalent to UniC, otherwise behaves as UniP"
 
         delta = packed.delta_point(schedule)
-        (sigma_u, sigma_v), (sigma_u_next, sigma_v_next) = delta.uv(schedule.sigma_transform)
+        (sigma_u, sigma_v), (sigma_u_next, sigma_v_next) = delta.sigma_ts(schedule.sigma_transform)
 
         lambda_ = ln(divf(sigma_v, sigma_u))
         lambda_next = ln(divf(sigma_v_next, sigma_u_next))
@@ -585,7 +591,7 @@ class SPC(traits.DerivativeTransform, StructuredSampler):
             ).final
 
             if self.adaptive:
-                p, c = delta.uv(schedule.sigma_transform).uv_from
+                p, c = delta.sigma_ts(schedule.sigma_transform).t
             else:
                 p, c = 0, 0
 
