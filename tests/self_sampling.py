@@ -402,7 +402,7 @@ def test_functional_adapter(
     ("model", "transform", "schedule", "order"),
     itertools.product(
         [models.DataModel, models.VelocityModel, models.FlowModel],  # Noise isn't valid for flow schedules
-        [None, models.DataModel, models.VelocityModel, models.FlowModel],
+        [None, models.DataModel, models.VelocityModel, models.FlowModel, models.ScaleX],
         [scheduling.Sinner(scheduling.Linear()), scheduling.Scaled()],
         [0, *range(2, 6), 99],
     ),
