@@ -285,15 +285,16 @@ def test_require_previous(sampler: structured.StructuredSampler) -> None:
 def test_require_noise(sampler: structured.StructuredSampler) -> None:
     sample = 1.5
     prediction = 0.5
+    step: int = 31
     previous = tuple(
-        structured.SKSamples(n / 2, n * 2, Step.from_int(n, 100), 1 / (n + 1), n * 1.5) for n in range(100)
+        structured.SKSamples(n / 2, n * 2, Step.from_int(n, 100), 1 / (n + 1), n * 1.5) for n in range(step)
     )
     noise = -0.5
 
     a = sampler.sample(
         sample,
         prediction,
-        Step.from_int(31, 100),
+        Step.from_int(step, 100),
         models.DataModel(),
         scheduling.Linear(),
         noise,
@@ -302,11 +303,11 @@ def test_require_noise(sampler: structured.StructuredSampler) -> None:
     b = sampler.sample(
         sample,
         prediction,
-        Step.from_int(31, 100),
+        Step.from_int(step, 100),
         models.DataModel(),
         scheduling.Linear(),
         None,
-        previous,
+        [replace(p, noise=None) for p in previous],
     )
 
     # Don't compare stored noise since it's expected diff
