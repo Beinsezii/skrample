@@ -152,12 +152,6 @@ def sigma_polar(sigma: float) -> SigmaSA:
     return SigmaSA(math.sin(theta), math.cos(theta))
 
 
-def get_sigma_uv(step: int, schedule: FloatSchedule, sigma_transform: SigmaTransform) -> tuple[float, float]:
-    """Gets sigma u/v with bounds check.
-    If step >= len(schedule), the sigma is assumed to be zero."""
-    return sigma_transform(schedule[step][1] if step < len(schedule) else 0)
-
-
 def scaled_delta(sigma: float, sigma_next: float, sigma_transform: SigmaTransform) -> tuple[float, float]:
     "Returns delta (h) and scale factor to perform the euler method."
     sigma_u, sigma_v = sigma_transform(sigma)
@@ -172,22 +166,6 @@ def euler[T: Sample](sample: T, prediction: T, sigma: float, sigma_next: float, 
     "Perform the euler method using scaled_delta"
     # Returns delta, scale so prediction is first
     return math.sumprod((prediction, sample), scaled_delta(sigma, sigma_next, sigma_transform))  # type: ignore
-
-
-def scaled_delta_step(
-    step: int, schedule: FloatSchedule, sigma_transform: SigmaTransform, step_size: int = 1
-) -> tuple[float, float]:
-    """Returns delta (h) and scale factor to perform the euler method.
-    If step + step_size > len(schedule), assumes the next timestep and sigma are zero"""
-    step_next = step + step_size
-    return scaled_delta(schedule[step][1], schedule[step_next][1] if step_next < len(schedule) else 0, sigma_transform)
-
-
-def euler_step[T: Sample](
-    sample: T, prediction: T, step: int, schedule: FloatSchedule, sigma_transform: SigmaTransform, step_size: int = 1
-) -> T:
-    "Perform the euler method using scaled_delta_step"
-    return math.sumprod((prediction, sample), scaled_delta_step(step, schedule, sigma_transform, step_size))  # type: ignore
 
 
 def merge_noise[T: Sample](sample: T, noise: T, sigma: float, sigma_transform: SigmaTransform) -> T:
