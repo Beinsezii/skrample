@@ -553,13 +553,15 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
 
 
 @dataclasses.dataclass
-class RKUltraWrapperScheduler(SkrampleWrapperCore):
+class RKUltraWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
     schedule: SkrampleSchedule
     sampler_order: int = functional.RKUltra.order
     stochasticity: float = 0
     providers: Mapping[int, tableaux.TableauProvider] = functional.RKUltra.providers
     model: DiffusionModel = NoiseModel()  # noqa: RUF009 # is immutable
     derivative_transform: DiffusionModel | None = functional.RKUltra.derivative_transform
+    noise_type: type[TensorNoiseCommon[T]] = Random  # type: ignore  # Unsure why?
+    noise_props: T | None = None
     compute_scale: torch.dtype | None = torch.float32
     allow_dynamic: bool = True
     """Whether or not classes can be overridden during sampling.
@@ -579,7 +581,7 @@ class RKUltraWrapperScheduler(SkrampleWrapperCore):
         self._full: scheduling.NPSchedule
 
     @classmethod
-    def from_diffusers_config(  # pyright fails if you use the outer generic
+    def from_diffusers_config[N: TensorNoiseProps | None](  # pyright fails if you use the outer generic
         cls,
         config: "dict[str, Any] | ConfigMixin",
         schedule: type[SkrampleSchedule] | None = None,
@@ -589,13 +591,15 @@ class RKUltraWrapperScheduler(SkrampleWrapperCore):
         schedule_modifiers: list[tuple[type[ScheduleModifier], dict[str, Any]]] = [],
         providers: Mapping[int, tableaux.TableauProvider] = functional.RKUltra.providers,
         model: DiffusionModel | None = None,
+        noise_type: type[TensorNoiseCommon[N]] = Random,  # ty: ignore # generic solver woes
         derivative_transform: DiffusionModel | None = functional.RKUltra.derivative_transform,
         compute_scale: torch.dtype | None = torch.float32,
         schedule_props: dict[str, Any] = {},
         subschedule_props: dict[str, Any] = {},
+        noise_props: N | None = None,
         modifier_merge_strategy: MergeStrategy = MergeStrategy.UniqueBefore,
         allow_dynamic: bool = True,
-    ) -> "RKUltraWrapperScheduler":
+    ) -> "RKUltraWrapperScheduler[N]":
         "Thin sugar over `parse_diffusers_config` to make a complete wrapper with arbitrary customizations"
         parsed = parse_diffusers_config(config=config, sampler=None, schedule=schedule)
 
@@ -612,13 +616,15 @@ class RKUltraWrapperScheduler(SkrampleWrapperCore):
             ):
                 built_schedule = modifier(base=built_schedule, **modifier_props)
 
-        return cls(
+        return cls(  # ty: ignore # generic solver woes
             built_schedule,
             sampler_order,
             stochasticity,
             providers,
             model or parsed.model,
             derivative_transform=derivative_transform,
+            noise_type=noise_type,  # pyright: ignore  # think these are weird because of the defaults?
+            noise_props=noise_props,  # pyright: ignore
             compute_scale=compute_scale,
             fake_config=config.copy() if isinstance(config, dict) else dict(config.config),
             allow_dynamic=allow_dynamic,
@@ -795,7 +801,9 @@ class RKUltraWrapperScheduler(SkrampleWrapperCore):
         assert timestep == self._full[self._index, 0].item()
 
         if self._noise is None and abs(self.stochasticity) > 1e-8:
-            self._noise = self.get_step_noise(self._index, sample, Random, None, generator, self.compute_scale)
+            self._noise = self.get_step_noise(
+                self._index, sample, self.noise_type, self.noise_props, generator, self.compute_scale
+            )
 
         sigmas = np.concatenate([self._full[:, 1], [0]])
 
