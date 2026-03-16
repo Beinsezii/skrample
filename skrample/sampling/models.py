@@ -27,8 +27,11 @@ class DiffusionModel(abc.ABC):
     def delta(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 0) -> float:
         "σₜ, σₛ, η -> Δ"
 
-    def zeta_ts(self, sigma_ts: SigmaTS, eta: float = 1.0) -> float:
-        "Co-authored by Gemini 3.1 Pro"
+    def zeta_ts(self, sigma_ts: SigmaTS, eta: float = 1.0, epsilon: float = 1e-8) -> float:
+        """Co-authored by Gemini 3.1 Pro"""
+        if abs(eta) < epsilon or abs(sigma_ts.s.sigma) < epsilon:  # both of these collapse output to zero
+            return 0
+
         # Universal conditional variance mapping
         ratio = (sigma_ts.t.alpha * sigma_ts.s.sigma) / (sigma_ts.s.alpha * sigma_ts.t.sigma)
         variance = (sigma_ts.s.sigma**2) * (1.0 - ratio**2)
@@ -44,8 +47,7 @@ class DiffusionModel(abc.ABC):
         "Co-authored by Gemini 3.1 Pro"
         sa_t, sa_s = sigma_transform(sigma_from), sigma_transform(sigma_to)
 
-        if abs(eta) > 1e-8:
-            zeta = self.zeta_ts(SigmaTS(sa_t, sa_s), eta)
+        if (zeta := self.zeta_ts(SigmaTS(sa_t, sa_s), eta)) != 0:  # zeta_ts already checks <1e-8
             sa_s = SigmaSA(math.sqrt(max(0.0, sa_s.sigma**2 - zeta**2)), sa_s.alpha)
 
         return SigmaTS(sa_t, sa_s)
@@ -61,15 +63,12 @@ class DiffusionModel(abc.ABC):
         eta: float = 0,
     ) -> T:
         "sample * Γ + output * Δ + noise * ζ"
-        if noise is None or abs(eta) < 1e-8:
-            gamma = self.gamma(sigma_from, sigma_to, sigma_transform, 0)
-            delta = self.delta(sigma_from, sigma_to, sigma_transform, 0)
-            return math.sumprod((sample, output), (gamma, delta))  # type: ignore # sumprod is always T
-        else:
-            gamma = self.gamma(sigma_from, sigma_to, sigma_transform, eta)
-            delta = self.delta(sigma_from, sigma_to, sigma_transform, eta)
-            zeta = self.zeta(sigma_from, sigma_to, sigma_transform, eta)
+        gamma = self.gamma(sigma_from, sigma_to, sigma_transform, eta)
+        delta = self.delta(sigma_from, sigma_to, sigma_transform, eta)
+        if noise is not None and (zeta := self.zeta(sigma_from, sigma_to, sigma_transform, eta)) != 0:
             return math.sumprod((sample, output, noise), (gamma, delta, zeta))  # type: ignore # sumprod is always T
+        else:
+            return math.sumprod((sample, output), (gamma, delta))  # type: ignore # sumprod is always T
 
     def backward[T: Sample](
         self, sample: T, result: T, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform

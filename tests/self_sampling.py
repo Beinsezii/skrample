@@ -323,7 +323,7 @@ def test_require_noise(sampler: structured.StructuredSampler) -> None:
 )
 def test_maruyama(model: type[models.DiffusionModel], schedule: scheduling.SkrampleSchedule, noise: bool) -> None:
     dpm = interface.StructuredFunctionalAdapter(structured.DPM(order=1, add_noise=noise))
-    maru = interface.StructuredFunctionalAdapter(structured.Euler(eta=int(noise)))
+    maru = interface.StructuredFunctionalAdapter(structured.Euler(noise_scale=int(noise)))
     samples_dpm: list[float] = []
     samples_maru: list[float] = []
 
@@ -348,9 +348,9 @@ def test_maruyama(model: type[models.DiffusionModel], schedule: scheduling.Skram
     data_maru = maru.sample_model(data_init, fake_model_maru, model(), schedule, steps, rng=random.random)
 
     for sample_dpm, sample_maru in zip(samples_dpm, samples_maru, strict=True):
-        assert abs(sample_dpm - sample_maru) < 1e-8
+        assert abs(sample_dpm - sample_maru) < 1e-12
 
-    assert abs(data_dpm - data_maru) < 1e-8
+    assert abs(data_dpm - data_maru) < 1e-12
 
 
 @pytest.mark.parametrize(

@@ -174,15 +174,18 @@ class StructuredStochastic(StructuredSampler):
 
 
 @dataclass(frozen=True)
-class Euler(StatedSampler, StructuredStochastic):
-    """Basic sampler, the "safe" choice."""
-
-    add_noise: bool = True  # true by default because of eta check
-    eta: float = 0
+class StructuredScaledStochastic(StructuredSampler):
+    noise_scale: float = 0
+    "Scale of extra noise to add"
 
     @property
     def require_noise(self) -> bool:
-        return self.add_noise and abs(self.eta) > 1e-8
+        return abs(self.noise_scale) > 1e-8
+
+
+@dataclass(frozen=True)
+class Euler(StatedSampler, StructuredScaledStochastic):
+    """Basic sampler, the "safe" choice."""
 
     def _sample_packed[T: Sample](
         self,
@@ -192,24 +195,15 @@ class Euler(StatedSampler, StructuredStochastic):
         previous: Sequence[SKSamples[T]],
     ) -> T:
         delta = packed.delta_point(schedule)
-        if packed.noise is None:  # just Euler method when no stochastic noise passed
-            return model_transform.forward(
-                packed.sample,
-                packed.prediction,
-                delta.point_from.sigma,
-                delta.point_to.sigma,
-                schedule.sigma_transform,
-            )
-        else:
-            return model_transform.forward(
-                packed.sample,
-                packed.prediction,
-                delta.point_from.sigma,
-                delta.point_to.sigma,
-                schedule.sigma_transform,
-                packed.noise,
-                self.eta,
-            )
+        return model_transform.forward(
+            packed.sample,
+            packed.prediction,
+            delta.point_from.sigma,
+            delta.point_to.sigma,
+            schedule.sigma_transform,
+            packed.noise,
+            self.noise_scale,
+        )
 
 
 @dataclass(frozen=True)
