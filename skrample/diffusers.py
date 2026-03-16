@@ -628,6 +628,7 @@ class RKUltraWrapperScheduler(SkrampleWrapperCore):
         return (
             functional.RKUltra(
                 order=self.sampler_order,
+                stochasticity=self.stochasticity,
                 derivative_transform=self.derivative_transform,
                 providers=self.providers,
             ),
@@ -793,7 +794,7 @@ class RKUltraWrapperScheduler(SkrampleWrapperCore):
     ) -> tuple[Tensor, Tensor] | OrderedDict[str, Tensor]:
         assert timestep == self._full[self._index, 0].item()
 
-        if self._noise is None and abs(self.stochasticity > 1e-8):
+        if self._noise is None and abs(self.stochasticity) > 1e-8:
             self._noise = self.get_step_noise(self._index, sample, Random, None, generator, self.compute_scale)
 
         sigmas = np.concatenate([self._full[:, 1], [0]])

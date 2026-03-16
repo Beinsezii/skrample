@@ -401,12 +401,13 @@ def test_functional_adapter(
 
 
 @pytest.mark.parametrize(
-    ("model", "transform", "schedule", "order"),
+    ("model", "transform", "schedule", "order", "stochasticity"),
     itertools.product(
         [models.DataModel, models.VelocityModel, models.FlowModel],  # Noise isn't valid for flow schedules
         [None, models.DataModel, models.VelocityModel, models.FlowModel, models.ScaleX],
         [scheduling.Sinner(scheduling.Linear()), scheduling.Scaled()],
         [0, *range(2, 6), 99],
+        [-1.5, 0, 0.5, 1],
     ),
 )
 def test_rku_diffusers(
@@ -414,6 +415,7 @@ def test_rku_diffusers(
     transform: type[models.DiffusionModel] | None,
     schedule: scheduling.SkrampleSchedule,
     order: int,
+    stochasticity: float,
 ) -> None:
     samples_ref: list[float] = []
     samples_wrap: list[float] = []
@@ -436,6 +438,7 @@ def test_rku_diffusers(
     sampler_wrap = diffusers.RKUltraWrapperScheduler(
         schedule,
         sampler_order=order,
+        stochasticity=stochasticity,
         model=model(),
         derivative_transform=transform() if transform else None,
         compute_scale=torch.float64,
@@ -443,9 +446,17 @@ def test_rku_diffusers(
 
     steps: int = random.randint(5, 51)
 
+    generator = torch.Generator().manual_seed(42)
+    generator_rng = generator.clone_state()
+
     data_init = 1 / (random.random() + 1e-4) * (random.randint(0, 1) * 2 - 1)
 
-    data_ref = sampler_wrap.functional_sample_model(data_init, fake_model_ref, steps)
+    data_ref = sampler_wrap.functional_sample_model(
+        data_init,
+        fake_model_ref,
+        steps,
+        rng=lambda: torch.randn([1], generator=generator_rng).item(),
+    )
 
     sampler_wrap.set_timesteps(steps)
 
@@ -456,12 +467,17 @@ def test_rku_diffusers(
         assert points_ref[n] == points_wrap[n], (points_ref[: n + 1], points_wrap)
         assert abs(samples_ref[n] - samples_wrap[n]) < 1e-8, (samples_ref[: n + 1], samples_wrap)
 
-        data_wrap = sampler_wrap.step(  # type: ignore # return_dict shennanigans
-            torch.tensor(output, dtype=torch.float64),
-            t,
-            torch.tensor(data_wrap, dtype=torch.float64),
-            return_dict=False,
-        )[0].item()
+        data_wrap = (
+            sampler_wrap.step(  # type: ignore # return_dict shennanigans
+                torch.tensor(output, dtype=torch.float64).unsqueeze(0),
+                t,
+                torch.tensor(data_wrap, dtype=torch.float64).unsqueeze(0),
+                generator=generator,
+                return_dict=False,
+            )[0]
+            .squeeze(0)
+            .item()
+        )
 
     assert abs(data_ref - data_wrap) < 1e-8  # Not sure why it can't be exact eq tbh, is torch really that different?
 

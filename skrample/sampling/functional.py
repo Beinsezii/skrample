@@ -52,6 +52,8 @@ def step_tableau[T: Sample](
     schedule: scheduling.SkrampleSchedule,
     step: Step,
     derivative_transform: models.DiffusionModel | None = None,
+    noise: T | None = None,
+    stochasticity: float = 0,
     epsilon: float = 1e-8,
 ) -> tuple[T, ...]:
     nodes, weights = tableau[0], tableau[1:]
@@ -93,6 +95,8 @@ def step_tableau[T: Sample](
             S0,
             S1,
             schedule.sigma_transform,
+            noise,
+            stochasticity,
         )
         for w in weights
     )
@@ -200,7 +204,7 @@ class FunctionalAdaptive(FunctionalSampler):
 
 
 @dataclasses.dataclass(frozen=True)
-class RKUltra(traits.DerivativeTransform, FunctionalHigher, FunctionalSinglestep):
+class RKUltra(traits.DerivativeTransform, traits.Stochastic, FunctionalHigher, FunctionalSinglestep):
     "Implements almost every single method from https://en.wikipedia.org/wiki/List_of_Runge–Kutta_methods"  # noqa: RUF002
 
     providers: Mapping[int, tableaux.TableauProvider[tableaux.Tableau | tableaux.ExtendedTableau]] = MappingProxyType(
@@ -247,7 +251,9 @@ class RKUltra(traits.DerivativeTransform, FunctionalHigher, FunctionalSinglestep
             model_transform,
             schedule,
             step,
-            derivative_transform=self.derivative_transform,
+            self.derivative_transform,
+            rng() if rng else None,
+            self.stochasticity,
         )[0]
 
 
