@@ -9,7 +9,7 @@ import torch
 from testing_common import ALL_FAKE_MODELS, ALL_MODELS, ALL_SCHEDULES, ALL_STRUCTURED, ALL_TRANSFROMS, compare_pp
 
 from skrample import diffusers, scheduling
-from skrample.common import Point, SigmaTransform, Step, euler
+from skrample.common import Point, SigmaTransform, Step, euler, sigma_complement
 from skrample.sampling import functional, interface, models, structured, tableaux
 
 type SamplerTestKey = tuple[
@@ -316,12 +316,15 @@ def test_require_noise(sampler: structured.StructuredSampler) -> None:
 @pytest.mark.parametrize(
     ("model", "schedule", "noise"),
     itertools.product(
-        [models.DataModel, models.VelocityModel, models.FlowModel],  # Noise isn't valid for flow schedules
+        [models.DataModel, models.NoiseModel, models.VelocityModel, models.FlowModel],
         [scheduling.Sinner(scheduling.Linear()), scheduling.Scaled()],
         [False, True],
     ),
 )
 def test_maruyama(model: type[models.DiffusionModel], schedule: scheduling.SkrampleSchedule, noise: bool) -> None:
+    if model is models.NoiseModel and schedule.sigma_transform is sigma_complement:
+        return  # Noise / zero for compliment sigma=1
+
     dpm = interface.StructuredFunctionalAdapter(structured.DPM(order=1, add_noise=noise))
     maru = interface.StructuredFunctionalAdapter(structured.Euler(noise_scale=int(noise)))
     samples_dpm: list[float] = []
