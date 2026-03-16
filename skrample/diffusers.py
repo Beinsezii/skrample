@@ -225,6 +225,7 @@ class SkrampleWrapperCore(abc.ABC):
         # State
         self._steps: int = 50
         self._device: torch.device = torch.device("cpu")
+        self._noise_generator: BatchTensorNoise | None = None
 
     @property
     @abc.abstractmethod
@@ -288,6 +289,40 @@ class SkrampleWrapperCore(abc.ABC):
         sampler, schedule, transform = self.functional_interface()
         return sampler.generate_model(model, transform, schedule, rng, steps, include, initial, callback)
 
+    def get_step_noise[T: TensorNoiseProps | None](
+        self,
+        step: int,
+        sample: torch.Tensor,
+        noise_type: type[TensorNoiseCommon[T]],
+        noise_props: T | None,
+        generator: torch.Generator | list[torch.Generator] | None = None,
+        dtype: torch.dtype | None = None,
+    ) -> torch.Tensor:
+        if self._noise_generator is None:
+            if isinstance(generator, list) and len(generator) == sample.shape[0]:
+                seeds = generator
+            elif isinstance(generator, torch.Generator) and sample.shape[0] == 1:
+                seeds = [generator]
+            else:
+                # use median element +4 decimals as seed for a balance of determinism without lacking variety
+                # multiply by step index to spread the values and minimize clash
+                # does not work across batch sizes but at least Flux will have something mostly deterministic
+                seeds = [
+                    torch.Generator().manual_seed(int(b.reshape(b.numel())[b.numel() // 2].item() * 1e4) * (step + 1))
+                    for b in sample
+                ]
+
+            self._noise_generator = BatchTensorNoise.from_batch_inputs(
+                noise_type,
+                unit_shape=sample.shape[1:],
+                seeds=seeds,  # ty: ignore # no clue
+                props=noise_props,
+                ramp=schedule_to_ramp(self.schedule_np),
+                dtype=torch.float32,
+            )
+
+        return self._noise_generator.generate().to(dtype=dtype or sample.dtype, device=sample.device)
+
     @abc.abstractmethod
     def scale_noise(self, sample: Tensor, timestep: Tensor, noise: Tensor) -> Tensor: ...
 
@@ -347,7 +382,6 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
         super().__post_init__()
         # State
         self._previous: list[SKSamples[Tensor]] = []
-        self._noise_generator: BatchTensorNoise | None = None
         self._schedule = self.schedule  # copy of original for restoration in set_timesteps
 
     @classmethod
@@ -486,32 +520,8 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
         step = schedule[:, 0].tolist().index(timestep if isinstance(timestep, int | float) else timestep.item())
 
         if self.sampler.require_noise:
-            if self._noise_generator is None:
-                if isinstance(generator, list) and len(generator) == sample.shape[0]:
-                    seeds = generator
-                elif isinstance(generator, torch.Generator) and sample.shape[0] == 1:
-                    seeds = [generator]
-                else:
-                    # use median element +4 decimals as seed for a balance of determinism without lacking variety
-                    # multiply by step index to spread the values and minimize clash
-                    # does not work across batch sizes but at least Flux will have something mostly deterministic
-                    seeds = [
-                        torch.Generator().manual_seed(
-                            int(b.reshape(b.numel())[b.numel() // 2].item() * 1e4) * (step + 1)
-                        )
-                        for b in sample
-                    ]
+            noise = self.get_step_noise(step, sample, self.noise_type, self.noise_props, generator, self.compute_scale)
 
-                self._noise_generator = BatchTensorNoise.from_batch_inputs(
-                    self.noise_type,
-                    unit_shape=sample.shape[1:],
-                    seeds=seeds,  # ty: ignore # no clue
-                    props=self.noise_props,
-                    ramp=schedule_to_ramp(schedule),
-                    dtype=torch.float32,
-                )
-
-            noise = self._noise_generator.generate().to(dtype=self.compute_scale, device=model_output.device)
         else:
             noise = None
 
@@ -565,7 +575,6 @@ class RKUltraWrapperScheduler(SkrampleWrapperCore):
         self._derivatives: list[Tensor] = []
         self._sample: Tensor | None = None
         self._noise: Tensor | None = None
-        self._noise_generator: BatchTensorNoise | None = None
         self._schedule = self.schedule  # copy of original for restoration in set_timesteps
         self._full: scheduling.NPSchedule
 
@@ -714,6 +723,8 @@ class RKUltraWrapperScheduler(SkrampleWrapperCore):
                 [*before, dataclasses.replace(flow, shift=math.exp(mu)), *after], sub, base
             )
 
+        self._noise_generator = None
+
         if device is not None:
             self._device = torch.device(device)
 
@@ -783,32 +794,7 @@ class RKUltraWrapperScheduler(SkrampleWrapperCore):
         assert timestep == self._full[self._index, 0].item()
 
         if self._noise is None and abs(self.stochasticity > 1e-8):
-            if self._noise_generator is None:
-                if isinstance(generator, list) and len(generator) == sample.shape[0]:
-                    seeds = generator
-                elif isinstance(generator, torch.Generator) and sample.shape[0] == 1:
-                    seeds = [generator]
-                else:
-                    # use median element +4 decimals as seed for a balance of determinism without lacking variety
-                    # multiply by step index to spread the values and minimize clash
-                    # does not work across batch sizes but at least Flux will have something mostly deterministic
-                    seeds = [
-                        torch.Generator().manual_seed(
-                            int(b.reshape(b.numel())[b.numel() // 2].item() * 1e4) * (self._index + 1)
-                        )
-                        for b in sample
-                    ]
-
-                self._noise_generator = BatchTensorNoise.from_batch_inputs(
-                    Random,
-                    unit_shape=sample.shape[1:],
-                    seeds=seeds,  # ty: ignore # no clue
-                    props=None,
-                    ramp=schedule_to_ramp(self.schedule_np),
-                    dtype=torch.float32,
-                )
-
-            self._noise = self._noise_generator.generate().to(dtype=self.compute_scale, device=model_output.device)
+            self._noise = self.get_step_noise(self._index, sample, Random, None, generator, self.compute_scale)
 
         sigmas = np.concatenate([self._full[:, 1], [0]])
 
