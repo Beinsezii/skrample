@@ -10,7 +10,7 @@ from testing_common import ALL_FAKE_MODELS, ALL_MODELS, ALL_SCHEDULES, ALL_STRUC
 
 from skrample import diffusers, scheduling
 from skrample.common import Point, SigmaTransform, Step, euler, sigma_complement
-from skrample.sampling import functional, interface, models, structured, tableaux
+from skrample.sampling import functional, interface, models, structured, tableaux, traits
 
 type SamplerTestKey = tuple[
     type[structured.StructuredSampler] | type[functional.FunctionalSampler],
@@ -266,7 +266,9 @@ def test_require_previous(sampler: structured.StructuredSampler) -> None:
             sampler
             for samplers in (
                 (cls(add_noise=n) for n in (False, True))
-                if issubclass(cls, structured.StructuredStochasticToggled)
+                if issubclass(cls, structured.DPM)
+                else (cls(stochasticity=n) for n in [-1, 0, 0.1, 1])  # pyright: ignore[reportCallIssue] : wtf???
+                if issubclass(cls, traits.Stochastic)
                 else (cls(),)
                 for cls in ALL_STRUCTURED
             )
@@ -303,14 +305,14 @@ def test_require_noise(sampler: structured.StructuredSampler) -> None:
         Step.from_int(31, 100),
         models.DataModel(),
         scheduling.Linear(),
-        noise if sampler.require_noise else None,
+        None,
         previous,
     )
 
     # Don't compare stored noise since it's expected diff
     b = replace(b, noise=a.noise)
 
-    assert a == b
+    assert (a == b) ^ sampler.require_noise
 
 
 @pytest.mark.parametrize(
