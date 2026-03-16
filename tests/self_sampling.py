@@ -266,7 +266,7 @@ def test_require_previous(sampler: structured.StructuredSampler) -> None:
             sampler
             for samplers in (
                 (cls(add_noise=n) for n in (False, True))
-                if issubclass(cls, structured.StructuredStochastic)
+                if issubclass(cls, structured.StructuredStochasticToggled)
                 else (cls(),)
                 for cls in ALL_STRUCTURED
             )

@@ -164,27 +164,21 @@ class StructuredMultistep(traits.HigherOrder, StructuredSampler):
 
 
 @dataclass(frozen=True)
-class StructuredStochastic(StructuredSampler):
-    add_noise: bool = False
-    "Flag for whether or not to add the given noise"
-
+class StructuredStochasticToggled(traits.StochasticToggled, StructuredSampler):
     @property
     def require_noise(self) -> bool:
         return self.add_noise
 
 
 @dataclass(frozen=True)
-class StructuredScaledStochastic(StructuredSampler):
-    noise_scale: float = 0
-    "Scale of extra noise to add"
-
+class StructuredStochasticScaled(traits.StochasticScaled, StructuredSampler):
     @property
     def require_noise(self) -> bool:
         return abs(self.noise_scale) > 1e-8
 
 
 @dataclass(frozen=True)
-class Euler(StatedSampler, StructuredScaledStochastic):
+class Euler(StructuredStochasticScaled, StatedSampler):
     """Basic sampler, the "safe" choice."""
 
     def _sample_packed[T: Sample](
@@ -207,7 +201,7 @@ class Euler(StatedSampler, StructuredScaledStochastic):
 
 
 @dataclass(frozen=True)
-class DPM(StructuredStochastic, StructuredMultistep, StatedSampler):
+class DPM(StructuredStochasticToggled, StructuredMultistep, StatedSampler):
     """Good sampler, supports basically everything. Recommended default.
 
     https://arxiv.org/abs/2211.01095
