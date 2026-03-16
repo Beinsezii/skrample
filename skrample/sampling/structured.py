@@ -164,21 +164,14 @@ class StructuredMultistep(traits.HigherOrder, StructuredSampler):
 
 
 @dataclass(frozen=True)
-class StructuredStochasticToggled(traits.StochasticToggled, StructuredSampler):
+class StructuredStochastic(traits.Stochastic, StructuredSampler):
     @property
     def require_noise(self) -> bool:
-        return self.add_noise
+        return abs(self.stochasticity) > 1e-8
 
 
 @dataclass(frozen=True)
-class StructuredStochasticScaled(traits.StochasticScaled, StructuredSampler):
-    @property
-    def require_noise(self) -> bool:
-        return abs(self.noise_scale) > 1e-8
-
-
-@dataclass(frozen=True)
-class Euler(StructuredStochasticScaled, StatedSampler):
+class Euler(StructuredStochastic, StatedSampler):
     """Basic sampler, the "safe" choice."""
 
     def _sample_packed[T: Sample](
@@ -196,17 +189,24 @@ class Euler(StructuredStochasticScaled, StatedSampler):
             delta.point_to.sigma,
             schedule.sigma_transform,
             packed.noise,
-            self.noise_scale,
+            self.stochasticity,
         )
 
 
 @dataclass(frozen=True)
-class DPM(StructuredStochasticToggled, StructuredMultistep, StatedSampler):
+class DPM(StructuredMultistep, StatedSampler):
     """Good sampler, supports basically everything. Recommended default.
 
     https://arxiv.org/abs/2211.01095
     Page 4 Algo 2 for order=2
     Section 5 for SDE"""
+
+    add_noise: bool = False
+    "Flag for whether or not to add the given noise"
+
+    @property
+    def require_noise(self) -> bool:
+        return self.add_noise
 
     @staticmethod
     def max_order() -> int:
@@ -295,7 +295,7 @@ class DPM(StructuredStochasticToggled, StructuredMultistep, StatedSampler):
 
 
 @dataclass(frozen=True)
-class Adams(traits.DerivativeTransform, StructuredMultistep, StatedSampler):
+class Adams(traits.DerivativeTransform, StructuredStochastic, StructuredMultistep, StatedSampler):
     "Higher order extension to Euler using the Adams-Bashforth coefficients on the model prediction"
 
     @staticmethod
@@ -343,6 +343,8 @@ class Adams(traits.DerivativeTransform, StructuredMultistep, StatedSampler):
             delta.point_from.sigma,
             delta.point_to.sigma,
             schedule.sigma_transform,
+            packed.noise,
+            self.stochasticity,
         )
 
 

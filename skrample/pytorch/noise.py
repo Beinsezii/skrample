@@ -234,6 +234,9 @@ class Brownian(TensorNoiseCommon[None]):
             entropy=self.seed.initial_seed(),
             dtype=self.dtype,
             device=self.seed.device,
+            halfway_tree=True,
+            tol=1e-8,
+            pool_size=64,  # tolerance is 99% of the perf hit at this size
         )
 
         self._step: int = 0

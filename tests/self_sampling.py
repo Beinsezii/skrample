@@ -10,7 +10,7 @@ from testing_common import ALL_FAKE_MODELS, ALL_MODELS, ALL_SCHEDULES, ALL_STRUC
 
 from skrample import diffusers, scheduling
 from skrample.common import Point, SigmaTransform, Step, euler, sigma_complement
-from skrample.sampling import functional, interface, models, structured, tableaux
+from skrample.sampling import functional, interface, models, structured, tableaux, traits
 
 type SamplerTestKey = tuple[
     type[structured.StructuredSampler] | type[functional.FunctionalSampler],
@@ -266,7 +266,9 @@ def test_require_previous(sampler: structured.StructuredSampler) -> None:
             sampler
             for samplers in (
                 (cls(add_noise=n) for n in (False, True))
-                if issubclass(cls, structured.StructuredStochasticToggled)
+                if issubclass(cls, structured.DPM)
+                else (cls(stochasticity=n) for n in [-1, 0, 0.1, 1])  # pyright: ignore[reportCallIssue] : wtf???
+                if issubclass(cls, traits.Stochastic)
                 else (cls(),)
                 for cls in ALL_STRUCTURED
             )
@@ -283,15 +285,16 @@ def test_require_previous(sampler: structured.StructuredSampler) -> None:
 def test_require_noise(sampler: structured.StructuredSampler) -> None:
     sample = 1.5
     prediction = 0.5
+    step: int = 31
     previous = tuple(
-        structured.SKSamples(n / 2, n * 2, Step.from_int(n, 100), 1 / (n + 1), n * 1.5) for n in range(100)
+        structured.SKSamples(n / 2, n * 2, Step.from_int(n, 100), 1 / (n + 1), n * 1.5) for n in range(step)
     )
     noise = -0.5
 
     a = sampler.sample(
         sample,
         prediction,
-        Step.from_int(31, 100),
+        Step.from_int(step, 100),
         models.DataModel(),
         scheduling.Linear(),
         noise,
@@ -300,17 +303,17 @@ def test_require_noise(sampler: structured.StructuredSampler) -> None:
     b = sampler.sample(
         sample,
         prediction,
-        Step.from_int(31, 100),
+        Step.from_int(step, 100),
         models.DataModel(),
         scheduling.Linear(),
-        noise if sampler.require_noise else None,
-        previous,
+        None,
+        [replace(p, noise=None) for p in previous],
     )
 
     # Don't compare stored noise since it's expected diff
     b = replace(b, noise=a.noise)
 
-    assert a == b
+    assert (a == b) ^ sampler.require_noise
 
 
 @pytest.mark.parametrize(
@@ -326,7 +329,7 @@ def test_maruyama(model: type[models.DiffusionModel], schedule: scheduling.Skram
         return  # Noise / zero for compliment sigma=1
 
     dpm = interface.StructuredFunctionalAdapter(structured.DPM(order=1, add_noise=noise))
-    maru = interface.StructuredFunctionalAdapter(structured.Euler(noise_scale=int(noise)))
+    maru = interface.StructuredFunctionalAdapter(structured.Euler(stochasticity=int(noise)))
     samples_dpm: list[float] = []
     samples_maru: list[float] = []
 
@@ -399,12 +402,13 @@ def test_functional_adapter(
 
 
 @pytest.mark.parametrize(
-    ("model", "transform", "schedule", "order"),
+    ("model", "transform", "schedule", "order", "stochasticity"),
     itertools.product(
         [models.DataModel, models.VelocityModel, models.FlowModel],  # Noise isn't valid for flow schedules
         [None, models.DataModel, models.VelocityModel, models.FlowModel, models.ScaleX],
         [scheduling.Sinner(scheduling.Linear()), scheduling.Scaled()],
         [0, *range(2, 6), 99],
+        [-1.5, 0, 0.5, 1],
     ),
 )
 def test_rku_diffusers(
@@ -412,6 +416,7 @@ def test_rku_diffusers(
     transform: type[models.DiffusionModel] | None,
     schedule: scheduling.SkrampleSchedule,
     order: int,
+    stochasticity: float,
 ) -> None:
     samples_ref: list[float] = []
     samples_wrap: list[float] = []
@@ -434,6 +439,7 @@ def test_rku_diffusers(
     sampler_wrap = diffusers.RKUltraWrapperScheduler(
         schedule,
         sampler_order=order,
+        stochasticity=stochasticity,
         model=model(),
         derivative_transform=transform() if transform else None,
         compute_scale=torch.float64,
@@ -441,9 +447,17 @@ def test_rku_diffusers(
 
     steps: int = random.randint(5, 51)
 
+    generator = torch.Generator().manual_seed(42)
+    generator_rng = generator.clone_state()
+
     data_init = 1 / (random.random() + 1e-4) * (random.randint(0, 1) * 2 - 1)
 
-    data_ref = sampler_wrap.functional_sample_model(data_init, fake_model_ref, steps)
+    data_ref = sampler_wrap.functional_sample_model(
+        data_init,
+        fake_model_ref,
+        steps,
+        rng=lambda: torch.randn([1], generator=generator_rng).item(),
+    )
 
     sampler_wrap.set_timesteps(steps)
 
@@ -454,12 +468,17 @@ def test_rku_diffusers(
         assert points_ref[n] == points_wrap[n], (points_ref[: n + 1], points_wrap)
         assert abs(samples_ref[n] - samples_wrap[n]) < 1e-8, (samples_ref[: n + 1], samples_wrap)
 
-        data_wrap = sampler_wrap.step(  # type: ignore # return_dict shennanigans
-            torch.tensor(output, dtype=torch.float64),
-            t,
-            torch.tensor(data_wrap, dtype=torch.float64),
-            return_dict=False,
-        )[0].item()
+        data_wrap = (
+            sampler_wrap.step(  # type: ignore # return_dict shennanigans
+                torch.tensor(output, dtype=torch.float64).unsqueeze(0),
+                t,
+                torch.tensor(data_wrap, dtype=torch.float64).unsqueeze(0),
+                generator=generator,
+                return_dict=False,
+            )[0]
+            .squeeze(0)
+            .item()
+        )
 
     assert abs(data_ref - data_wrap) < 1e-8  # Not sure why it can't be exact eq tbh, is torch really that different?
 
