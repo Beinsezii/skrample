@@ -174,7 +174,7 @@ class StructuredStochasticToggled(traits.StochasticToggled, StructuredSampler):
 class StructuredStochasticScaled(traits.StochasticScaled, StructuredSampler):
     @property
     def require_noise(self) -> bool:
-        return abs(self.noise_scale) > 1e-8
+        return abs(self.stochasticity) > 1e-8
 
 
 @dataclass(frozen=True)
@@ -196,7 +196,7 @@ class Euler(StructuredStochasticScaled, StatedSampler):
             delta.point_to.sigma,
             schedule.sigma_transform,
             packed.noise,
-            self.noise_scale,
+            self.stochasticity,
         )
 
 
@@ -295,7 +295,7 @@ class DPM(StructuredStochasticToggled, StructuredMultistep, StatedSampler):
 
 
 @dataclass(frozen=True)
-class Adams(traits.DerivativeTransform, StructuredMultistep, StatedSampler):
+class Adams(traits.DerivativeTransform, StructuredStochasticScaled, StructuredMultistep, StatedSampler):
     "Higher order extension to Euler using the Adams-Bashforth coefficients on the model prediction"
 
     @staticmethod
@@ -343,6 +343,8 @@ class Adams(traits.DerivativeTransform, StructuredMultistep, StatedSampler):
             delta.point_from.sigma,
             delta.point_to.sigma,
             schedule.sigma_transform,
+            packed.noise,
+            self.stochasticity,
         )
 
 

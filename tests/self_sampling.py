@@ -326,7 +326,7 @@ def test_maruyama(model: type[models.DiffusionModel], schedule: scheduling.Skram
         return  # Noise / zero for compliment sigma=1
 
     dpm = interface.StructuredFunctionalAdapter(structured.DPM(order=1, add_noise=noise))
-    maru = interface.StructuredFunctionalAdapter(structured.Euler(noise_scale=int(noise)))
+    maru = interface.StructuredFunctionalAdapter(structured.Euler(stochasticity=int(noise)))
     samples_dpm: list[float] = []
     samples_maru: list[float] = []
 

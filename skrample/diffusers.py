@@ -546,6 +546,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
 class RKUltraWrapperScheduler(SkrampleWrapperCore):
     schedule: SkrampleSchedule
     sampler_order: int = functional.RKUltra.order
+    stochasticity: float = 0
     providers: Mapping[int, tableaux.TableauProvider] = functional.RKUltra.providers
     model: DiffusionModel = NoiseModel()  # noqa: RUF009 # is immutable
     derivative_transform: DiffusionModel | None = functional.RKUltra.derivative_transform
@@ -563,6 +564,8 @@ class RKUltraWrapperScheduler(SkrampleWrapperCore):
         self._index: int = 0
         self._derivatives: list[Tensor] = []
         self._sample: Tensor | None = None
+        self._noise: Tensor | None = None
+        self._noise_generator: BatchTensorNoise | None = None
         self._schedule = self.schedule  # copy of original for restoration in set_timesteps
         self._full: scheduling.NPSchedule
 
@@ -572,6 +575,7 @@ class RKUltraWrapperScheduler(SkrampleWrapperCore):
         config: "dict[str, Any] | ConfigMixin",
         schedule: type[SkrampleSchedule] | None = None,
         sampler_order: int = functional.RKUltra.order,
+        stochasticity: float = 0,
         subschedule: type[SubSchedule] | None = None,
         schedule_modifiers: list[tuple[type[ScheduleModifier], dict[str, Any]]] = [],
         providers: Mapping[int, tableaux.TableauProvider] = functional.RKUltra.providers,
@@ -602,6 +606,7 @@ class RKUltraWrapperScheduler(SkrampleWrapperCore):
         return cls(
             built_schedule,
             sampler_order,
+            stochasticity,
             providers,
             model or parsed.model,
             derivative_transform=derivative_transform,
@@ -741,10 +746,13 @@ class RKUltraWrapperScheduler(SkrampleWrapperCore):
                 S0,
                 S1,
                 self.schedule.sigma_transform,
+                self._noise,
+                self.stochasticity,
             )
 
             self._derivatives.clear()
             self._sample = None
+            self._noise = None
 
             return final
 
@@ -773,6 +781,34 @@ class RKUltraWrapperScheduler(SkrampleWrapperCore):
         return_dict: bool = True,
     ) -> tuple[Tensor, Tensor] | OrderedDict[str, Tensor]:
         assert timestep == self._full[self._index, 0].item()
+
+        if self._noise is None and abs(self.stochasticity > 1e-8):
+            if self._noise_generator is None:
+                if isinstance(generator, list) and len(generator) == sample.shape[0]:
+                    seeds = generator
+                elif isinstance(generator, torch.Generator) and sample.shape[0] == 1:
+                    seeds = [generator]
+                else:
+                    # use median element +4 decimals as seed for a balance of determinism without lacking variety
+                    # multiply by step index to spread the values and minimize clash
+                    # does not work across batch sizes but at least Flux will have something mostly deterministic
+                    seeds = [
+                        torch.Generator().manual_seed(
+                            int(b.reshape(b.numel())[b.numel() // 2].item() * 1e4) * (self._index + 1)
+                        )
+                        for b in sample
+                    ]
+
+                self._noise_generator = BatchTensorNoise.from_batch_inputs(
+                    Random,
+                    unit_shape=sample.shape[1:],
+                    seeds=seeds,  # ty: ignore # no clue
+                    props=None,
+                    ramp=schedule_to_ramp(self.schedule_np),
+                    dtype=torch.float32,
+                )
+
+            self._noise = self._noise_generator.generate().to(dtype=self.compute_scale, device=model_output.device)
 
         sigmas = np.concatenate([self._full[:, 1], [0]])
 

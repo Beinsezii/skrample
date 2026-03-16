@@ -53,8 +53,9 @@ class StochasticToggled(Stochastic):
 
 @dataclasses.dataclass(frozen=True)
 class StochasticScaled(Stochastic):
-    noise_scale: float = 0
-    "Scale of extra noise to add"
+    stochasticity: float = 0
+    """0 for a fully deterministic ODE,
+    1 for a fully stochastic SDE"""
 
 
 @dataclasses.dataclass(frozen=True)
