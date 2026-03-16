@@ -9,10 +9,10 @@ import numpy as np
 from skrample import common
 from skrample.common import (
     DeltaPoint,
-    DeltaUV,
     Point,
     Sample,
     SigmaTransform,
+    SigmaTS,
     Step,
     divf,
     ln,
@@ -44,8 +44,8 @@ class SampleInput[T: Sample]:
     def delta_point(self, schedule: SkrampleSchedule) -> DeltaPoint:
         return DeltaPoint(*(Point(*p) for p in schedule.ipoints(self.step).tolist()))
 
-    def delta_uv(self, schedule: SkrampleSchedule) -> DeltaUV:
-        return self.delta_point(schedule).uv(schedule.sigma_transform)
+    def delta_uv(self, schedule: SkrampleSchedule) -> SigmaTS:
+        return self.delta_point(schedule).sigma_ts(schedule.sigma_transform)
 
 
 @dataclass(frozen=True)
@@ -232,7 +232,7 @@ class DPM(StructuredStochastic, StructuredMultistep, StatedSampler):
         previous: Sequence[SKSamples[T]],
     ) -> T:
         delta = packed.delta_point(schedule)
-        (sigma_u, sigma_v), (sigma_u_next, sigma_v_next) = delta.uv(schedule.sigma_transform)
+        (sigma_u, sigma_v), (sigma_u_next, sigma_v_next) = delta.sigma_ts(schedule.sigma_transform)
 
         lambda_ = ln(divf(sigma_v, sigma_u))
         lambda_next = ln(divf(sigma_v_next, sigma_u_next))
@@ -382,7 +382,7 @@ class UniP(StructuredMultistep, StatedSampler):
         "Passing `prediction_next` is equivalent to UniC, otherwise behaves as UniP"
 
         delta = packed.delta_point(schedule)
-        (sigma_u, sigma_v), (sigma_u_next, sigma_v_next) = delta.uv(schedule.sigma_transform)
+        (sigma_u, sigma_v), (sigma_u_next, sigma_v_next) = delta.sigma_ts(schedule.sigma_transform)
 
         lambda_ = ln(divf(sigma_v, sigma_u))
         lambda_next = ln(divf(sigma_v_next, sigma_u_next))
@@ -603,7 +603,7 @@ class SPC(traits.DerivativeTransform, StructuredSampler):
             ).final
 
             if self.adaptive:
-                p, c = delta.uv(schedule.sigma_transform).uv_from
+                p, c = delta.sigma_ts(schedule.sigma_transform).t
             else:
                 p, c = 0, 0
 

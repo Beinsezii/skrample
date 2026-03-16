@@ -3,14 +3,8 @@ import dataclasses
 import math
 from collections.abc import Callable
 from functools import wraps
-from typing import NamedTuple
 
-from skrample.common import Sample, SigmaTransform, SigmaUV
-
-
-class SigmaTS(NamedTuple):
-    t: SigmaUV
-    s: SigmaUV
+from skrample.common import Sample, SigmaSA, SigmaTransform, SigmaTS
 
 
 @dataclasses.dataclass(frozen=True)
@@ -35,11 +29,9 @@ class DiffusionModel(abc.ABC):
 
     def zeta_ts(self, sigma_ts: SigmaTS, eta: float = 1.0) -> float:
         "Co-authored by Gemini 3.1 Pro"
-        (sigma_t, alpha_t), (sigma_s, alpha_s) = sigma_ts
-
         # Universal conditional variance mapping
-        ratio = (alpha_t * sigma_s) / (alpha_s * sigma_t)
-        variance = (sigma_s**2) * (1.0 - ratio**2)
+        ratio = (sigma_ts.t.alpha * sigma_ts.s.sigma) / (sigma_ts.s.alpha * sigma_ts.t.sigma)
+        variance = (sigma_ts.s.sigma**2) * (1.0 - ratio**2)
         return eta * math.sqrt(max(0.0, variance))
 
     def zeta(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 1.0) -> float:
@@ -50,14 +42,13 @@ class DiffusionModel(abc.ABC):
         self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 0
     ) -> SigmaTS:
         "Co-authored by Gemini 3.1 Pro"
-        uv_t = sigma_transform(sigma_from)
-        uv_s = sigma_transform(sigma_to)
+        sa_t, sa_s = sigma_transform(sigma_from), sigma_transform(sigma_to)
 
         if abs(eta) > 1e-8:
-            zeta = self.zeta_ts(SigmaTS(uv_t, uv_s), eta)
-            uv_s = SigmaUV(math.sqrt(max(0.0, uv_s.u**2 - zeta**2)), uv_s.v)
+            zeta = self.zeta_ts(SigmaTS(sa_t, sa_s), eta)
+            sa_s = SigmaSA(math.sqrt(max(0.0, sa_s.sigma**2 - zeta**2)), sa_s.alpha)
 
-        return SigmaTS(uv_t, uv_s)
+        return SigmaTS(sa_t, sa_s)
 
     def forward[T: Sample](
         self,
@@ -104,12 +95,12 @@ class DataModel(DiffusionModel):
         return x
 
     def gamma(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 0) -> float:
-        (sigma_t, _alpha_t), (sigma_s, _alpha_s) = self.sigma_transform_eta(sigma_from, sigma_to, sigma_transform, eta)
-        return sigma_s / sigma_t
+        ts = self.sigma_transform_eta(sigma_from, sigma_to, sigma_transform, eta)
+        return ts.s.sigma / ts.t.sigma
 
     def delta(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 0) -> float:
-        (sigma_t, alpha_t), (sigma_s, alpha_s) = self.sigma_transform_eta(sigma_from, sigma_to, sigma_transform, eta)
-        return alpha_s - (alpha_t * sigma_s) / sigma_t
+        ts = self.sigma_transform_eta(sigma_from, sigma_to, sigma_transform, eta)
+        return ts.s.alpha - ts.t.alpha * ts.s.sigma / ts.t.sigma
 
 
 @dataclasses.dataclass(frozen=True)
@@ -127,13 +118,11 @@ class NoiseModel(DiffusionModel):
         return (sample - alpha_t * x) / sigma_t  # pyright: ignore [reportReturnType]
 
     def gamma(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 0) -> float:
-        _sigma_t, alpha_t = sigma_transform(sigma_from)
-        _sigma_s, alpha_s = sigma_transform(sigma_to)
-        return alpha_s / alpha_t
+        return sigma_transform(sigma_to).alpha / sigma_transform(sigma_from).alpha
 
     def delta(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 0) -> float:
-        (sigma_t, alpha_t), (sigma_s, alpha_s) = self.sigma_transform_eta(sigma_from, sigma_to, sigma_transform, eta)
-        return sigma_s - (alpha_s * sigma_t) / alpha_t
+        ts = self.sigma_transform_eta(sigma_from, sigma_to, sigma_transform, eta)
+        return ts.s.sigma - (ts.s.alpha * ts.t.sigma) / ts.t.alpha
 
 
 @dataclasses.dataclass(frozen=True)
@@ -150,12 +139,12 @@ class FlowModel(DiffusionModel):
         return (sample - (alpha_t + sigma_t) * x) / sigma_t  # pyright: ignore [reportReturnType]
 
     def gamma(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 0) -> float:
-        (sigma_t, alpha_t), (sigma_s, alpha_s) = self.sigma_transform_eta(sigma_from, sigma_to, sigma_transform, eta)
-        return (sigma_s + alpha_s) / (sigma_t + alpha_t)
+        ts = self.sigma_transform_eta(sigma_from, sigma_to, sigma_transform, eta)
+        return (ts.s.sigma + ts.s.alpha) / (ts.t.sigma + ts.t.alpha)
 
     def delta(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 0) -> float:
-        (sigma_t, alpha_t), (sigma_s, alpha_s) = self.sigma_transform_eta(sigma_from, sigma_to, sigma_transform, eta)
-        return (alpha_t * sigma_s - alpha_s * sigma_t) / (alpha_t + sigma_t)
+        ts = self.sigma_transform_eta(sigma_from, sigma_to, sigma_transform, eta)
+        return (ts.t.alpha * ts.s.sigma - ts.s.alpha * ts.t.sigma) / (ts.t.alpha + ts.t.sigma)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -172,12 +161,12 @@ class VelocityModel(DiffusionModel):
         return (alpha_t * sample - x) / sigma_t  # pyright: ignore [reportReturnType]
 
     def gamma(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 0) -> float:
-        (sigma_t, alpha_t), (sigma_s, alpha_s) = self.sigma_transform_eta(sigma_from, sigma_to, sigma_transform, eta)
-        return (sigma_s / sigma_t) * (1 - alpha_t * alpha_t) + alpha_s * alpha_t
+        ts = self.sigma_transform_eta(sigma_from, sigma_to, sigma_transform, eta)
+        return (ts.s.sigma / ts.t.sigma) * (1 - ts.t.alpha * ts.t.alpha) + ts.s.alpha * ts.t.alpha
 
     def delta(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 0) -> float:
-        (sigma_t, alpha_t), (sigma_s, alpha_s) = self.sigma_transform_eta(sigma_from, sigma_to, sigma_transform, eta)
-        return alpha_t * sigma_s - alpha_s * sigma_t
+        ts = self.sigma_transform_eta(sigma_from, sigma_to, sigma_transform, eta)
+        return ts.t.alpha * ts.s.sigma - ts.s.alpha * ts.t.sigma
 
 
 @dataclasses.dataclass(frozen=True)
@@ -193,11 +182,11 @@ class ScaleX(FakeModel):
     """Bias for sample prediction.
     Higher values create a stronger image."""
 
-    def x_scale(self, uv: SigmaUV) -> float:
+    def x_scale(self, sigma_sa: SigmaSA) -> float:
         # > 0 increase data distance, < 0 increase noise distance
-        # Negative power since uv always < 1
+        # Negative power since sa always < 1
         # e^xt
-        return math.exp(-math.log10(abs(self.bias) + 1) * (uv.u if self.bias < 0 else uv.v))
+        return math.exp(-math.log10(abs(self.bias) + 1) * (sigma_sa.sigma if self.bias < 0 else sigma_sa.alpha))
 
     def to_x[T: Sample](self, sample: T, output: T, sigma: float, sigma_transform: SigmaTransform) -> T:
         return output * self.x_scale(sigma_transform(sigma))  # pyright: ignore [reportReturnType]
@@ -206,12 +195,12 @@ class ScaleX(FakeModel):
         return x / self.x_scale(sigma_transform(sigma))  # pyright: ignore [reportReturnType]
 
     def gamma(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 0) -> float:
-        uv_t, uv_s = self.sigma_transform_eta(sigma_from, sigma_to, sigma_transform, eta)
-        return uv_s.u / uv_t.u
+        ts = self.sigma_transform_eta(sigma_from, sigma_to, sigma_transform, eta)
+        return ts.s.sigma / ts.t.sigma
 
     def delta(self, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform, eta: float = 0) -> float:
-        uv_t, uv_s = self.sigma_transform_eta(sigma_from, sigma_to, sigma_transform, eta)
-        return (uv_s.v - uv_t.v * uv_s.u / uv_t.u) * self.x_scale(uv_t)
+        ts = self.sigma_transform_eta(sigma_from, sigma_to, sigma_transform, eta)
+        return (ts.s.alpha - ts.t.alpha * ts.s.sigma / ts.t.sigma) * self.x_scale(ts.t)
 
 
 @dataclasses.dataclass(frozen=True)

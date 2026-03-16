@@ -17,7 +17,7 @@ else:
     type Sample = float | NDArray[np.floating]
 
 
-type SigmaTransform = Callable[[float], SigmaUV]
+type SigmaTransform = Callable[[float], SigmaSA]
 "Transforms a single noise sigma into a pair"
 
 
@@ -28,17 +28,14 @@ type RNG[T: Sample] = Callable[[], T]
 "Distribution should match model, typically normal"
 
 
-class SigmaUV(NamedTuple):
-    u: float
-    v: float
+class SigmaSA(NamedTuple):
+    sigma: float
+    alpha: float
 
 
-class DeltaUV(NamedTuple):
-    uv_from: SigmaUV
-    uv_to: SigmaUV
-
-    def dt(self) -> SigmaUV:
-        return SigmaUV(u=self.uv_to.u - self.uv_from.u, v=self.uv_to.v - self.uv_from.v)
+class SigmaTS(NamedTuple):
+    t: SigmaSA
+    s: SigmaSA
 
 
 class Point(NamedTuple):
@@ -64,8 +61,8 @@ class DeltaPoint(NamedTuple):
             sigma=self.point_to.sigma - self.point_from.sigma,
         )
 
-    def uv(self, transform: SigmaTransform) -> DeltaUV:
-        return DeltaUV(transform(self.point_from.sigma), transform(self.point_to.sigma))
+    def sigma_ts(self, transform: SigmaTransform) -> SigmaTS:
+        return SigmaTS(transform(self.point_from.sigma), transform(self.point_to.sigma))
 
 
 class Step(NamedTuple):
@@ -146,13 +143,13 @@ class MergeStrategy(enum.StrEnum):  # str for easy UI options
                 return theirs + [i for i in ours if not any(map(cmp, theirs, repeat(i)))]
 
 
-def sigma_complement(sigma: float) -> SigmaUV:
-    return SigmaUV(sigma, 1 - sigma)
+def sigma_complement(sigma: float) -> SigmaSA:
+    return SigmaSA(sigma, 1 - sigma)
 
 
-def sigma_polar(sigma: float) -> SigmaUV:
+def sigma_polar(sigma: float) -> SigmaSA:
     theta = math.atan(sigma)
-    return SigmaUV(math.sin(theta), math.cos(theta))
+    return SigmaSA(math.sin(theta), math.cos(theta))
 
 
 def get_sigma_uv(step: int, schedule: FloatSchedule, sigma_transform: SigmaTransform) -> tuple[float, float]:
