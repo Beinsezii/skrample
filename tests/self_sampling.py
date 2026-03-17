@@ -10,6 +10,7 @@ from testing_common import ALL_FAKE_MODELS, ALL_MODELS, ALL_SCHEDULES, ALL_STRUC
 
 from skrample import diffusers, scheduling
 from skrample.common import Point, SigmaTransform, Step, euler, sigma_complement
+from skrample.pytorch.noise import Brownian
 from skrample.sampling import functional, interface, models, structured, tableaux, traits
 
 type SamplerTestKey = tuple[
@@ -481,6 +482,89 @@ def test_rku_diffusers(
         )
 
     assert abs(data_ref - data_wrap) < 1e-8  # Not sure why it can't be exact eq tbh, is torch really that different?
+
+
+@pytest.mark.parametrize(
+    ("steps", "begin", "schedule"),
+    itertools.product(range(10, 12), range(5, 7), [scheduling.Sinner(scheduling.Linear()), scheduling.Scaled()]),
+)
+def test_diffusers_brownian(
+    steps: int,
+    begin: int,
+    schedule: scheduling.SkrampleSchedule,
+) -> None:
+    wrapper = diffusers.SkrampleWrapperScheduler(
+        sampler=structured.Euler(stochasticity=1),
+        schedule=schedule,
+        model=models.DataModel(),
+        compute_scale=torch.float64,
+        noise_type=Brownian,
+    )
+
+    generator = torch.Generator().manual_seed(42)
+    wrapper.set_timesteps(steps)
+    begin *= wrapper.order
+    wrapper.set_begin_index(begin)
+
+    for t in wrapper.timesteps[begin:]:
+        wrapper.step(
+            torch.randn([1, 16, 128], dtype=torch.float64),
+            t,
+            torch.randn([1, 16, 128], dtype=torch.float64),
+            return_dict=False,
+            generator=generator,
+        )
+
+    assert wrapper._noise_generator is not None
+    assert len(wrapper._noise_generator.generators) == 1
+    brownian = wrapper._noise_generator.generators[0]
+    assert isinstance(brownian, Brownian)
+    assert brownian._step == len(brownian.ramp) - 1
+
+
+@pytest.mark.parametrize(
+    ("steps", "begin", "order", "schedule"),
+    itertools.product(
+        range(10, 12),
+        range(5, 7),
+        range(1, 13),
+        [scheduling.Sinner(scheduling.Linear()), scheduling.Scaled()],
+    ),
+)
+def test_rku_brownian(
+    steps: int,
+    begin: int,
+    order: int,
+    schedule: scheduling.SkrampleSchedule,
+) -> None:
+    wrapper = diffusers.RKUltraWrapperScheduler(
+        schedule=schedule,
+        sampler_order=order,
+        stochasticity=1,
+        model=models.DataModel(),
+        compute_scale=torch.float64,
+        noise_type=Brownian,
+    )
+
+    generator = torch.Generator().manual_seed(42)
+    wrapper.set_timesteps(steps)
+    begin *= wrapper.order
+    wrapper.set_begin_index(begin)
+
+    for t in wrapper.timesteps[begin:]:
+        wrapper.step(
+            torch.randn([1, 16, 128], dtype=torch.float64),
+            t,
+            torch.randn([1, 16, 128], dtype=torch.float64),
+            return_dict=False,
+            generator=generator,
+        )
+
+    assert wrapper._noise_generator is not None
+    assert len(wrapper._noise_generator.generators) == 1
+    brownian = wrapper._noise_generator.generators[0]
+    assert isinstance(brownian, Brownian)
+    assert brownian._step == len(brownian.ramp) - 1
 
 
 @pytest.mark.parametrize(
