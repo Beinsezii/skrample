@@ -224,6 +224,7 @@ class SkrampleWrapperCore(abc.ABC):
     def __post_init__(self) -> None:
         # State
         self._steps: int = 50
+        self._index: int = 0
         self._device: torch.device = torch.device("cpu")
         self._noise_generator: BatchTensorNoise | None = None
 
@@ -297,6 +298,7 @@ class SkrampleWrapperCore(abc.ABC):
         noise_props: T | None,
         generator: torch.Generator | list[torch.Generator] | None = None,
         dtype: torch.dtype | None = None,
+        schedule: scheduling.NPSchedule | None = None,
     ) -> torch.Tensor:
         if self._noise_generator is None:
             if isinstance(generator, list) and len(generator) == sample.shape[0]:
@@ -317,7 +319,7 @@ class SkrampleWrapperCore(abc.ABC):
                 unit_shape=sample.shape[1:],
                 seeds=seeds,  # ty: ignore # no clue
                 props=noise_props,
-                ramp=schedule_to_ramp(self.schedule_np),
+                ramp=schedule_to_ramp(self.schedule_np if schedule is None else schedule)[self._index // self.order :],
                 dtype=torch.float32,
             )
 
@@ -325,9 +327,6 @@ class SkrampleWrapperCore(abc.ABC):
 
     @abc.abstractmethod
     def scale_noise(self, sample: Tensor, timestep: Tensor, noise: Tensor) -> Tensor: ...
-
-    @abc.abstractmethod
-    def set_begin_index(self, begin_index: int = 0) -> None: ...
 
     @abc.abstractmethod
     def set_timesteps(
@@ -352,6 +351,9 @@ class SkrampleWrapperCore(abc.ABC):
         generator: torch.Generator | list[torch.Generator] | None = None,
         return_dict: bool = True,
     ) -> tuple[Tensor, Tensor] | OrderedDict[str, Tensor]: ...
+
+    def set_begin_index(self, begin_index: int = 0) -> None:
+        self._index = begin_index
 
     def add_noise(self, original_samples: Tensor, noise: Tensor, timesteps: Tensor) -> Tensor:
         return self.scale_noise(original_samples, timesteps[0], noise)
@@ -453,6 +455,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
         return attr_dict(**(self.fake_config | as_diffusers_config(self.sampler, self._schedule, self.model)))
 
     def set_begin_index(self, begin_index: int = 0) -> None:
+        super().set_begin_index(begin_index)
         self.fake_config["begin_index"] = begin_index
 
     def set_timesteps(
@@ -463,6 +466,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
         sigmas: Tensor | list[float] | None = None,
         mu: float | None = None,
     ) -> None:
+        self._index = 0
         self.schedule = self._schedule  # Restore any replaced props
 
         if num_inference_steps is None:
@@ -693,7 +697,7 @@ class RKUltraWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
 
     def set_begin_index(self, begin_index: int = 0) -> None:
         assert begin_index % self.order == 0
-        self._index = begin_index
+        super().set_begin_index(begin_index)
         self.fake_config["begin_index"] = begin_index
 
     def set_timesteps(
@@ -802,7 +806,13 @@ class RKUltraWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
 
         if self._noise is None and abs(self.stochasticity) > 1e-8:
             self._noise = self.get_step_noise(
-                self._index, sample, self.noise_type, self.noise_props, generator, self.compute_scale
+                self._index,
+                sample,
+                self.noise_type,
+                self.noise_props,
+                generator,
+                self.compute_scale,
+                self.schedule.schedule_np(self._steps),
             )
 
         sigmas = np.concatenate([self._full[:, 1], [0]])
