@@ -19,29 +19,36 @@ DEFAULT_PROVIDERS: Mapping[int, tableaux.TableauProvider[tableaux.Tableau | tabl
     2: tableaux.RK2.Mid,
     3: tableaux.RK3.Kutta,
     4: tableaux.RK4.Kutta,
-    5: tableaux.RKZ.Nystrom5,
-    6: tableaux.RKZ.Butcher6,
-    7: tableaux.Shanks1965.RK7_9,
-    8: tableaux.RKZ.CV8,
-    10: tableaux.RKZ.Stepanov10,
-    12: tableaux.RKZ.Feagin12,
-    # 14: tableaux.RKZ.Feagin14, # crunchy?
+    6: tableaux.RKZ.Nystrom5,
+    7: tableaux.RKZ.Butcher6,
+    9: tableaux.Shanks1965.RK7_9,
+    10: tableaux.Shanks1965.RK8_10,
+    11: tableaux.RKZ.CV8,
+    12: tableaux.Shanks1965.RK8_12,
+    15: tableaux.RKZ.Stepanov10,
+    16: tableaux.RKZ.Zhang10,
+    17: tableaux.RKZ.Harrier10,
+    25: tableaux.RKZ.Feagin12,
+    # 35: tableaux.RKZ.Feagin14, # crunchy?
 }
 """Default RK tableau providers.
-Mostly a popularity contest."""
+Mostly a popularity contest.
+The indexes are based on number of stages, NOT mathematical order."""
 STABLE_PROVIDERS: Mapping[int, tableaux.TableauProvider[tableaux.Tableau | tableaux.ExtendedTableau]] = {
     2: tableaux.RK2.Heun,
     3: tableaux.RK3.SSPRK3,
 }
 """SSP RK providers.
-Prioritizes stability"""
+Prioritizes stability.
+The indexes are based on number of stages, NOT mathematical order."""
 CONVERGENT_PROVIDERS: Mapping[int, tableaux.TableauProvider[tableaux.Tableau | tableaux.ExtendedTableau]] = {
     2: tableaux.RK2.Ralston,
     3: tableaux.RK2.EES5_MIN,
     4: tableaux.RK2.EES7_MIN,
 }
 """Minimal error providers.
-Prioritizes Convergence"""
+Prioritizes Convergence
+The indexes are based on number of stages, NOT mathematical order."""
 
 
 def step_tableau[T: Sample](

@@ -597,6 +597,34 @@ def tableau_distance(a: tableaux.Tableau, b: tableaux.Tableau) -> float:
     return abs(np.subtract(flat_tableau(a), flat_tableau(b))).max().item()
 
 
+@pytest.mark.parametrize(
+    ("label", "k", "v"),
+    [
+        (label, k, v)
+        for label, preset in (
+            ("default", functional.DEFAULT_PROVIDERS),
+            ("stable", functional.STABLE_PROVIDERS),
+            ("convergent", functional.CONVERGENT_PROVIDERS),
+        )
+        for k, v in preset.items()
+    ],
+)
+def test_tableau_preset_stages(label: str, k: int, v: tableaux.TableauProvider) -> None:
+    assert k == len(v.tableau()[0])
+
+
+@pytest.mark.parametrize(
+    ("label", "k", "v"),
+    [
+        (label, k, v)
+        for label, preset in (("stable", functional.STABLE_PROVIDERS), ("convergent", functional.CONVERGENT_PROVIDERS))
+        for k, v in preset.items()
+    ],
+)
+def test_tableau_preset_nondefault(label: str, k: int, v: tableaux.TableauProvider) -> None:
+    assert v not in functional.DEFAULT_PROVIDERS.values(), k
+
+
 def test_rk2_tableau() -> None:
     assert (
         tableau_distance(
