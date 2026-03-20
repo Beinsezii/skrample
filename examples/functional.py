@@ -23,7 +23,7 @@ with torch.inference_mode():
     schedule = scheduling.Karras(scheduling.Scaled())
 
     # Equivalent to structured example
-    sampler = StructuredFunctionalAdapter(structured.DPM(order=2, add_noise=True))
+    sampler = StructuredFunctionalAdapter(structured.DPM(order=2, stochasticity=True))
     # Native functional example
     sampler = functional.RKUltra(4)
     # Dynamic model calls

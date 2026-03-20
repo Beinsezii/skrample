@@ -16,7 +16,7 @@ pipe.scheduler = SkrampleWrapperScheduler.from_diffusers_config(
     # Schedule, prediction, etc is auto detected
     pipe.scheduler.config,
     sampler=sampling.DPM,
-    sampler_props={"order": 2, "add_noise": True},
+    sampler_props={"order": 2, "stochasticity": True},
     noise_type=sknoise.Brownian,
 )
 

@@ -54,3 +54,8 @@ class DerivativeTransform:
 
     derivative_transform: models.DiffusionModel | None = models.DataModel()  # noqa: RUF009 # is immutable
     "Transform model output to this space when computing the result."
+
+
+@dataclasses.dataclass(frozen=True)
+class UnifiedModelling(DerivativeTransform, Stochastic, HigherOrder):
+    "Joint class of the most common traits that take advantage of skrample's modelling system for a consistent MRO"

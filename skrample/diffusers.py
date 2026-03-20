@@ -32,10 +32,10 @@ if TYPE_CHECKING:
 
 DIFFUSERS_CLASS_MAP: dict[str, tuple[type[StructuredSampler], dict[str, Any]]] = {
     "DDIMScheduler": (sampling.Euler, {}),
-    "DDPMScheduler": (sampling.DPM, {"add_noise": True, "order": 1}),
+    "DDPMScheduler": (sampling.DPM, {"stochasticity": True, "order": 1}),
     "DPMSolverMultistepScheduler": (sampling.DPM, {}),
-    "DPMSolverSDEScheduler": (sampling.DPM, {"add_noise": True, "order": 1}),
-    "EulerAncestralDiscreteScheduler": (sampling.DPM, {"add_noise": True, "order": 1}),
+    "DPMSolverSDEScheduler": (sampling.DPM, {"stochasticity": True, "order": 1}),
+    "EulerAncestralDiscreteScheduler": (sampling.DPM, {"stochasticity": True, "order": 1}),
     "EulerDiscreteScheduler": (sampling.Euler, {}),
     "FlowMatchEulerDiscreteScheduler": (sampling.Euler, {}),
     "IPNDMScheduler": (sampling.Adams, {"order": 4}),
@@ -62,10 +62,10 @@ DIFFUSERS_VALUE_MAP: dict[tuple[str, Any], tuple[str, Any]] = {
     ("beta_schedule", "linear"): ("beta_scale", 1),
     ("beta_schedule", "scaled_linear"): ("beta_scale", 2),
     # sampling.StochasticSampler
-    ("algorithm_type", "dpmsolver"): ("add_noise", False),
-    ("algorithm_type", "dpmsolver++"): ("add_noise", False),
-    ("algorithm_type", "sde-dpmsolver"): ("add_noise", True),
-    ("algorithm_type", "sde-dpmsolver++"): ("add_noise", True),
+    ("algorithm_type", "dpmsolver"): ("stochasticity", False),
+    ("algorithm_type", "dpmsolver++"): ("stochasticity", False),
+    ("algorithm_type", "sde-dpmsolver"): ("stochasticity", True),
+    ("algorithm_type", "sde-dpmsolver++"): ("stochasticity", True),
     # Complex types
     ("prediction_type", "epsilon"): ("skrample_predictor", NoiseModel()),
     ("prediction_type", "flow"): ("skrample_predictor", FlowModel()),

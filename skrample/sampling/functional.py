@@ -156,6 +156,10 @@ class FunctionalHigher(traits.HigherOrder, FunctionalSampler):
 
 
 @dataclasses.dataclass(frozen=True)
+class FunctionalUnified(traits.UnifiedModelling, FunctionalHigher): ...
+
+
+@dataclasses.dataclass(frozen=True)
 class FunctionalSinglestep(FunctionalSampler):
     @abstractmethod
     def step[T: Sample](
@@ -204,7 +208,7 @@ class FunctionalAdaptive(FunctionalSampler):
 
 
 @dataclasses.dataclass(frozen=True)
-class RKUltra(traits.DerivativeTransform, traits.Stochastic, FunctionalHigher, FunctionalSinglestep):
+class RKUltra(FunctionalUnified, FunctionalSinglestep):
     "Implements almost every single method from https://en.wikipedia.org/wiki/List_of_Runge–Kutta_methods"  # noqa: RUF002
 
     providers: Mapping[int, tableaux.TableauProvider[tableaux.Tableau | tableaux.ExtendedTableau]] = MappingProxyType(
