@@ -266,6 +266,7 @@ class RK3(enum.Enum):
     https://www.ams.org/journals/mcom/1962-16-080/S0025-5718-1962-0150954-0/S0025-5718-1962-0150954-0.pdf"""
     Wray = rk3_tableau(8 / 15, 2 / 3)
     SSPRK3 = rk3_tableau(1, 1 / 2)
+    "https://gkeyll.readthedocs.io/en/latest/dev/ssp-rk.html"
 
     def pretty(self) -> str:
         return pretty_tableau(self.value, str(self))
@@ -469,6 +470,17 @@ class RKE3(enum.Enum):
         (2 / 9, 1 / 3, 4 / 9, 0),
         (7 / 24, 1 / 4, 1 / 3, 1 / 8),
     )
+    SSPRK3_4 = (
+        (
+            (0, ()),
+            (1 / 2, (1 / 2,)),
+            (1, (1 / 2, 1 / 2)),
+            (1 / 2, (1 / 6, 1 / 6, 1 / 6)),
+        ),
+        (1 / 6, 1 / 6, 1 / 6, 1 / 2),
+        (1 / 4, 1 / 4, 1 / 4, 1 / 4),
+    )
+    "https://arxiv.org/pdf/2104.06836"
 
     def pretty(self) -> str:
         return pretty_tableau(self.value, str(self))

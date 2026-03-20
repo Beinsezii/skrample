@@ -16,10 +16,10 @@ type SampleableModel[T: Sample] = Callable[[T, float, float], T]
 "sample, timestep, sigma"
 
 DEFAULT_PROVIDERS: Mapping[int, tableaux.TableauProvider[tableaux.Tableau | tableaux.ExtendedTableau]] = {
-    2: tableaux.RK2.Mid,
+    2: tableaux.RK2.Ralston,
     3: tableaux.RK3.Kutta,
     4: tableaux.RK4.Kutta,
-    6: tableaux.RKZ.Nystrom5,
+    6: tableaux.RKE5.CashKarp,
     7: tableaux.RKZ.Butcher6,
     9: tableaux.Shanks1965.RK7_9,
     10: tableaux.Shanks1965.RK8_10,
@@ -37,14 +37,17 @@ The indexes are based on number of stages, NOT mathematical order."""
 STABLE_PROVIDERS: Mapping[int, tableaux.TableauProvider[tableaux.Tableau | tableaux.ExtendedTableau]] = {
     2: tableaux.RK2.Heun,
     3: tableaux.RK3.SSPRK3,
+    4: tableaux.RKE3.SSPRK3_4,
+    6: tableaux.RKE5.Fehlberg,
 }
 """SSP RK providers.
 Prioritizes stability.
 The indexes are based on number of stages, NOT mathematical order."""
 CONVERGENT_PROVIDERS: Mapping[int, tableaux.TableauProvider[tableaux.Tableau | tableaux.ExtendedTableau]] = {
-    2: tableaux.RK2.Ralston,
+    2: tableaux.RK2.Mid,
     3: tableaux.RK2.EES5_MIN,
     4: tableaux.RK2.EES7_MIN,
+    6: tableaux.RKZ.Nystrom5,
 }
 """Minimal error providers.
 Prioritizes Convergence
