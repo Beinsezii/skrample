@@ -266,18 +266,16 @@ def test_require_previous(sampler: structured.StructuredSampler) -> None:
         *(
             sampler
             for samplers in (
-                (cls(add_noise=n) for n in (False, True))
-                if issubclass(cls, structured.DPM)
-                else (cls(stochasticity=n) for n in [-1, 0, 0.1, 1])  # pyright: ignore[reportCallIssue] : wtf???
+                (cls(stochasticity=n) for n in [-1, 0, 0.1, 1])  # pyright: ignore[reportCallIssue] : wtf???
                 if issubclass(cls, traits.Stochastic)
                 else (cls(),)
                 for cls in ALL_STRUCTURED
             )
             for sampler in samplers
         ),
-        *(structured.UniPC(solver=structured.DPM(add_noise=n1)) for n1 in (False, True)),
+        *(structured.UniPC(solver=structured.DPM(stochasticity=n1)) for n1 in (False, True)),
         *(
-            structured.SPC(predictor=structured.DPM(add_noise=n1), corrector=structured.DPM(add_noise=n2))
+            structured.SPC(predictor=structured.DPM(stochasticity=n1), corrector=structured.DPM(stochasticity=n2))
             for n1 in (False, True)
             for n2 in (False, True)
         ),
@@ -329,7 +327,7 @@ def test_maruyama(model: type[models.DiffusionModel], schedule: scheduling.Skram
     if model is models.NoiseModel and schedule.sigma_transform is sigma_complement:
         return  # Noise / zero for compliment sigma=1
 
-    dpm = interface.StructuredFunctionalAdapter(structured.DPM(order=1, add_noise=noise))
+    dpm = interface.StructuredFunctionalAdapter(structured.DPM(order=1, stochasticity=noise))
     maru = interface.StructuredFunctionalAdapter(structured.Euler(stochasticity=int(noise)))
     samples_dpm: list[float] = []
     samples_maru: list[float] = []

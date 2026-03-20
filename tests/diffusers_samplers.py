@@ -134,7 +134,7 @@ def test_euler(predictor: tuple[DiffusionModel, str], steps: range) -> None:
 def test_euler_ancestral(predictor: tuple[DiffusionModel, str], steps: range) -> None:
     compare_tensors(
         *dual_sample(
-            DPM(order=1, add_noise=True),
+            DPM(order=1, stochasticity=True),
             EulerAncestralDiscreteScheduler.from_config(
                 SCALED_CONFIG,
                 prediction_type=predictor[1],
@@ -172,7 +172,7 @@ def test_dpm(predictor: tuple[DiffusionModel, str], order: int, stochastic: bool
         return  # think diffusers 3rd has some issues
     compare_tensors(
         *dual_sample(
-            DPM(order=order, add_noise=stochastic),
+            DPM(order=order, stochasticity=stochastic),
             DPMSolverMultistepScheduler.from_config(
                 SCALED_CONFIG,
                 algorithm_type="sde-dpmsolver++" if stochastic else "dpmsolver++",

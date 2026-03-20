@@ -32,7 +32,7 @@ def assert_wrapper(wrapper: SkrampleWrapperScheduler, scheduler: ConfigMixin) ->
 @pytest.mark.parametrize(
     (
         "modifiers",
-        "add_noise",
+        "stochasticity",
         "model_transform",
         "order",
     ),
@@ -50,16 +50,16 @@ def assert_wrapper(wrapper: SkrampleWrapperScheduler, scheduler: ConfigMixin) ->
 )
 def test_dpm(
     modifiers: tuple[str, type[SubSchedule] | None],
-    add_noise: tuple[str, bool],
+    stochasticity: tuple[str, bool],
     model_transform: tuple[str, DiffusionModel],
     order: int,
 ) -> None:
     flag, mod = modifiers
-    algo, noise = add_noise
+    algo, noise = stochasticity
     dfpred, skpred = model_transform
     assert_wrapper(
         SkrampleWrapperScheduler(
-            DPM(add_noise=noise, order=order),
+            DPM(stochasticity=noise, order=order),
             mod(Scaled()) if mod else Scaled(),
             skpred,
         ),
@@ -92,7 +92,7 @@ def test_euler() -> None:
 
 def test_euler_a() -> None:
     assert_wrapper(
-        SkrampleWrapperScheduler(DPM(order=1, add_noise=True), Scaled()),
+        SkrampleWrapperScheduler(DPM(order=1, stochasticity=True), Scaled()),
         EulerAncestralDiscreteScheduler.from_config(SCALED_CONFIG),
     )
 
@@ -134,7 +134,7 @@ def test_unipc_flow() -> None:
 
 def test_dpmsde() -> None:
     assert_wrapper(
-        SkrampleWrapperScheduler(DPM(order=1, add_noise=True), Scaled()),
+        SkrampleWrapperScheduler(DPM(order=1, stochasticity=True), Scaled()),
         DPMSolverSDEScheduler.from_config(SCALED_CONFIG),
     )
 
@@ -148,6 +148,6 @@ def test_ddim() -> None:
 
 def test_ddpm() -> None:
     assert_wrapper(
-        SkrampleWrapperScheduler(DPM(order=1, add_noise=True), Scaled()),
+        SkrampleWrapperScheduler(DPM(order=1, stochasticity=True), Scaled()),
         DDPMScheduler.from_config(SCALED_CONFIG),
     )

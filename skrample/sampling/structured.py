@@ -125,7 +125,7 @@ class StatedSampler(StructuredSampler):
         previous: Sequence[SKSamples[T]] = (),
     ) -> SKSamples[T]:
         return SKSamples(
-            **(
+            **(  # ty: ignore # ???
                 dataclasses.asdict(packed)
                 | {
                     "final": self._sample_packed(
@@ -171,6 +171,10 @@ class StructuredStochastic(traits.Stochastic, StructuredSampler):
 
 
 @dataclass(frozen=True)
+class StructuredUnified(traits.UnifiedModelling, StructuredStochastic, StructuredMultistep): ...
+
+
+@dataclass(frozen=True)
 class Euler(StructuredStochastic, StatedSampler):
     """Basic sampler, the "safe" choice."""
 
@@ -194,23 +198,16 @@ class Euler(StructuredStochastic, StatedSampler):
 
 
 @dataclass(frozen=True)
-class DPM(StructuredMultistep, StatedSampler):
+class DPM(StructuredUnified, StatedSampler):
     """Good sampler, supports basically everything. Recommended default.
 
     https://arxiv.org/abs/2211.01095
     Page 4 Algo 2 for order=2
     Section 5 for SDE"""
 
-    add_noise: bool = False
-    "Flag for whether or not to add the given noise"
-
-    @property
-    def require_noise(self) -> bool:
-        return self.add_noise
-
     @staticmethod
     def max_order() -> int:
-        return 3  # TODO(beinsezii): 3, 4+?
+        return 3
 
     def _sample_packed[T: Sample](
         self,
@@ -220,82 +217,98 @@ class DPM(StructuredMultistep, StatedSampler):
         previous: Sequence[SKSamples[T]],
     ) -> T:
         delta = packed.delta_point(schedule)
-        (sigma_u, sigma_v), (sigma_u_next, sigma_v_next) = delta.sigma_ts(schedule.sigma_transform)
 
-        lambda_ = ln(divf(sigma_v, sigma_u))
-        lambda_next = ln(divf(sigma_v_next, sigma_u_next))
-        h = abs(lambda_next - lambda_)
+        effective_order = self.effective_order(packed.step, previous)
 
-        x_prediction = model_transform.to_x(
-            packed.sample,
-            packed.prediction,
-            delta.point_from.sigma,
-            schedule.sigma_transform,
-        )
-
-        if packed.noise is not None and self.add_noise:
-            exp1 = math.exp(-h)
-            hh = -2 * h
-            noise_factor = sigma_u_next * math.sqrt(1 - math.exp(hh)) * packed.noise
+        # Convert prediction to derivative space
+        if self.derivative_transform:
+            convert = models.ModelConvert(model_transform, self.derivative_transform)
+            predictions = [
+                convert.output_to(packed.sample, packed.prediction, delta.point_from.sigma, schedule.sigma_transform),
+                *reversed(
+                    [
+                        convert.output_to(
+                            p.sample,
+                            p.prediction,
+                            p.delta_point(schedule).point_from.sigma,
+                            schedule.sigma_transform,
+                        )
+                        for p in previous[-effective_order + 1 :]
+                    ]
+                ),
+            ]
+            model_transform = convert.transform_to
         else:
-            exp1 = 1
-            hh = -h
-            noise_factor = 0
+            predictions = [packed.prediction, *reversed([p.prediction for p in previous[-effective_order + 1 :]])]
 
-        exp2 = math.expm1(hh)
+        prediction = predictions.pop(0)
 
-        final = noise_factor + (sigma_u_next / sigma_u * exp1) * packed.sample
+        # Initial implementation by diffusers.DPMSolverMultiStepScheduler,
+        # rewritten for skrample by myself,
+        # adjusted for DiffusionModel by Qwen 3.5,
+        # everything since once again by myself
+        if effective_order >= 2:
+            # T0
+            (sigma_u, sigma_v), (sigma_u_next, sigma_v_next) = delta.sigma_ts(schedule.sigma_transform)
 
-        # 1st order
-        final -= (sigma_v_next * exp2) * x_prediction
+            lambda_ = ln(divf(sigma_v, sigma_u))
+            lambda_next = ln(divf(sigma_v_next, sigma_u_next))
+            h = abs(lambda_next - lambda_)
 
-        if (effective_order := self.effective_order(packed.step, previous)) >= 2:
+            # T-1
             point_prev = schedule.ipoint(previous[-1].step.time_from)
             sigma_u_prev, sigma_v_prev = schedule.sigma_transform(point_prev.sigma)
-
             lambda_prev = ln(divf(sigma_v_prev, sigma_u_prev))
             h_prev = lambda_ - lambda_prev
-            r = h_prev / h  # math people and their var names...
+            r = h_prev / h
 
-            # Calculate previous predicton from sample, output
-            x_prediction_prev = model_transform.to_x(
-                previous[-1].sample,
-                previous[-1].prediction,
-                point_prev.sigma,
-                schedule.sigma_transform,
-            )
-            D1_0 = (1.0 / r) * (x_prediction - x_prediction_prev)
+            prediction_prev = predictions.pop(0)
+            D1_0 = (1.0 / r) * (prediction - prediction_prev)
 
             if effective_order >= 3:
+                # T-2
                 point_prev2 = schedule.ipoint(previous[-2].step.time_from)
                 sigma_u_prev2, sigma_v_prev2 = schedule.sigma_transform(point_prev2.sigma)
-
                 lambda_prev2 = ln(divf(sigma_v_prev2, sigma_u_prev2))
                 h_prev2 = lambda_prev - lambda_prev2
                 r_prev2 = h_prev2 / h
 
-                x_prediction_p2 = model_transform.to_x(
-                    previous[-2].sample,
-                    previous[-2].prediction,
-                    point_prev2.sigma,
-                    schedule.sigma_transform,
-                )
+                prediction_p2 = predictions.pop(0)
 
-                D1_1 = (1.0 / r_prev2) * (x_prediction_prev - x_prediction_p2)
+                D1_1 = (1.0 / r_prev2) * (prediction_prev - prediction_p2)
                 D1 = D1_0 + (r / (r + r_prev2)) * (D1_0 - D1_1)
                 D2 = (1.0 / (r + r_prev2)) * (D1_0 - D1_1)
 
-                final -= (sigma_v_next * (exp2 / hh - 1.0)) * D1
-                final -= (sigma_v_next * ((exp2 - hh) / hh**2 - 0.5)) * D2
+                # Absorb corrections into prediction
+                # Original: final -= sigma_v_next * exp2 * prediction
+                #           final -= sigma_v_next * (exp2/hh - 1) * D1
+                #           final -= sigma_v_next * ((exp2-hh)/hh^2 - 0.5) * D2
+                # To absorb: correction = (exp2/hh - 1)/exp2 * D1 + ((exp2-hh)/hh^2 - 0.5)/exp2 * D2
+                hh = -h
+                exp2 = math.expm1(hh)
+                c1 = (exp2 / hh - 1.0) / exp2 if exp2 != 0 else 0
+                c2 = ((exp2 - hh) / hh**2 - 0.5) / exp2 if exp2 != 0 else 0
+                prediction: T = prediction + c1 * D1 + c2 * D2  # pyright: ignore [reportAssignmentType] # float RHS is always T
+            else:  # 2nd order
+                # Absorb correction into prediction
+                # Original: final -= sigma_v_next * exp2 * prediction
+                #           final -= sigma_v_next * 0.5 * exp2 * D1_0
+                # To absorb: correction = 0.5 * D1_0
+                prediction: T = prediction + 0.5 * D1_0  # pyright: ignore [reportAssignmentType] # float RHS is always T
 
-            else:  # 2nd order. using this in O3 produces valid images but not going to risk correctness
-                final -= (0.5 * sigma_v_next * exp2) * D1_0
-
-        return final  # pyright: ignore [reportReturnType] # float RHS is always T
+        return model_transform.forward(
+            packed.sample,
+            prediction,
+            delta.point_from.sigma,
+            delta.point_to.sigma,
+            schedule.sigma_transform,
+            packed.noise,
+            eta=self.stochasticity,
+        )
 
 
 @dataclass(frozen=True)
-class Adams(traits.DerivativeTransform, StructuredStochastic, StructuredMultistep, StatedSampler):
+class Adams(StructuredUnified, StatedSampler):
     "Higher order extension to Euler using the Adams-Bashforth coefficients on the model prediction"
 
     @staticmethod
@@ -349,7 +362,7 @@ class Adams(traits.DerivativeTransform, StructuredStochastic, StructuredMultiste
 
 
 @dataclass(frozen=True)
-class UniP(StructuredMultistep, StatedSampler):
+class UniP(StructuredUnified, StatedSampler):
     "Just the solver from UniPC without any correction stages."
 
     fast_solve: bool = False
@@ -357,8 +370,6 @@ class UniP(StructuredMultistep, StatedSampler):
 
     @staticmethod
     def max_order() -> int:
-        # TODO(beinsezii): seems more stable after converting to python scalars
-        # 4-6 is mostly stable now, 7-9 depends on the model. What ranges are actually useful..?
         return 9
 
     def unisolve[T: Sample](
@@ -367,61 +378,79 @@ class UniP(StructuredMultistep, StatedSampler):
         model_transform: models.DiffusionModel,
         schedule: SkrampleSchedule,
         previous: Sequence[SKSamples[T]],
-        x_prediction_next: Sample | None = None,
+        prediction_next: Sample | None = None,
     ) -> T:
         "Passing `prediction_next` is equivalent to UniC, otherwise behaves as UniP"
-
         delta = packed.delta_point(schedule)
+
+        effective_order = self.effective_order(packed.step, previous)
+        if self.derivative_transform:
+            convert = models.ModelConvert(model_transform, self.derivative_transform)
+            predictions = [
+                convert.output_to(packed.sample, packed.prediction, delta.point_from.sigma, schedule.sigma_transform),
+                *reversed(
+                    [
+                        convert.output_to(
+                            p.sample,
+                            p.prediction,
+                            p.delta_point(schedule).point_from.sigma,
+                            schedule.sigma_transform,
+                        )
+                        for p in previous[-effective_order + 1 :]
+                    ]
+                ),
+            ]
+            if prediction_next is not None:
+                prediction_next = convert.output_to(
+                    packed.sample,
+                    prediction_next,
+                    delta.point_from.sigma,
+                    schedule.sigma_transform,
+                )
+            model_transform = convert.transform_to
+        else:
+            predictions = [packed.prediction, *reversed([p.prediction for p in previous[-effective_order + 1 :]])]
+
+        prediction = predictions.pop(0)
+
+        # Initial implementation by diffusers.UniPCMultistepScheduler,
+        # rewritten for skrample by myself,
+        # adjusted for DiffusionModel by Qwen 3.5,
+        # everything since once again by myself
+
         (sigma_u, sigma_v), (sigma_u_next, sigma_v_next) = delta.sigma_ts(schedule.sigma_transform)
 
         lambda_ = ln(divf(sigma_v, sigma_u))
         lambda_next = ln(divf(sigma_v_next, sigma_u_next))
         h = abs(lambda_next - lambda_)
 
-        # hh = -h if self.predict_x0 else h
         hh_X = -h
-        h_phi_1 = math.expm1(hh_X)  # h\phi_1(h) = e^h - 1
-
-        # # bh1
-        # B_h = hh
-        # bh2
+        h_phi_1 = math.expm1(hh_X)
         B_h = h_phi_1
-
-        x_prediction = model_transform.to_x(
-            packed.sample,
-            packed.prediction,
-            delta.point_from.sigma,
-            schedule.sigma_transform,
-        )
 
         rks: list[float] = []
         D1s: list[Sample] = []
-        effective_order = self.effective_order(packed.step, previous)
         for n in range(1, effective_order):
             sigma_prev_N = previous[-n].delta_point(schedule).point_from.sigma
-            x_prediction_prev_N = model_transform.to_x(
-                previous[-n].sample,
-                previous[-n].prediction,
-                sigma_prev_N,
-                schedule.sigma_transform,
-            )
-
+            prediction_prev_N = predictions.pop(0)
             sigma_u_prev_N, sigma_v_prev_N = schedule.sigma_transform(sigma_prev_N)
             lambda_pO = ln(divf(sigma_v_prev_N, sigma_u_prev_N))
             rk = (lambda_pO - lambda_) / h
-            if math.isfinite(rk):  # for subnormal
+            if math.isfinite(rk):
                 rks.append(rk)
             else:
-                rks.append(0)  # TODO(beinsezii): proper value?
-            D1s.append((x_prediction_prev_N - x_prediction) / rk)
+                rks.append(0)
+            D1s.append((prediction_prev_N - prediction) / rk)
 
-        # INFO(beinsezii): Fast solve from F.1 in paper
-        if x_prediction_next is not None:
+        # Handle UniC correction term
+        if prediction_next is not None:
             rks.append(1.0)
             order_check: int = 1
+            D1s.append(prediction_next - prediction)
         else:
             order_check = 2
 
+        # Fast solve from paper
         if not rks or (effective_order == order_check and self.fast_solve):
             rhos: list[float] = [0.5]
         else:
@@ -434,25 +463,21 @@ class UniP(StructuredMultistep, StatedSampler):
                 b.append(h_phi_k * math.factorial(n) / B_h)
                 h_phi_k = h_phi_k / hh_X - 1 / math.factorial(n + 1)
 
-            # small array order x order, fast to do it in just np
             rhos = np.linalg.solve(R, b).tolist()
 
         result = math.sumprod(rhos[: len(D1s)], D1s)  # type: ignore  # Float
 
-        # if self.predict_x0:
-        x_t_ = sigma_u_next / sigma_u * packed.sample - sigma_v_next * h_phi_1 * x_prediction
+        prediction: T = prediction + result  # pyright: ignore [reportAssignmentType] # float RHS is always T
 
-        if x_prediction_next is not None:
-            D1_t = x_prediction_next - x_prediction
-            final = x_t_ - sigma_v_next * B_h * (result + rhos[-1] * D1_t)
-        else:
-            final = x_t_ - sigma_v_next * B_h * result
-
-        # else:
-        #     x_t_ = alpha_t / alpha_s0 * x - sigma_t * h_phi_1 * m0
-        #     x_t = x_t_ - sigma_t * B_h * pred_res
-
-        return final  # pyright: ignore [reportReturnType] # float RHS is always T
+        return model_transform.forward(
+            packed.sample,
+            prediction,
+            delta.point_from.sigma,
+            delta.point_to.sigma,
+            schedule.sigma_transform,
+            packed.noise,
+            eta=self.stochasticity,
+        )
 
     def _sample_packed[T: Sample](
         self,
@@ -465,7 +490,7 @@ class UniP(StructuredMultistep, StatedSampler):
 
 
 @dataclass(frozen=True)
-class UniPC(traits.DerivativeTransform, UniP):
+class UniPC(UniP):
     """Unique sampler that can correct other samplers or its own prediction function.
     The additional correction essentially adds +1 order on top of what is set.
     https://arxiv.org/abs/2302.04867"""
@@ -475,17 +500,14 @@ class UniPC(traits.DerivativeTransform, UniP):
 
     @staticmethod
     def max_order() -> int:
-        # TODO(beinsezii): seems more stable after converting to python scalars
-        # 4-6 is mostly stable now, 7-9 depends on the model. What ranges are actually useful..?
         return 9
 
     @property
     def require_noise(self) -> bool:
-        return self.solver.require_noise if self.solver else False
+        return super().require_noise or (self.solver.require_noise if self.solver else False)
 
     @property
     def require_previous(self) -> int:
-        # +1 for correction
         return max(super().require_previous + 1, self.solver.require_previous if self.solver else 0)
 
     def sample_packed[T: Sample](
@@ -511,23 +533,17 @@ class UniPC(traits.DerivativeTransform, UniP):
             model_transform = convert.transform_to
 
         if previous:
-            packed = replace(
-                packed,
-                sample=self.unisolve(
-                    previous[-1],
-                    model_transform,
-                    schedule,
-                    previous[:-1],
-                    x_prediction_next=model_transform.to_x(
-                        packed.sample,
-                        packed.prediction,
-                        delta.point_from.sigma,
-                        schedule.sigma_transform,
-                    ),
-                ),
+            # Correct previous step using current prediction (UniC)
+            corrected_sample = self.unisolve(
+                previous[-1],
+                model_transform,
+                schedule,
+                previous[:-1],
+                prediction_next=packed.prediction,
             )
+            packed = replace(packed, sample=corrected_sample)
 
-        return (self.solver or super()).sample_packed(packed, model_transform, schedule, previous)  # pyright: ignore [reportAttributeAccessIssue] # Valid from L->R MRO, not sure why pyright is red?
+        return (self.solver or super()).sample_packed(packed, model_transform, schedule, previous)
 
 
 @dataclass(frozen=True)

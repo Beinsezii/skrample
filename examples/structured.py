@@ -21,7 +21,7 @@ with torch.inference_mode():
     cfg: float = 3
 
     schedule: scheduling.SkrampleSchedule = scheduling.Karras(scheduling.Scaled())
-    sampler: structured.StructuredSampler = structured.DPM(order=2, add_noise=True)
+    sampler: structured.StructuredSampler = structured.DPM(order=2, stochasticity=True)
     transform: models.DiffusionModel = models.NoiseModel()
 
     tokenizer: CLIPTokenizer = CLIPTokenizer.from_pretrained(url, subfolder="tokenizer")

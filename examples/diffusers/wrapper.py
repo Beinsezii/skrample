@@ -15,7 +15,7 @@ pipe: FluxPipeline = FluxPipeline.from_pretrained(
 )
 
 pipe.scheduler = scheduler = SkrampleWrapperScheduler(
-    sampler=sampling.DPM(order=2, add_noise=True),
+    sampler=sampling.DPM(order=2, stochasticity=True),
     schedule=scheduling.FlowShift(scheduling.Linear(), shift=2.0),
     model=FlowModel(),
     noise_type=sknoise.Brownian,
