@@ -15,7 +15,7 @@ type SampleCallback[T: Sample] = Callable[[T, int, float, float], Any]
 type SampleableModel[T: Sample] = Callable[[T, float, float], T]
 "sample, timestep, sigma"
 
-DEFAULT_PROVIDERS: Mapping[int, tableaux.TableauProvider[tableaux.Tableau | tableaux.ExtendedTableau]] = {
+DEFAULT_PROVIDERS: Mapping[int, tableaux.TableauProvider[tableaux.TableauType]] = {
     2: tableaux.RK2.Ralston,
     3: tableaux.RK3.Kutta,
     4: tableaux.RK4.Kutta,
@@ -34,7 +34,7 @@ DEFAULT_PROVIDERS: Mapping[int, tableaux.TableauProvider[tableaux.Tableau | tabl
 """Default RK tableau providers.
 Mostly a popularity contest.
 The indexes are based on number of stages, NOT mathematical order."""
-STABLE_PROVIDERS: Mapping[int, tableaux.TableauProvider[tableaux.Tableau | tableaux.ExtendedTableau]] = {
+STABLE_PROVIDERS: Mapping[int, tableaux.TableauProvider[tableaux.TableauType]] = {
     2: tableaux.RK2.Heun,
     3: tableaux.RK3.SSPRK3,
     4: tableaux.RKE3.SSPRK3_4,
@@ -43,7 +43,7 @@ STABLE_PROVIDERS: Mapping[int, tableaux.TableauProvider[tableaux.Tableau | table
 """SSP RK providers.
 Prioritizes stability.
 The indexes are based on number of stages, NOT mathematical order."""
-CONVERGENT_PROVIDERS: Mapping[int, tableaux.TableauProvider[tableaux.Tableau | tableaux.ExtendedTableau]] = {
+CONVERGENT_PROVIDERS: Mapping[int, tableaux.TableauProvider[tableaux.TableauType]] = {
     2: tableaux.RK2.Mid,
     3: tableaux.RK2.EES5_MIN,
     4: tableaux.RK2.EES7_MIN,
@@ -55,7 +55,7 @@ The indexes are based on number of stages, NOT mathematical order."""
 
 
 def step_tableau[T: Sample](
-    tableau: tableaux.Tableau | tableaux.ExtendedTableau,
+    tableau: tableaux.Tableau | tableaux.EmbeddedTableau,
     sample: T,
     model: SampleableModel[T],
     model_transform: models.DiffusionModel,
@@ -221,7 +221,7 @@ class FunctionalAdaptive(FunctionalSampler):
 class RKUltra(FunctionalUnified, FunctionalSinglestep):
     "Implements almost every single method from https://en.wikipedia.org/wiki/List_of_Runge–Kutta_methods"  # noqa: RUF002
 
-    providers: Mapping[int, tableaux.TableauProvider[tableaux.Tableau | tableaux.ExtendedTableau]] = MappingProxyType(
+    providers: Mapping[int, tableaux.TableauProvider[tableaux.Tableau | tableaux.EmbeddedTableau]] = MappingProxyType(
         DEFAULT_PROVIDERS
     )
     """Providers for a given order, starting from 2.
@@ -236,7 +236,7 @@ class RKUltra(FunctionalUnified, FunctionalSinglestep):
             order = self.order
 
         if order >= 2 and (morder := max(o for o in self.providers.keys() if o <= order)):
-            return self.providers[morder].tableau()[:2]
+            return tableaux.Tableau(self.providers[morder].tableau().stages, self.providers[morder].tableau().weights)
         else:  # Euler / RK1
             return tableaux.RK1
 
@@ -312,7 +312,7 @@ class FastHeun(FunctionalAdaptive, FunctionalHigher, FunctionalSinglestep):
 
 @dataclasses.dataclass(frozen=True)
 class RKMoire(traits.DerivativeTransform, FunctionalAdaptive, FunctionalHigher):
-    providers: Mapping[int, tableaux.TableauProvider[tableaux.ExtendedTableau]] = MappingProxyType(
+    providers: Mapping[int, tableaux.TableauProvider[tableaux.EmbeddedTableau]] = MappingProxyType(
         {
             2: tableaux.RKE2.Heun,
             3: tableaux.RKE3.BogackiShampine,
@@ -349,7 +349,7 @@ class RKMoire(traits.DerivativeTransform, FunctionalAdaptive, FunctionalHigher):
     def adjust_steps(self, steps: int) -> int:
         return steps
 
-    def tableau(self, order: int | None = None) -> tableaux.ExtendedTableau:
+    def tableau(self, order: int | None = None) -> tableaux.EmbeddedTableau:
         if order is None:
             order = self.order
 
@@ -418,7 +418,7 @@ class RKMoire(traits.DerivativeTransform, FunctionalAdaptive, FunctionalHigher):
 
             else:  # Save the extra euler call since the 2nd weight isn't used
                 sample_high = step_tableau(
-                    tab[:2],
+                    tab.unembed(),
                     sample,
                     model,
                     model_transform,

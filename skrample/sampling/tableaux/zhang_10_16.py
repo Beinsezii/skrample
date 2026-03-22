@@ -1,8 +1,4 @@
-import math
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from . import Tableau
+from .common import ButcherCoeffs, Tableau
 
 COEFFS: list[float] = [
     +0.06888096612188652230677098661632935381315159322698285980682460033484176156636,
@@ -144,26 +140,4 @@ COEFFS: list[float] = [
 ]
 
 
-def from_coeffs(coeffs: list[float], stages: int) -> "Tableau":
-    i: int = 0
-
-    b: list[float] = [-math.inf] * stages
-    a: list[list[float]] = [[-math.inf] * n for n in range(1, stages)]
-
-    assert len(coeffs) == len(b) + sum(len(aa) for aa in a)
-
-    for x in range(len(a)):
-        for y in range(len(a[x])):
-            a[x][y] = coeffs[i]
-            i += 1
-
-    for n in range(len(b)):
-        b[n] = coeffs[i]
-        i += 1
-
-    a.insert(0, [])  # doesn't include a10
-
-    return tuple((math.fsum(x), tuple(x)) for x in a), tuple(b)
-
-
-TABLEAU: "Tableau" = from_coeffs(COEFFS, 16)
+TABLEAU: Tableau = ButcherCoeffs.deserialize(COEFFS, 16, compute_c=True).compose()

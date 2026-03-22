@@ -91,6 +91,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "scripts/*.py" = ["T201"]
+"skrample/sampling/tableaux/__init__.py" = ["F401"]
 
 [tool.pytest.ini_options]
 python_files = "tests/*.py"
