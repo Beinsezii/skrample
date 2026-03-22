@@ -42,6 +42,7 @@ STABLE_PROVIDERS: Mapping[int, tableaux.TableauProvider[tableaux.TableauType]] =
     6: tableaux.SSP.RK3_6,
     7: tableaux.SSP.RK3_7,
     8: tableaux.SSP.RK3_8,
+    10: tableaux.SSP.RK5_10,
 }
 """SSP RK providers.
 Prioritizes stability.
