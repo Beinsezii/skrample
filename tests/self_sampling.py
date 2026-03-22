@@ -567,32 +567,24 @@ def test_rku_brownian(
 
 @pytest.mark.parametrize(
     ("provider"),
-    [
-        variant
-        for provider in [
-            tableaux.RK2,
-            tableaux.RK3,
-            tableaux.RK4,
-            tableaux.RKZ,
-            tableaux.RKE2,
-            tableaux.RKE3,
-            tableaux.RKE5,
-            tableaux.Shanks1965,
-        ]
-        for variant in provider
-    ],
+    [*tableaux.BUILTIN_TABLEAUX, *tableaux.BUILTIN_EMBEDDED_TABLEAU],
 )
 def test_tableau_providers(provider: tableaux.TableauProvider) -> None:
-    if error := tableaux.validate_tableau(provider.tableau()):
+    if error := tableaux.common.validate_tableau(provider.tableau()):
         raise error
 
 
-def flat_tableau(t: tuple[float | tuple[float | tuple[float | tuple[float, ...], ...], ...], ...]) -> tuple[float, ...]:
-    return tuple(z for y in (flat_tableau(x) if isinstance(x, tuple) else (x,) for x in t) for z in y)
-
-
 def tableau_distance(a: tableaux.Tableau, b: tableaux.Tableau) -> float:
-    return abs(np.subtract(flat_tableau(a), flat_tableau(b))).max().item()
+    return (
+        abs(
+            np.subtract(
+                tableaux.common.ButcherCoeffs.decompose(a).serialize(),
+                tableaux.common.ButcherCoeffs.decompose(b).serialize(),
+            )
+        )
+        .max()
+        .item()
+    )
 
 
 @pytest.mark.parametrize(
@@ -626,14 +618,14 @@ def test_tableau_preset_nondefault(label: str, k: int, v: tableaux.TableauProvid
 def test_rk2_tableau() -> None:
     assert (
         tableau_distance(
-            (  # Ralston
+            tableaux.common.Tableau(  # Ralston
                 (
-                    (0.0, ()),
-                    (2 / 3, (2 / 3,)),
+                    tableaux.common.Stage(0.0, ()),
+                    tableaux.common.Stage(2 / 3, (2 / 3,)),
                 ),
                 (1 / 4, 3 / 4),
             ),
-            tableaux.rk2_tableau(2 / 3),
+            tableaux.providers.rk2_tableau(2 / 3),
         )
         < 1e-20
     )
@@ -642,15 +634,15 @@ def test_rk2_tableau() -> None:
 def test_rk3_tableau() -> None:
     assert (
         tableau_distance(
-            (  # Wray
+            tableaux.common.Tableau(  # Wray
                 (
-                    (0.0, ()),
-                    (8 / 15, (8 / 15,)),
-                    (2 / 3, (1 / 4, 5 / 12)),
+                    tableaux.common.Stage(0.0, ()),
+                    tableaux.common.Stage(8 / 15, (8 / 15,)),
+                    tableaux.common.Stage(2 / 3, (1 / 4, 5 / 12)),
                 ),
                 (1 / 4, 0.0, 3 / 4),
             ),
-            tableaux.rk3_tableau(8 / 15, 2 / 3),
+            tableaux.providers.rk3_tableau(8 / 15, 2 / 3),
         )
         < 1e-15
     )
@@ -659,16 +651,16 @@ def test_rk3_tableau() -> None:
 def test_rk4_tableau() -> None:
     assert (
         tableau_distance(
-            (  # Eighth
+            tableaux.common.Tableau(  # Eighth
                 (
-                    (0, ()),
-                    (1 / 3, (1 / 3,)),
-                    (2 / 3, (-1 / 3, 1)),
-                    (1, (1, -1, 1)),
+                    tableaux.common.Stage(0, ()),
+                    tableaux.common.Stage(1 / 3, (1 / 3,)),
+                    tableaux.common.Stage(2 / 3, (-1 / 3, 1)),
+                    tableaux.common.Stage(1, (1, -1, 1)),
                 ),
                 (1 / 8, 3 / 8, 3 / 8, 1 / 8),
             ),
-            tableaux.rk4_tableau(1 / 3, 2 / 3),
+            tableaux.providers.rk4_tableau(1 / 3, 2 / 3),
         )
         < 1e-12  # Something like 4x the amount of math as RK3
     )
@@ -677,15 +669,15 @@ def test_rk4_tableau() -> None:
 def test_ees25_tableau() -> None:
     assert (
         tableau_distance(
-            (  # EES(2, 5; 1/10), https://arxiv.org/abs/2507.21006 (8.4)
+            tableaux.common.Tableau(  # EES(2, 5; 1/10), https://arxiv.org/abs/2507.21006 (8.4)
                 (
-                    (0, ()),
-                    (1 / 3, (1 / 3,)),
-                    (5 / 6, (-5 / 48, 15 / 16)),
+                    tableaux.common.Stage(0, ()),
+                    tableaux.common.Stage(1 / 3, (1 / 3,)),
+                    tableaux.common.Stage(5 / 6, (-5 / 48, 15 / 16)),
                 ),
                 (1 / 10, 1 / 2, 2 / 5),
             ),
-            tableaux.ees25_tableau(1 / 10),
+            tableaux.providers.ees25_tableau(1 / 10),
         )
         < 1e-15
     )
@@ -695,16 +687,18 @@ def test_ees27_tableau() -> None:
     V2 = math.sqrt(2)
     assert (
         tableau_distance(
-            (  # EES(2, 7; 1/14 (5 - 3√2)), https://arxiv.org/abs/2507.21006 (8.6)
+            tableaux.common.Tableau(  # EES(2, 7; 1/14 (5 - 3√2)), https://arxiv.org/abs/2507.21006 (8.6)
                 (
-                    (0, ()),
-                    (1 / 3 * (2 - V2), (1 / 3 * (2 - V2),)),
-                    (1 / 6 * (2 + V2), (1 / 24 * (-4 + V2), 1 / 8 * (4 + V2))),
-                    (1 / 6 * (4 + V2), (1 / 168 * (-176 + 145 * V2), 3 / 56 * (8 - 5 * V2), 3 / 7 * (3 - V2))),
+                    tableaux.common.Stage(0, ()),
+                    tableaux.common.Stage(1 / 3 * (2 - V2), (1 / 3 * (2 - V2),)),
+                    tableaux.common.Stage(1 / 6 * (2 + V2), (1 / 24 * (-4 + V2), 1 / 8 * (4 + V2))),
+                    tableaux.common.Stage(
+                        1 / 6 * (4 + V2), (1 / 168 * (-176 + 145 * V2), 3 / 56 * (8 - 5 * V2), 3 / 7 * (3 - V2))
+                    ),
                 ),
                 (1 / 14 * (5 - 3 * V2), 1 / 14 * (3 + V2), 3 / 14 * (-1 + 2 * V2), 1 / 14 * (9 - 4 * V2)),
             ),
-            tableaux.ees27_tableau(1 / 14 * (5 - 3 * V2)),
+            tableaux.providers.ees27_tableau(1 / 14 * (5 - 3 * V2)),
         )
         < 1e-15
     )
