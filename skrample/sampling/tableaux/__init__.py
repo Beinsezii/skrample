@@ -10,6 +10,7 @@ from .providers import (
     RKE3,
     RKE5,
     RKZ,
+    SSP,
     CustomTableau,
     RK2Custom,
     RK3Custom,
@@ -23,6 +24,7 @@ BUILTIN_TABLEAUX: Sequence[TableauProvider[Tableau]] = [
     *RK3,
     *RK4,
     *RKZ,
+    *SSP,
     *Shanks1965,
 ]
 BUILTIN_EMBEDDED_TABLEAU: Sequence[TableauProvider[EmbeddedTableau]] = [
