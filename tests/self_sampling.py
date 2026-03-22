@@ -575,16 +575,9 @@ def test_tableau_providers(provider: tableaux.TableauProvider) -> None:
 
 
 def tableau_distance(a: tableaux.Tableau, b: tableaux.Tableau) -> float:
-    return (
-        abs(
-            np.subtract(
-                tableaux.common.ButcherCoeffs.decompose(a).serialize(),
-                tableaux.common.ButcherCoeffs.decompose(b).serialize(),
-            )
-        )
-        .max()
-        .item()
-    )
+    aser = np.asarray(tableaux.common.ButcherCoeffs.decompose(a).serialize())
+    bser = np.asarray(tableaux.common.ButcherCoeffs.decompose(b).serialize())
+    return abs(aser - bser).max().item()
 
 
 @pytest.mark.parametrize(
@@ -701,4 +694,41 @@ def test_ees27_tableau() -> None:
             tableaux.providers.ees27_tableau(1 / 14 * (5 - 3 * V2)),
         )
         < 1e-15
+    )
+
+
+def test_shu_osher() -> None:
+    assert (
+        tableau_distance(
+            tableaux.common.Tableau(
+                (
+                    tableaux.common.Stage(0, ()),
+                    tableaux.common.Stage(0.391752226869254, (0.391752226869254,)),
+                    tableaux.common.Stage(0.586079689066902, (0.217669096357835, 0.368410592709067)),
+                    tableaux.common.Stage(0.474542363162481, (0.082692086683094, 0.139958502107426, 0.251891774371961)),
+                    tableaux.common.Stage(
+                        0.935010631095793,
+                        (0.067966283574048, 0.115034698453668, 0.207034898772937, 0.54497475029514),
+                    ),
+                ),
+                (0.146811876157876, 0.248482909391317, 0.104258830279481, 0.274438901048481, 0.226007483122845),
+            ),
+            tableaux.common.ButcherCoeffs.from_shu_osher(  # RK4_5
+                [
+                    [1],
+                    [0.444370493651235, 0.555629506348765],
+                    [0.620101851488403, 0, 0.379898148511597],
+                    [0.178079954393132, 0, 0, 0.821920045606868],
+                    [0, 0, 0.517231671970585, 0.096059710526147, 0.386708617503269],
+                ],
+                [
+                    [0.391752226571890],
+                    [0, 0.368410593050371],
+                    [0, 0, 0.251891774271694],
+                    [0, 0, 0, 0.544974750228521],
+                    [0, 0, 0, 0.063692468666290, 0.226007483236906],
+                ],
+            ).compose(),
+        )
+        < 1e-8
     )

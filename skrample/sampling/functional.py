@@ -36,9 +36,12 @@ Mostly a popularity contest.
 The indexes are based on number of stages, NOT mathematical order."""
 STABLE_PROVIDERS: Mapping[int, tableaux.TableauProvider[tableaux.TableauType]] = {
     2: tableaux.RK2.Heun,
-    3: tableaux.RK3.SSPRK3,
+    3: tableaux.SSP.RK3_3,
     4: tableaux.RKE3.SSPRK3_4,
-    6: tableaux.RKE5.Fehlberg,
+    5: tableaux.SSP.RK4_5,
+    6: tableaux.SSP.RK3_6,
+    7: tableaux.SSP.RK3_7,
+    8: tableaux.SSP.RK3_8,
 }
 """SSP RK providers.
 Prioritizes stability.

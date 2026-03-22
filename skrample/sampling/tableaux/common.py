@@ -99,6 +99,30 @@ class ButcherCoeffs:
     def serialize(self) -> Sequence[float]:
         return [*self.c, *(x for a in self.a for x in a), *self.b]
 
+    @classmethod
+    def from_shu_osher(cls, alphas: Sequence[Sequence[float]], betas: Sequence[Sequence[float]]) -> Self:
+        stages = len(alphas)
+        t = cls.empty(stages)
+
+        # Compute internal stages of the Butcher matrix 'a'
+        # i represents the Butcher stage index (1 to stages-1)
+        for i in range(1, stages):
+            # j represents the Butcher column index (0 to i-1)
+            for j in range(i):
+                # The summation term accounts for the recursive dependency on previous stages
+                t.a[i][j] = math.fsum((betas[i - 1][j], *(alphas[i - 1][k] * t.a[k][j] for k in range(j + 1, i))))
+
+        # Compute Butcher weights 'b' using the final Shu-Osher row
+        for j in range(stages):
+            # Final update is treated as the result of the final coefficient row
+            t.b[j] = math.fsum(
+                (betas[stages - 1][j], *(alphas[stages - 1][k] * t.a[k][j] for k in range(j + 1, stages)))
+            )
+
+        t.compute_c()
+
+        return t
+
 
 def pretty_tableau(tableau: TableauType, label: str | None = None) -> str:
 

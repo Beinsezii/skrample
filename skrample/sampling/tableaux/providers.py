@@ -5,7 +5,7 @@ import math
 from typing import Protocol
 
 from . import feagin_10_17, feagin_12_25, feagin_14_35, harrier_10_17, ono_10_17, stepanov_10_15, zhang_10_16
-from .common import EmbeddedTableau, Stage, Tableau, TableauType, pretty_tableau
+from .common import ButcherCoeffs, EmbeddedTableau, Stage, Tableau, TableauType, pretty_tableau
 
 V2 = math.sqrt(2)
 V5 = math.sqrt(5)
@@ -220,8 +220,6 @@ class RK3(enum.Enum):
     """Runge-Kutta Methods With Minimum Error Bounds, Anthony Ralston (1962)
     https://www.ams.org/journals/mcom/1962-16-080/S0025-5718-1962-0150954-0/S0025-5718-1962-0150954-0.pdf"""
     Wray = rk3_tableau(8 / 15, 2 / 3)
-    SSPRK3 = rk3_tableau(1, 1 / 2)
-    "https://gkeyll.readthedocs.io/en/latest/dev/ssp-rk.html"
 
     def pretty(self) -> str:
         return pretty_tableau(self.value, str(self))
@@ -488,6 +486,114 @@ class RKE5(enum.Enum):
         return pretty_tableau(self.value, str(self))
 
     def tableau(self) -> EmbeddedTableau:
+        return self.value
+
+
+@enum.unique
+class SSP(enum.Enum):
+    """Global Optimization Of Explicit Strong-Stability-Preserving Runge-Kutta Methods, Steven J. Ruuth (2006)
+    https://www.ams.org/journals/mcom/2006-75-253/S0025-5718-05-01772-2/S0025-5718-05-01772-2.pdf"""
+
+    RK3_3 = rk3_tableau(1, 1 / 2)
+
+    RK3_5 = ButcherCoeffs.from_shu_osher(
+        [
+            [1],
+            [0, 1],
+            [0.355909775063327, 0, 0.644090224936674],
+            [0.367933791638137, 0, 0, 0.632066208361863],
+            [0, 0, 0.237593836598569, 0, 0.762406163401431],
+        ],
+        [
+            [0.377268915331368],
+            [0, 0.377268915331368],
+            [0, 0, 0.242995220537396],
+            [0, 0, 0, 0.238458932846290],
+            [0, 0, 0, 0, 0.287632146308408],
+        ],
+    ).compose()
+    RK3_6 = ButcherCoeffs.from_shu_osher(
+        [
+            [1],
+            [0, 1],
+            [0, 0, 1],
+            [0.476769811285196, 0.098511733286064, 0, 0.424718455428740],
+            [0, 0, 0, 0, 1],
+            [0, 0, 0.155221702560091, 0, 0, 0.844778297439909],
+        ],
+        [
+            [0.284220721334261],
+            [0, 0.284220721334261],
+            [0, 0, 0.284220721334261],
+            [0, 0, 0, 0.120713785765930],
+            [0, 0, 0, 0, 0.284220721334261],
+            [0, 0, 0, 0, 0, 0.240103497065900],
+        ],
+    ).compose()
+    RK3_7 = ButcherCoeffs.from_shu_osher(
+        [
+            [1],
+            [0, 1],
+            [0, 0, 1],
+            [0.184962588071072, 0, 0, 0.815037411928928],
+            [0.180718656570380, 0.314831034403793, 0, 0, 0.504450309025826],
+            [0, 0, 0, 0, 0, 1],
+            [0, 0, 0, 0.120199000000000, 0, 0, 0.879801000000000],
+        ],
+        [
+            [0.233213863663009],
+            [0, 0.233213863663009],
+            [0, 0, 0.233213863663009],
+            [0, 0, 0, 0.190078023865845],
+            [0, 0, 0, 0, 0.117644805593912],
+            [0, 0, 0, 0, 0, 0.233213863663009],
+            [0, 0, 0, 0, 0, 0, 0.205181790464579],
+        ],
+    ).compose()
+    RK3_8 = ButcherCoeffs.from_shu_osher(
+        [
+            [1],
+            [0, 1],
+            [0, 0, 1],
+            [0, 0, 0, 1],
+            [0.421366967085359, 0.005949401107575, 0, 0, 0.572683631807067],
+            [0, 0.004254010666365, 0, 0, 0, 0.995745989333635],
+            [0, 0, 0.104380143093325, 0.243265240906726, 0, 0, 0.652354615999950],
+            [0, 0, 0, 0, 0, 0, 0, 1],
+        ],
+        [
+            [0.195804015330143],
+            [0, 0.195804015330143],
+            [0, 0, 0.195804015330143],
+            [0, 0, 0, 0.195804015330143],
+            [0, 0, 0, 0, 0.112133754621673],
+            [0, 0, 0, 0, 0, 0.194971062960412],
+            [0, 0, 0, 0, 0, 0, 0.127733653231944],
+            [0, 0, 0, 0, 0, 0, 0, 0.195804015330143],
+        ],
+    ).compose()
+
+    RK4_5 = ButcherCoeffs.from_shu_osher(
+        [
+            [1],
+            [0.444370493651235, 0.555629506348765],
+            [0.620101851488403, 0, 0.379898148511597],
+            [0.178079954393132, 0, 0, 0.821920045606868],
+            [0, 0, 0.517231671970585, 0.096059710526147, 0.386708617503269],
+        ],
+        [
+            [0.391752226571890],
+            [0, 0.368410593050371],
+            [0, 0, 0.251891774271694],
+            [0, 0, 0, 0.544974750228521],
+            [0, 0, 0, 0.063692468666290, 0.226007483236906],
+        ],
+    ).compose()
+
+    def pretty(self) -> str:
+        return pretty_tableau(self.value, str(self))
+
+    def tableau(self) -> Tableau:
         return self.value
 
 
