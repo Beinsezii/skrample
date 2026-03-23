@@ -16,46 +16,31 @@ type SampleableModel[T: Sample] = Callable[[T, float, float], T]
 "sample, timestep, sigma"
 
 DEFAULT_PROVIDERS: Mapping[int, tableaux.TableauProvider[tableaux.TableauType]] = {
-    2: tableaux.RK2.Ralston,
-    3: tableaux.RK3.Kutta,
-    4: tableaux.RK4.Kutta,
+    1: tableaux.RK1.Euler,
+    2: tableaux.RK2.Mid,
+    3: tableaux.RK2.EES5_MIN,
+    4: tableaux.RK2.EES7_MIN,
     5: tableaux.SSP.RK4_5,
     6: tableaux.RKE5.CashKarp,
     7: tableaux.RKZ.Butcher6,
-    9: tableaux.Shanks1965.RK7_9,
-    10: tableaux.Shanks1965.RK8_10,
+    10: tableaux.SSP.RK5_10,
     11: tableaux.RKZ.CV8,
-    12: tableaux.Shanks1965.RK8_12,
     15: tableaux.RKZ.Stepanov10,
-    16: tableaux.RKZ.Zhang10,
-    17: tableaux.RKZ.Harrier10,
-    25: tableaux.RKZ.Feagin12,
-    # 35: tableaux.RKZ.Feagin14, # crunchy?
 }
 """Default RK tableau providers.
-Mostly a popularity contest.
+Optimized for latent diffusion models.
 The indexes are based on number of stages, NOT mathematical order."""
 STABLE_PROVIDERS: Mapping[int, tableaux.TableauProvider[tableaux.TableauType]] = {
-    2: tableaux.RK2.Heun,
+    2: tableaux.RKE2.Heun,
     3: tableaux.SSP.RK3_3,
     4: tableaux.RKE3.SSPRK3_4,
     5: tableaux.SSP.RK3_5,
     6: tableaux.SSP.RK3_6,
     7: tableaux.SSP.RK3_7,
     8: tableaux.SSP.RK3_8,
-    10: tableaux.SSP.RK5_10,
 }
 """SSP RK providers.
 Prioritizes stability.
-The indexes are based on number of stages, NOT mathematical order."""
-CONVERGENT_PROVIDERS: Mapping[int, tableaux.TableauProvider[tableaux.TableauType]] = {
-    2: tableaux.RK2.Mid,
-    3: tableaux.RK2.EES5_MIN,
-    4: tableaux.RK2.EES7_MIN,
-    6: tableaux.RKZ.Nystrom5,
-}
-"""Minimal error providers.
-Prioritizes Convergence
 The indexes are based on number of stages, NOT mathematical order."""
 
 
@@ -229,8 +214,8 @@ class RKUltra(FunctionalUnified, FunctionalSinglestep):
     providers: Mapping[int, tableaux.TableauProvider[tableaux.Tableau | tableaux.EmbeddedTableau]] = MappingProxyType(
         DEFAULT_PROVIDERS
     )
-    """Providers for a given order, starting from 2.
-    Order 1 is always the Euler method."""
+    """Tableau providers for a given order.
+    Note the mapping can be arbitrary"""
 
     @staticmethod
     def max_order() -> int:
@@ -240,10 +225,10 @@ class RKUltra(FunctionalUnified, FunctionalSinglestep):
         if order is None:
             order = self.order
 
-        if order >= 2 and (morder := max(o for o in self.providers.keys() if o <= order)):
+        if order >= min(self.providers.keys()) and (morder := max(o for o in self.providers.keys() if o <= order)):
             return tableaux.Tableau(self.providers[morder].tableau().stages, self.providers[morder].tableau().weights)
-        else:  # Euler / RK1
-            return tableaux.RK1
+        else:
+            return tableaux.RK1.Euler.value
 
     def adjust_steps(self, steps: int) -> int:
         stages = self.tableau()[0]

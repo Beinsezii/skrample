@@ -21,6 +21,7 @@ from .providers import (
 )
 
 BUILTIN_TABLEAUX: Sequence[TableauProvider[Tableau]] = [
+    *RK1,
     *RK2,
     *RK3,
     *RK4,

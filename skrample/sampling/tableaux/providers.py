@@ -136,13 +136,6 @@ class TableauProvider[T: TableauType](Protocol):
         return pretty_tableau(self.tableau())
 
 
-RK1: Tableau = Tableau(
-    (Stage(0, ()),),
-    (1,),
-)
-"Euler method"
-
-
 @dataclasses.dataclass(frozen=True)
 class CustomTableau[T: TableauType](TableauProvider[T]):
     custom: T
@@ -178,12 +171,25 @@ class RK4Custom(TableauProvider[Tableau]):
 
 
 @enum.unique
-class RK2(enum.Enum):
-    "2nd order, 2 calls"
+class RK1(enum.Enum):
+    Euler = Tableau(
+        (Stage(0, ()),),
+        (1,),
+    )
 
-    Heun = rk2_tableau(1)
+    def pretty(self) -> str:
+        return pretty_tableau(self.value, str(self))
+
+    def tableau(self) -> Tableau:
+        return self.value
+
+
+@enum.unique
+class RK2(enum.Enum):
     Mid = rk2_tableau(1 / 2)
     Ralston = rk2_tableau(2 / 3)
+    Golden = rk2_tableau((1 + V5) / 4)
+    "B row is (1-1/φ, 1/φ)"
 
     EES5_SYM = ees25_tableau(1 / 4)
     """Explicit and Effectively Symmetric Runge-Kutta Methods (2025)
@@ -212,8 +218,6 @@ class RK2(enum.Enum):
 
 @enum.unique
 class RK3(enum.Enum):
-    "3rd order, 3 calls"
-
     Kutta = rk3_tableau(1 / 2, 1)
     Heun = rk3_tableau(1 / 3, 2 / 3)
     Ralston = rk3_tableau(1 / 2, 3 / 4)
@@ -230,8 +234,6 @@ class RK3(enum.Enum):
 
 @enum.unique
 class RK4(enum.Enum):
-    "4th order, 4 calls"
-
     Kutta = Tableau(
         (
             Stage(0, ()),
