@@ -26,7 +26,7 @@ all = [
     "skrample[beta-schedule,brownian-noise,cdf-schedule,diffusers-wrapper,pytorch]",
 ]
 
-scripts = ["skrample[all]", "matplotlib>=3.10.1", "scikit-image"]
+scripts = ["skrample[all]", "matplotlib>=3.10.1", "scikit-image>=0.26"]
 
 test = [
     "skrample[scripts]",
