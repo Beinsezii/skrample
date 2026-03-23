@@ -23,6 +23,7 @@ DEFAULT_PROVIDERS: Mapping[int, tableaux.TableauProvider[tableaux.TableauType]] 
     5: tableaux.SSP.RK4_5,
     6: tableaux.RKE5.CashKarp,
     7: tableaux.RKZ.Butcher6,
+    8: tableaux.SSP.RK3_8,
     10: tableaux.SSP.RK5_10,
     11: tableaux.RKZ.CV8,
     15: tableaux.RKZ.Stepanov10,
@@ -37,7 +38,6 @@ STABLE_PROVIDERS: Mapping[int, tableaux.TableauProvider[tableaux.TableauType]] =
     5: tableaux.SSP.RK3_5,
     6: tableaux.SSP.RK3_6,
     7: tableaux.SSP.RK3_7,
-    8: tableaux.SSP.RK3_8,
 }
 """SSP RK providers.
 Prioritizes stability.
