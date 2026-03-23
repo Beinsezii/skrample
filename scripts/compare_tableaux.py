@@ -181,34 +181,20 @@ with torch.inference_mode():
     results: list[TableauResult] = []
 
     for target_stages in range(1, 99):
-        for provider in [
-            tableaux.RK1,
-            tableaux.RK2,
-            tableaux.RK3,
-            tableaux.RK4,
-            tableaux.RKZ,
-            tableaux.RKE2,
-            tableaux.RKE3,
-            tableaux.RKE5,
-            tableaux.SSP,
-            # These never win, not even close
-            # tableaux.WSO,
-            # tableaux.Shanks1965,
-        ]:
-            for variant in provider:
-                stages = len(variant.tableau()[0])
-                if stages != target_stages:
-                    continue
+        for variant in [*tableaux.BUILTIN_TABLEAUX, *tableaux.BUILTIN_EMBEDDED_TABLEAU]:
+            stages = len(variant.tableau()[0])
+            if stages != target_stages:
+                continue
 
-                steps: int = 0
-                result: TableauResult | None = None
+            steps: int = 0
+            result: TableauResult | None = None
 
-                while not result or result.ssim < target_score.ssim:
-                    steps += 1
-                    result = measure_provider(variant, steps)
-                    if steps * stages >= 200:
-                        break
+            while not result or result.ssim < target_score.ssim:
+                steps += 1
+                result = measure_provider(variant, steps)
+                if steps * stages >= 200:
+                    break
 
-                results.append(result)
+            results.append(result)
 
     json.dump([dataclasses.asdict(r) for r in sorted(results, key=lambda r: (r.stages, r.nfes, -r.geo))], sys.stdout)

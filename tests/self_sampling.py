@@ -6,7 +6,15 @@ from dataclasses import replace
 import numpy as np
 import pytest
 import torch
-from testing_common import ALL_FAKE_MODELS, ALL_MODELS, ALL_SCHEDULES, ALL_STRUCTURED, ALL_TRANSFROMS, compare_pp
+from testing_common import (
+    ALL_FAKE_MODELS,
+    ALL_MODELS,
+    ALL_SCHEDULES,
+    ALL_STRUCTURED,
+    ALL_TABLEAUX,
+    ALL_TRANSFROMS,
+    compare_pp,
+)
 
 from skrample import diffusers, scheduling
 from skrample.common import Point, SigmaTransform, Step, euler, sigma_complement
@@ -567,7 +575,7 @@ def test_rku_brownian(
 
 @pytest.mark.parametrize(
     ("provider"),
-    [*tableaux.BUILTIN_TABLEAUX, *tableaux.BUILTIN_EMBEDDED_TABLEAU],
+    ALL_TABLEAUX,
 )
 def test_tableau_providers(provider: tableaux.TableauProvider) -> None:
     if error := tableaux.common.validate_tableau(provider.tableau()):
@@ -603,10 +611,10 @@ def test_tableau_preset_nondefault(label: str, k: int, v: tableaux.TableauProvid
     assert v not in functional.DEFAULT_PROVIDERS.values(), k
 
 
-@pytest.mark.parametrize(("provider"), tableaux.BUILTIN_TABLEAUX)
-def test_builtin_tableau_dupe(provider: tableaux.TableauProvider) -> None:
+@pytest.mark.parametrize(("provider"), ALL_TABLEAUX)
+def test_tableau_dupe(provider: tableaux.TableauProvider) -> None:
     t = provider.tableau()
-    builtins = [p.tableau() for p in tableaux.BUILTIN_TABLEAUX]
+    builtins = [p.tableau() for p in ALL_TABLEAUX]
     builtins.pop(builtins.index(t))
     for b in builtins:
         if len(t.stages) == len(b.stages):

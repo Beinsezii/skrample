@@ -27,11 +27,17 @@ BUILTIN_TABLEAUX: Sequence[TableauProvider[Tableau]] = [
     *RK4,
     *RKZ,
     *SSP,
-    *WSO,
-    *Shanks1965,
 ]
+"All usable explicit runge-kutta methods"
 BUILTIN_EMBEDDED_TABLEAU: Sequence[TableauProvider[EmbeddedTableau]] = [
     *RKE2,
     *RKE3,
     *RKE5,
 ]
+"All usable embedded runge-kutta methods"
+
+GRAVEYARD: Sequence[TableauProvider[TableauType]] = [
+    *WSO,
+    *Shanks1965,
+]
+"Unfortunate methods that ended up kinda sucking across all models"
