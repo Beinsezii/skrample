@@ -608,6 +608,16 @@ def test_tableau_preset_nondefault(label: str, k: int, v: tableaux.TableauProvid
     assert v not in functional.DEFAULT_PROVIDERS.values(), k
 
 
+@pytest.mark.parametrize(("provider"), tableaux.BUILTIN_TABLEAUX)
+def test_builtin_tableau_dupe(provider: tableaux.TableauProvider) -> None:
+    t = provider.tableau()
+    builtins = [p.tableau() for p in tableaux.BUILTIN_TABLEAUX]
+    builtins.pop(builtins.index(t))
+    for b in builtins:
+        if len(t.stages) == len(b.stages):
+            assert tableau_distance(t, b) > 1e-2
+
+
 def test_rk2_tableau() -> None:
     assert (
         tableau_distance(
