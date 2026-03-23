@@ -14,7 +14,7 @@ type SamplerTestKey = tuple[
 ]
 
 MEASURED_SAMPLERS: list[structured.StructuredSampler | functional.FunctionalSampler] = [
-    functional.RKUltra(providers={2: tableaux.RK2.Heun}),
+    functional.RKUltra(providers={2: tableaux.RKE2.Heun}),
     structured.Adams(),
     structured.SPC(),
 ]

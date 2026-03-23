@@ -16,7 +16,7 @@ from skrample.common import SigmaTransform, Step, sigma_complement, sigma_polar
 from skrample.sampling.functional import RKUltra
 from skrample.sampling.models import DiffusionModel, FlowModel, NoiseModel, VelocityModel
 from skrample.sampling.structured import DPM, Euler, SKSamples, StructuredSampler, UniPC
-from skrample.sampling.tableaux import RK2
+from skrample.sampling.tableaux.providers import RKE2
 from skrample.scheduling import FixedSchedule
 
 # TODO (beinsezii): no idea why this is touchy???
@@ -261,7 +261,7 @@ def test_heun(
     )
     skrample_sampler = RKUltra(
         order=2,
-        providers={2: RK2.Heun},
+        providers={2: RKE2.Heun},
         derivative_transform=derivative_transform,
     )
 

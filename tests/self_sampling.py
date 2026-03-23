@@ -6,7 +6,15 @@ from dataclasses import replace
 import numpy as np
 import pytest
 import torch
-from testing_common import ALL_FAKE_MODELS, ALL_MODELS, ALL_SCHEDULES, ALL_STRUCTURED, ALL_TRANSFROMS, compare_pp
+from testing_common import (
+    ALL_FAKE_MODELS,
+    ALL_MODELS,
+    ALL_SCHEDULES,
+    ALL_STRUCTURED,
+    ALL_TABLEAUX,
+    ALL_TRANSFROMS,
+    compare_pp,
+)
 
 from skrample import diffusers, scheduling
 from skrample.common import Point, SigmaTransform, Step, euler, sigma_complement
@@ -87,7 +95,7 @@ def test_self_samplers(key: SamplerTestKey) -> None:
     compare_pp(
         np.asarray(
             capture(
-                smp(providers={2: tableaux.RK2.Heun}) if issubclass(smp, functional.RKUltra) else smp(),
+                smp(providers={2: tableaux.RKE2.Heun}) if issubclass(smp, functional.RKUltra) else smp(),
                 sch(),
                 md(),
             ),
@@ -567,7 +575,7 @@ def test_rku_brownian(
 
 @pytest.mark.parametrize(
     ("provider"),
-    [*tableaux.BUILTIN_TABLEAUX, *tableaux.BUILTIN_EMBEDDED_TABLEAU],
+    ALL_TABLEAUX,
 )
 def test_tableau_providers(provider: tableaux.TableauProvider) -> None:
     if error := tableaux.common.validate_tableau(provider.tableau()):
@@ -587,7 +595,6 @@ def tableau_distance(a: tableaux.Tableau, b: tableaux.Tableau) -> float:
         for label, preset in (
             ("default", functional.DEFAULT_PROVIDERS),
             ("stable", functional.STABLE_PROVIDERS),
-            ("convergent", functional.CONVERGENT_PROVIDERS),
         )
         for k, v in preset.items()
     ],
@@ -598,20 +605,16 @@ def test_tableau_preset_stages(label: str, k: int, v: tableaux.TableauProvider) 
 
 @pytest.mark.parametrize(
     ("label", "k", "v"),
-    [
-        (label, k, v)
-        for label, preset in (("stable", functional.STABLE_PROVIDERS), ("convergent", functional.CONVERGENT_PROVIDERS))
-        for k, v in preset.items()
-    ],
+    [(label, k, v) for label, preset in (("stable", functional.STABLE_PROVIDERS),) for k, v in preset.items()],
 )
 def test_tableau_preset_nondefault(label: str, k: int, v: tableaux.TableauProvider) -> None:
     assert v not in functional.DEFAULT_PROVIDERS.values(), k
 
 
-@pytest.mark.parametrize(("provider"), tableaux.BUILTIN_TABLEAUX)
-def test_builtin_tableau_dupe(provider: tableaux.TableauProvider) -> None:
+@pytest.mark.parametrize(("provider"), ALL_TABLEAUX)
+def test_tableau_dupe(provider: tableaux.TableauProvider) -> None:
     t = provider.tableau()
-    builtins = [p.tableau() for p in tableaux.BUILTIN_TABLEAUX]
+    builtins = [p.tableau() for p in ALL_TABLEAUX]
     builtins.pop(builtins.index(t))
     for b in builtins:
         if len(t.stages) == len(b.stages):

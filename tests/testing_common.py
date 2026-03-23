@@ -6,6 +6,7 @@ import torch
 from huggingface_hub import hf_hub_download
 
 from skrample.common import SigmaTransform, sigma_complement, sigma_polar
+from skrample.sampling import tableaux
 from skrample.sampling.models import (
     DataModel,
     DiffusionModel,
@@ -89,6 +90,12 @@ ALL_FAKE_MODELS: list[type[DiffusionModel]] = [
 ALL_TRANSFROMS: list[SigmaTransform] = [
     sigma_complement,
     sigma_polar,
+]
+
+ALL_TABLEAUX: list[tableaux.TableauProvider] = [
+    *tableaux.BUILTIN_TABLEAUX,
+    *tableaux.BUILTIN_EMBEDDED_TABLEAU,
+    *tableaux.GRAVEYARD,
 ]
 
 
