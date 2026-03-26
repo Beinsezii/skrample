@@ -33,10 +33,10 @@ from skrample.scheduling import (
     Linear,
     NoMod,
     NoSub,
+    Probit,
     Scaled,
     ScheduleCommon,
     ScheduleModifier,
-    Siggauss,
     Sinner,
     SubSchedule,
 )
@@ -70,7 +70,7 @@ ALL_MODIFIERS: list[type[ScheduleModifier | SubSchedule]] = [
     FlowShift,
     Karras,
     Exponential,
-    Siggauss,
+    Probit,
     Hyper,
     Sinner,
 ]
