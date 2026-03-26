@@ -455,8 +455,8 @@ class Beta(SubSchedule):
 
 
 @dataclass(frozen=True)
-class Siggauss(SubSchedule):
-    """Normal cumulative distribution run through sigmoid.
+class Probit(SubSchedule):
+    """Normal inverse CDF run through sigmoid.
     Produces an S-curve similar to the Beta modifier.
     This is the continuous equivalent of `np.sort(np.randn([steps]))` used in some training schedules"""
 
