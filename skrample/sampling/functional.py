@@ -6,7 +6,7 @@ from types import MappingProxyType
 from typing import Any
 
 from skrample import common, scheduling
-from skrample.common import RNG, FloatSchedule, Sample, Step
+from skrample.common import RNG, DeltaPoint, FloatSchedule, Sample, Step
 
 from . import models, tableaux, traits
 
@@ -250,6 +250,67 @@ class RKUltra(FunctionalUnified, FunctionalSinglestep):
     ) -> T:
         return step_tableau(
             self.tableau(),
+            sample,
+            model,
+            model_transform,
+            schedule,
+            step,
+            self.derivative_transform,
+            rng() if rng else None,
+            self.stochasticity,
+        )[0]
+
+
+@dataclasses.dataclass(frozen=True)
+class DynasauRK(FunctionalUnified, FunctionalSinglestep):
+    """Dynamic RK solver that generates tableaux on-the-fly based on noise level."""
+
+    @staticmethod
+    def min_order() -> int:
+        return 2
+
+    @staticmethod
+    def max_order() -> int:
+        return 4
+
+    def adjust_steps(self, steps: int) -> int:
+        return max(round(steps / self.order), 1)
+
+    def tableau(self, step: Step, schedule: scheduling.SkrampleSchedule) -> tableaux.Tableau:
+        if self.order >= 4:
+            high: float = 1 / 4 * (2 - math.sqrt(2))  # SYM
+            low: float = 1 / 14 * (5 - 3 * math.sqrt(2))  # MIN
+            tf = tableaux.providers.ees27_tableau
+        elif self.order >= 3:
+            high: float = 0.25  # SYM
+            low: float = 0.1  # MIN
+            tf = tableaux.providers.ees25_tableau
+        else:
+            high: float = 1  # Heun
+            low: float = 0.5  # Mid
+            tf = tableaux.providers.rk2_tableau
+
+        ts = DeltaPoint(
+            schedule.ipoint(step.time_from),
+            schedule.ipoint(step.time_to),
+        ).sigma_ts(schedule.sigma_transform)
+
+        f = ts.t.sigma / sum(ts.t)  # ensure we're working on a unit vector
+        t = 1 - ts.s.alpha / sum(ts.s)
+        gradient = (math.sqrt(f * t) + 1 - math.sqrt((1 - f) * (1 - t))) / 2
+        return tf(gradient * high + (1 - gradient) * low)
+
+    def step[T: Sample](
+        self,
+        sample: T,
+        model: SampleableModel[T],
+        model_transform: models.DiffusionModel,
+        schedule: scheduling.SkrampleSchedule,
+        step: Step,
+        rng: RNG[T] | None = None,
+    ) -> T:
+        return step_tableau(
+            self.tableau(step, schedule),
             sample,
             model,
             model_transform,
