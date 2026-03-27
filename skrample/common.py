@@ -193,14 +193,14 @@ def ln(x: float) -> float:
         return -math.inf
 
 
-def normalize(regular_array: NDArray[np.float64], start: float, end: float = 0) -> NDArray[np.float64]:
+def normalize[T: Sample](regular: T, start: float, end: float = 0) -> T:
     "Rescales an array to 1..0"
-    return np.divide(regular_array - end, start - end)
+    return (regular - end) / (start - end)  # pyright: ignore [reportReturnType] # float rhs is always T
 
 
-def regularize(normal_array: NDArray[np.float64], start: float, end: float = 0) -> NDArray[np.float64]:
+def regularize[T: Sample](normal: T, start: float, end: float = 0) -> T:
     "Rescales an array from 1..0 back up"
-    return normal_array * (start - end) + end
+    return normal * (start - end) + end  # pyright: ignore [reportReturnType] # float rhs is always T
 
 
 def rescale_positive(x: float) -> float:
