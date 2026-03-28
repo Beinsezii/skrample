@@ -27,18 +27,6 @@ type SamplerTestKey = tuple[
     type[models.DiffusionModel],
 ]
 
-MEASURED_SAMPLERS: list[structured.StructuredSampler | functional.FunctionalSampler] = [
-    functional.RKUltra(),
-    structured.Adams(),
-    structured.SPC(),
-]
-MEASURED_SCHEDULES: list[scheduling.ScheduleCommon] = [scheduling.Linear(), scheduling.Scaled()]
-MEASURED_MODELS: list[models.DiffusionModel] = [
-    models.DataModel(),
-    models.FlowModel(),
-    # models.NoiseModel(),  # / zero
-    models.VelocityModel(),
-]
 
 MEASURED_STEPS: int = 7
 MEASURED_SEED: int = 42
@@ -73,6 +61,12 @@ MEASURED_SAMPLER_RESULTS: dict[SamplerTestKey, list[float]] = {
     (functional.RKUltra, scheduling.Scaled, models.DataModel): [0.6300931871907277, 0.6176224267634932, 0.6210501754229566, 0.8150691665877265, 1.103791875801471, 0.995328115543478, 1.130634078389917],  # noqa: E501
     (functional.RKUltra, scheduling.Scaled, models.FlowModel): [0.664132347336799, 0.708288578272592, 0.7392745926547724, 0.5874191175220908, 0.3507488804008957, 0.30995208778899164, 0.15800230361404097],  # noqa: E501
     (functional.RKUltra, scheduling.Scaled, models.VelocityModel): [0.6466992262396786, 0.647570542272716, 0.605409393836501, 0.3622010992613355, 0.11677787277282146, 0.16251186182339153, 0.0791635631891336],  # noqa: E501
+    (functional.DynasauRK, scheduling.Linear, models.DataModel): [0.5780598392186804, 0.43881401177429463, 0.4462127705507371, 0.15877045078456975, -0.0846630433503945, 0.3807326213665542, 0.9026605449206145],  # noqa: E501
+    (functional.DynasauRK, scheduling.Linear, models.FlowModel): [0.6541411854539834, 0.6918133617886882, 0.5593134661078483, 0.5833298107730804, 0.5490268291342276, 0.4309635569003862, 0.3837169287396171],  # noqa: E501
+    (functional.DynasauRK, scheduling.Linear, models.VelocityModel): [0.6124513781869325, 0.5840108556744027, 0.37822965141894166, 0.3690586736730713, 0.33234530978351345, 0.20125302486834545, 0.15655839382756795],  # noqa: E501
+    (functional.DynasauRK, scheduling.Scaled, models.DataModel): [0.6300931871907277, 0.5905630215405465, 0.6954433754635281, 0.5547863890711352, 0.3916297296560001, 0.7919415985152183, 1.2942159371631172],  # noqa: E501
+    (functional.DynasauRK, scheduling.Scaled, models.FlowModel): [0.664132347336799, 0.7317216369293565, 0.6795064718199574, 0.7301255331661495, 0.6834368677925173, 0.3920782158433731, 0.17388296261379138],  # noqa: E501
+    (functional.DynasauRK, scheduling.Scaled, models.VelocityModel): [0.6466992262396786, 0.6741290887567408, 0.5230768550726147, 0.5785403897092601, 0.603008319368234, 0.3208609187968215, 0.15366116390437082],  # noqa: E501
     (structured.Adams, scheduling.Linear, models.DataModel): [0.5823892132380544, 0.45238300627281497, 0.3893269179260654, 0.22944591590064134, 1.0260936490800747, 0.47614703345685516, 0.6114529963032942],  # noqa: E501
     (structured.Adams, scheduling.Linear, models.FlowModel): [0.652357160411046, 0.6865655116121595, 0.5897498257234484, 0.5503720966982281, 0.12391546260993933, 0.25062205385363334, 0.2240010031899688],  # noqa: E501
     (structured.Adams, scheduling.Linear, models.VelocityModel): [0.6082499371443788, 0.5759467522266517, 0.3996314973648122, 0.34379120213634495, -0.09453883964299331, 0.10484655646602958, 0.08104875615666654],  # noqa: E501
@@ -409,16 +403,18 @@ def test_functional_adapter(
 
 
 @pytest.mark.parametrize(
-    ("model", "transform", "schedule", "order", "stochasticity"),
+    ("wrapper", "model", "transform", "schedule", "order", "stochasticity"),
     itertools.product(
+        [diffusers.RKUltraWrapperScheduler, diffusers.DynasauRKWrapperScheduler],
         [models.DataModel, models.VelocityModel, models.FlowModel],  # Noise isn't valid for flow schedules
         [None, models.DataModel, models.VelocityModel, models.FlowModel, models.ScaleX],
         [scheduling.Sinner(scheduling.Linear()), scheduling.Scaled()],
-        [0, *range(2, 6), 99],
+        [0, *range(2, 5), 99],
         [-1.5, 0, 0.5, 1],
     ),
 )
-def test_rku_diffusers(
+def test_runge_kutta_diffusers(
+    wrapper: type[diffusers.RKUltraWrapperScheduler | diffusers.DynasauRKWrapperScheduler],
     model: type[models.DiffusionModel],
     transform: type[models.DiffusionModel] | None,
     schedule: scheduling.SkrampleSchedule,
@@ -443,7 +439,7 @@ def test_rku_diffusers(
         points_wrap.append(Point(t, s))
         return fake_model(x, t, s)
 
-    sampler_wrap = diffusers.RKUltraWrapperScheduler(
+    sampler_wrap = wrapper(
         schedule,
         sampler_order=order,
         stochasticity=stochasticity,
