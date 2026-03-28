@@ -126,6 +126,8 @@ parser_sampler.add_argument(
 
 # Schedules
 parser_schedule = subparsers.add_parser("schedules")
+parser_schedule.add_argument("--alphas", type=bool, default=False, action=BooleanOptionalAction)
+parser_schedule.add_argument("--timesteps", type=bool, default=False, action=BooleanOptionalAction)
 parser_schedule.add_argument(
     "--schedule",
     "-S",
@@ -227,8 +229,10 @@ if args.command == "samplers":
 
 elif args.command == "schedules":
     plt.xlabel("Step")
-    plt.ylabel("Normalized Values")
+    plt.ylabel("Noise")
     plt.title("Skrample Schedules")
+    plt.ylim(0, 1)
+    plt.xlim(0, args.steps)
 
     for sched_name in args.schedule:
         for sub in args.subschedule:
@@ -253,13 +257,27 @@ elif args.command == "schedules":
 
                     data = composed.ipoints(np.linspace(0, 1, args.steps + 1))
 
-                    timesteps = data[:, 0] / composed.base_timesteps
-                    sigmas = data[:, 1] / data[:, 1].max()
-
                     marker = "+" if args.steps <= 50 else ""
-                    plt.plot(timesteps, label=label + " Timesteps", marker=marker, color=next(COLORS))
-                    if not np.allclose(timesteps, sigmas, atol=1e-2):
-                        plt.plot(sigmas, label=label + " Sigmas", marker=marker, color=next(COLORS))
+                    if args.timesteps:
+                        plt.plot(
+                            data[:, 0] / schedule.base_timesteps,
+                            label=label + " Timesteps",
+                            marker=marker,
+                            color=next(COLORS),
+                        )
+                    plt.plot(
+                        [schedule.sigma_transform(s).sigma for s in data[:, 1]],
+                        label=label + (" Sigmas" if args.timesteps or args.alphas else ""),
+                        marker=marker,
+                        color=next(COLORS),
+                    )
+                    if args.alphas:
+                        plt.plot(
+                            [schedule.sigma_transform(s).alpha for s in data[:, 1]],
+                            label=label + " Alphas",
+                            marker=marker,
+                            color=next(COLORS),
+                        )
 
 else:
     raise NotImplementedError
