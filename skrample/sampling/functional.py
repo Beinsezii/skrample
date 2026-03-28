@@ -6,7 +6,7 @@ from types import MappingProxyType
 from typing import Any
 
 from skrample import common, scheduling
-from skrample.common import RNG, DeltaPoint, FloatSchedule, Sample, Step
+from skrample.common import RNG, FloatSchedule, Sample, Step
 
 from . import models, tableaux, traits
 
@@ -263,7 +263,11 @@ class RKUltra(FunctionalUnified, FunctionalSinglestep):
 
 @dataclasses.dataclass(frozen=True)
 class DynasauRK(FunctionalUnified, FunctionalSinglestep):
-    """Dynamic RK solver that generates tableaux on-the-fly based on noise level."""
+    """Dynamic RK solver that generates tableaux on-the-fly.
+    Initializes with a high stability method and moves towards
+    higher convergence methods through exponential decay.
+    This means that the overall stability properties change with step count,
+    with higher steps using lower mean stability."""
 
     @staticmethod
     def min_order() -> int:
@@ -276,7 +280,8 @@ class DynasauRK(FunctionalUnified, FunctionalSinglestep):
     def adjust_steps(self, steps: int) -> int:
         return max(round(steps / self.order), 1)
 
-    def tableau(self, step: Step, schedule: scheduling.SkrampleSchedule) -> tableaux.Tableau:
+    def tableau(self, step: Step) -> tableaux.Tableau:
+        "It's assumed that step sizes are uniform, ie in a for loop."
         if self.order >= 4:
             high: float = 1 / 4 * (2 - math.sqrt(2))  # SYM
             low: float = 1 / 14 * (5 - 3 * math.sqrt(2))  # MIN
@@ -290,14 +295,14 @@ class DynasauRK(FunctionalUnified, FunctionalSinglestep):
             low: float = 0.5  # Mid
             tf = tableaux.providers.rk2_tableau
 
-        ts = DeltaPoint(
-            schedule.ipoint(step.time_from),
-            schedule.ipoint(step.time_to),
-        ).sigma_ts(schedule.sigma_transform)
+        step = step.normal().clamp()
+        try:
+            f, t = 1 - step.time_from, 1 - step.time_to
+            gradient = ((f + t) / 2 - 0.5) / (1 - (f - t)) + 0.5
+        except ZeroDivisionError:
+            gradient = 0.5  # f=1, t=0
+        gradient *= math.exp(-step.position())
 
-        f = ts.t.sigma / sum(ts.t)  # ensure we're working on a unit vector
-        t = 1 - ts.s.alpha / sum(ts.s)
-        gradient = (math.sqrt(f * t) + 1 - math.sqrt((1 - f) * (1 - t))) / 2
         return tf(gradient * high + (1 - gradient) * low)
 
     def step[T: Sample](
@@ -310,7 +315,7 @@ class DynasauRK(FunctionalUnified, FunctionalSinglestep):
         rng: RNG[T] | None = None,
     ) -> T:
         return step_tableau(
-            self.tableau(step, schedule),
+            self.tableau(step),
             sample,
             model,
             model_transform,

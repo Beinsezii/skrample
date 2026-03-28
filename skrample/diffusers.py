@@ -958,8 +958,7 @@ class DynasauRKWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore)
         )
 
     def tableau(self) -> tableaux.Tableau:
-        step = Step.from_int(self._index // self.order, self._steps)
-        return self.functional_interface()[0].tableau(step, self.schedule)
+        return self.functional_interface()[0].tableau(Step.from_int(self._index // self.order, self._steps))
 
     def adjust_steps(self, steps: int) -> int:
         return self.functional_interface()[0].adjust_steps(steps)
@@ -990,7 +989,7 @@ class DynasauRKWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore)
 
     @property
     def order(self) -> int:
-        return len(self.functional_interface()[0].tableau(Step(1, 0), self.schedule).stages)
+        return len(self.functional_interface()[0].tableau(Step(1, 0)).stages)
 
     @property
     def config(self) -> OrderedDict[str, Any]:
