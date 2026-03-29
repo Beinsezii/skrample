@@ -12,7 +12,6 @@ from skrample.common import (
     Point,
     Sample,
     SigmaTransform,
-    SigmaTS,
     Step,
     divf,
     ln,
@@ -44,8 +43,8 @@ class SampleInput[T: Sample]:
     def delta_point(self, schedule: SkrampleSchedule) -> DeltaPoint:
         return DeltaPoint(*(Point(*p) for p in schedule.ipoints(self.step).tolist()))
 
-    def delta_uv(self, schedule: SkrampleSchedule) -> SigmaTS:
-        return self.delta_point(schedule).sigma_ts(schedule.sigma_transform)
+    def delta_uv(self, schedule: SkrampleSchedule) -> DeltaPoint:
+        return self.delta_point(schedule)
 
 
 @dataclass(frozen=True)
@@ -189,9 +188,8 @@ class Euler(StructuredStochastic, StatedSampler):
         return model_transform.forward(
             packed.sample,
             packed.prediction,
-            delta.point_from.sigma,
-            delta.point_to.sigma,
-            schedule.sigma_transform,
+            delta.point_from,
+            delta.point_to,
             packed.noise,
             self.stochasticity,
         )
@@ -224,15 +222,10 @@ class DPM(StructuredUnified, StatedSampler):
         if self.derivative_transform:
             convert = models.ModelConvert(model_transform, self.derivative_transform)
             predictions = [
-                convert.output_to(packed.sample, packed.prediction, delta.point_from.sigma, schedule.sigma_transform),
+                convert.output_to(packed.sample, packed.prediction, delta.point_from),
                 *reversed(
                     [
-                        convert.output_to(
-                            p.sample,
-                            p.prediction,
-                            p.delta_point(schedule).point_from.sigma,
-                            schedule.sigma_transform,
-                        )
+                        convert.output_to(p.sample, p.prediction, p.delta_point(schedule).point_from)
                         for p in previous[-effective_order + 1 :]
                     ]
                 ),
@@ -249,7 +242,7 @@ class DPM(StructuredUnified, StatedSampler):
         # everything since once again by myself
         if effective_order >= 2:
             # T0
-            (sigma_u, sigma_v), (sigma_u_next, sigma_v_next) = delta.sigma_ts(schedule.sigma_transform)
+            (_t0, sigma_u, sigma_v), (_t1, sigma_u_next, sigma_v_next) = delta
 
             lambda_ = ln(divf(sigma_v, sigma_u))
             lambda_next = ln(divf(sigma_v_next, sigma_u_next))
@@ -257,7 +250,7 @@ class DPM(StructuredUnified, StatedSampler):
 
             # T-1
             point_prev = schedule.ipoint(previous[-1].step.time_from)
-            sigma_u_prev, sigma_v_prev = schedule.sigma_transform(point_prev.sigma)
+            _t_prev, sigma_u_prev, sigma_v_prev = point_prev
             lambda_prev = ln(divf(sigma_v_prev, sigma_u_prev))
             h_prev = lambda_ - lambda_prev
             r = h_prev / h
@@ -268,7 +261,7 @@ class DPM(StructuredUnified, StatedSampler):
             if effective_order >= 3:
                 # T-2
                 point_prev2 = schedule.ipoint(previous[-2].step.time_from)
-                sigma_u_prev2, sigma_v_prev2 = schedule.sigma_transform(point_prev2.sigma)
+                _t_prev2, sigma_u_prev2, sigma_v_prev2 = point_prev2
                 lambda_prev2 = ln(divf(sigma_v_prev2, sigma_u_prev2))
                 h_prev2 = lambda_prev - lambda_prev2
                 r_prev2 = h_prev2 / h
@@ -299,9 +292,8 @@ class DPM(StructuredUnified, StatedSampler):
         return model_transform.forward(
             packed.sample,
             prediction,
-            delta.point_from.sigma,
-            delta.point_to.sigma,
-            schedule.sigma_transform,
+            delta.point_from,
+            delta.point_to,
             packed.noise,
             eta=self.stochasticity,
         )
@@ -328,15 +320,10 @@ class Adams(StructuredUnified, StatedSampler):
         if self.derivative_transform:
             convert = models.ModelConvert(model_transform, self.derivative_transform)
             predictions = [
-                convert.output_to(packed.sample, packed.prediction, delta.point_from.sigma, schedule.sigma_transform),
+                convert.output_to(packed.sample, packed.prediction, delta.point_from),
                 *reversed(
                     [
-                        convert.output_to(
-                            p.sample,
-                            p.prediction,
-                            p.delta_point(schedule).point_from.sigma,
-                            schedule.sigma_transform,
-                        )
+                        convert.output_to(p.sample, p.prediction, p.delta_point(schedule).point_from)
                         for p in previous[-effective_order + 1 :]
                     ]
                 ),
@@ -353,9 +340,8 @@ class Adams(StructuredUnified, StatedSampler):
         return model_transform.forward(
             packed.sample,
             weighted_prediction,
-            delta.point_from.sigma,
-            delta.point_to.sigma,
-            schedule.sigma_transform,
+            delta.point_from,
+            delta.point_to,
             packed.noise,
             self.stochasticity,
         )
@@ -387,26 +373,16 @@ class UniP(StructuredUnified, StatedSampler):
         if self.derivative_transform:
             convert = models.ModelConvert(model_transform, self.derivative_transform)
             predictions = [
-                convert.output_to(packed.sample, packed.prediction, delta.point_from.sigma, schedule.sigma_transform),
+                convert.output_to(packed.sample, packed.prediction, delta.point_from),
                 *reversed(
                     [
-                        convert.output_to(
-                            p.sample,
-                            p.prediction,
-                            p.delta_point(schedule).point_from.sigma,
-                            schedule.sigma_transform,
-                        )
+                        convert.output_to(p.sample, p.prediction, p.delta_point(schedule).point_from)
                         for p in previous[-effective_order + 1 :]
                     ]
                 ),
             ]
             if prediction_next is not None:
-                prediction_next = convert.output_to(
-                    packed.sample,
-                    prediction_next,
-                    delta.point_from.sigma,
-                    schedule.sigma_transform,
-                )
+                prediction_next = convert.output_to(packed.sample, prediction_next, delta.point_from)
             model_transform = convert.transform_to
         else:
             predictions = [packed.prediction, *reversed([p.prediction for p in previous[-effective_order + 1 :]])]
@@ -418,7 +394,7 @@ class UniP(StructuredUnified, StatedSampler):
         # adjusted for DiffusionModel by Qwen 3.5,
         # everything since once again by myself
 
-        (sigma_u, sigma_v), (sigma_u_next, sigma_v_next) = delta.sigma_ts(schedule.sigma_transform)
+        (_t0, sigma_u, sigma_v), (_t1, sigma_u_next, sigma_v_next) = delta
 
         lambda_ = ln(divf(sigma_v, sigma_u))
         lambda_next = ln(divf(sigma_v_next, sigma_u_next))
@@ -431,9 +407,8 @@ class UniP(StructuredUnified, StatedSampler):
         rks: list[float] = []
         D1s: list[Sample] = []
         for n in range(1, effective_order):
-            sigma_prev_N = previous[-n].delta_point(schedule).point_from.sigma
             prediction_prev_N = predictions.pop(0)
-            sigma_u_prev_N, sigma_v_prev_N = schedule.sigma_transform(sigma_prev_N)
+            _tN, sigma_u_prev_N, sigma_v_prev_N = previous[-n].delta_point(schedule).point_from
             lambda_pO = ln(divf(sigma_v_prev_N, sigma_u_prev_N))
             rk = (lambda_pO - lambda_) / h
             if math.isfinite(rk):
@@ -472,9 +447,8 @@ class UniP(StructuredUnified, StatedSampler):
         return model_transform.forward(
             packed.sample,
             prediction,
-            delta.point_from.sigma,
-            delta.point_to.sigma,
-            schedule.sigma_transform,
+            delta.point_from,
+            delta.point_to,
             packed.noise,
             eta=self.stochasticity,
         )
@@ -523,12 +497,7 @@ class UniPC(UniP):
             convert = models.ModelConvert(model_transform, self.derivative_transform)
             packed = replace(
                 packed,
-                prediction=convert.output_to(
-                    packed.sample,
-                    packed.prediction,
-                    delta.point_from.sigma,
-                    schedule.sigma_transform,
-                ),
+                prediction=convert.output_to(packed.sample, packed.prediction, delta.point_from),
             )
             model_transform = convert.transform_to
 
@@ -586,12 +555,7 @@ class SPC(traits.DerivativeTransform, StructuredSampler):
             convert = models.ModelConvert(model_transform, self.derivative_transform)
             packed = replace(
                 packed,
-                prediction=convert.output_to(
-                    packed.sample,
-                    packed.prediction,
-                    delta.point_from.sigma,
-                    schedule.sigma_transform,
-                ),
+                prediction=convert.output_to(packed.sample, packed.prediction, delta.point_from),
             )
             model_transform = convert.transform_to
 
@@ -609,7 +573,7 @@ class SPC(traits.DerivativeTransform, StructuredSampler):
             ).final
 
             if self.adaptive:
-                p, c = delta.sigma_ts(schedule.sigma_transform).t
+                _t, p, c = delta.point_from
             else:
                 p, c = 0, 0
 
