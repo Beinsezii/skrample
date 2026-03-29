@@ -100,12 +100,15 @@ def test_self_samplers(key: SamplerTestKey) -> None:
     )
 
 
-@pytest.mark.parametrize(("model_type", "sigma_transform"), itertools.product(ALL_MODELS, ALL_TRANSFROMS))
-def test_model_transforms(model_type: type[models.DiffusionModel], sigma_transform: SigmaTransform) -> None:
+@pytest.mark.parametrize(
+    ("model_type", "sigma_transform", "eta"), itertools.product(ALL_MODELS, ALL_TRANSFROMS, [-1.5, 0, 0.5, 1])
+)
+def test_model_transforms(model_type: type[models.DiffusionModel], sigma_transform: SigmaTransform, eta: float) -> None:
     model_transform = model_type()
     sample = 0.8
     output = 0.3
     sigma = 0.2
+    noise = 0.6
 
     x = model_transform.to_x(sample, output, sigma, sigma_transform)
     o = model_transform.from_x(sample, x, sigma, sigma_transform)
@@ -121,6 +124,10 @@ def test_model_transforms(model_type: type[models.DiffusionModel], sigma_transfo
 
         ob = model_transform.backward(sample, df, sigma, sigma_next, sigma_transform)
         assert abs(o - ob) < 1e-12
+
+        fsde = model_transform.forward(sample, output, sigma, sigma_next, sigma_transform, noise, eta)
+        bsde = model_transform.backward(sample, fsde, sigma, sigma_next, sigma_transform, noise, eta)
+        assert abs(output - bsde) < 1e-12
 
 
 @pytest.mark.parametrize(
