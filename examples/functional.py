@@ -26,8 +26,6 @@ with torch.inference_mode():
     sampler = StructuredFunctionalAdapter(structured.DPM(order=2, stochasticity=True))
     # Native functional example
     sampler = functional.RKUltra(4)
-    # Dynamic model calls
-    sampler = functional.FastHeun()
     # Dynamic step sizes
     sampler = functional.RKMoire()
 
@@ -50,7 +48,7 @@ with torch.inference_mode():
         ).input_ids.to(device=device)
     ).last_hidden_state
 
-    def call_model(x: torch.Tensor, t: float, s: float) -> torch.Tensor:
+    def call_model(x: torch.Tensor, t: float, s: float, a: float) -> torch.Tensor:
         conditioned, unconditioned = model(
             x.expand([x.shape[0] * 2, *x.shape[1:]]),
             t,
@@ -69,7 +67,7 @@ with torch.inference_mode():
         schedule=schedule,
         steps=steps,
         rng=lambda: rng.generate().to(dtype=dtype, device=device),
-        callback=lambda x, n, t, s: bar.update(n + 1 - bar.n),
+        callback=lambda x, n, t, s, a: bar.update(n + 1 - bar.n),
     )
 
     image: torch.Tensor = image_encoder.decode(sample / image_encoder.config.scaling_factor).sample[0]  # type: ignore

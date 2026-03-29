@@ -169,8 +169,8 @@ def euler[T: Sample](sample: T, prediction: T, sigma: float, sigma_next: float, 
     return math.sumprod((prediction, sample), scaled_delta(sigma, sigma_next, sigma_transform))  # type: ignore
 
 
-def merge_noise[T: Sample](sample: T, noise: T, sigma: float, sigma_transform: SigmaTransform) -> T:
-    sigma_u, sigma_v = sigma_transform(sigma)
+def merge_noise[T: Sample](sample: T, noise: T, point: Point) -> T:
+    _t, sigma_u, sigma_v = point
     return sample * sigma_v + noise * sigma_u  # pyright: ignore [reportReturnType] # float rhs is always T
 
 

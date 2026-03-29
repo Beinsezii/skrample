@@ -27,6 +27,7 @@ from skrample.sampling.structured import (
 from skrample.scheduling import (
     Beta,
     Exponential,
+    FlowMatching,
     FlowShift,
     Hyper,
     Karras,
@@ -37,8 +38,10 @@ from skrample.scheduling import (
     Scaled,
     ScheduleCommon,
     ScheduleModifier,
+    SigmaSpace,
     Sinner,
     SubSchedule,
+    VariancePreserving,
 )
 
 
@@ -90,6 +93,10 @@ ALL_FAKE_MODELS: list[type[DiffusionModel]] = [
 ALL_TRANSFROMS: list[SigmaTransform] = [
     sigma_complement,
     sigma_polar,
+]
+ALL_SPACES: list[SigmaSpace] = [
+    FlowMatching(),
+    VariancePreserving(),
 ]
 
 ALL_TABLEAUX: list[tableaux.TableauProvider] = [

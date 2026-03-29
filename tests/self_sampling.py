@@ -12,12 +12,11 @@ from testing_common import (
     ALL_SCHEDULES,
     ALL_STRUCTURED,
     ALL_TABLEAUX,
-    ALL_TRANSFROMS,
     compare_pp,
 )
 
 from skrample import diffusers, scheduling
-from skrample.common import Point, SigmaTransform, Step, euler, sigma_complement
+from skrample.common import Point, Step
 from skrample.pytorch.noise import Brownian
 from skrample.sampling import functional, interface, models, structured, tableaux, traits
 
@@ -101,43 +100,40 @@ def test_self_samplers(key: SamplerTestKey) -> None:
 
 
 @pytest.mark.parametrize(
-    ("model_type", "sigma_transform", "eta"), itertools.product(ALL_MODELS, ALL_TRANSFROMS, [-1.5, 0, 0.5, 1])
+    ("model_type", "schedule", "eta"),
+    itertools.product(ALL_MODELS, [scheduling.Linear, scheduling.Scaled], [-1.5, 0, 0.5, 1]),
 )
-def test_model_transforms(model_type: type[models.DiffusionModel], sigma_transform: SigmaTransform, eta: float) -> None:
+def test_model_transforms(
+    model_type: type[models.DiffusionModel], schedule: type[scheduling.SkrampleSchedule], eta: float
+) -> None:
     model_transform = model_type()
     sample = 0.8
     output = 0.3
-    sigma = 0.2
     noise = 0.6
 
-    x = model_transform.to_x(sample, output, sigma, sigma_transform)
-    o = model_transform.from_x(sample, x, sigma, sigma_transform)
+    point_from = schedule().point(0.6)
+
+    x = model_transform.to_x(sample, output, point_from)
+    o = model_transform.from_x(sample, x, point_from)
     assert abs(output - o) < 1e-12
 
-    sigma_next = 0.05
-    for sigma_next in 0.05, 0:  # extra 0 to validate X̂
-        snr = euler(
-            sample, model_transform.to_x(sample, output, sigma, sigma_transform), sigma, sigma_next, sigma_transform
-        )
-        df = model_transform.forward(sample, output, sigma, sigma_next, sigma_transform)
-        assert abs(snr - df) < 1e-12
-
-        ob = model_transform.backward(sample, df, sigma, sigma_next, sigma_transform)
-        assert abs(o - ob) < 1e-12
-
-        fsde = model_transform.forward(sample, output, sigma, sigma_next, sigma_transform, noise, eta)
-        bsde = model_transform.backward(sample, fsde, sigma, sigma_next, sigma_transform, noise, eta)
+    for t_next in 0.05, 0:  # extra 0 to validate X̂
+        point_to = schedule().point(t_next)
+        fsde = model_transform.forward(sample, output, point_from, point_to, noise, eta)
+        fsde_x = models.DataModel().forward(sample, x, point_from, point_to, noise, eta)
+        assert abs(fsde - fsde_x) < 1e-12
+        bsde = model_transform.backward(sample, fsde, point_from, point_to, noise, eta)
         assert abs(output - bsde) < 1e-12
 
 
 @pytest.mark.parametrize(
-    ("model_from", "model_to", "sigma_transform", "sigma_to"),
-    itertools.product(ALL_MODELS, ALL_MODELS + ALL_FAKE_MODELS, ALL_TRANSFROMS, (0.05, 0.0)),
+    ("model_from", "model_to", "schedule", "sigma_to"),
+    itertools.product(ALL_MODELS, ALL_MODELS + ALL_FAKE_MODELS, [scheduling.Linear, scheduling.Scaled], (0.05, 0.0)),
 )
 def test_model_convert(
     model_from: type[models.DiffusionModel],
     model_to: type[models.DiffusionModel],
-    sigma_transform: SigmaTransform,
+    schedule: type[scheduling.SkrampleSchedule],
     sigma_to: float,
 ) -> None:
     convert = models.ModelConvert(model_from(), model_to())
@@ -145,22 +141,23 @@ def test_model_convert(
     output = 0.3
     sigma_from = 0.2
 
-    def model(x: float, t: float, s: float) -> float:
+    def model(x: float, t: float, s: float, a: float) -> float:
         return output
+
+    point_from = schedule().point(sigma_from)
+    point_to = schedule().point(sigma_to)
 
     x_from = convert.transform_from.forward(
         sample,
-        model(sample, sigma_from, sigma_from),
-        sigma_from,
-        sigma_to,
-        sigma_transform,
+        model(sample, *point_from),
+        point_from,
+        point_to,
     )
     x_to = convert.transform_to.forward(
         sample,
-        convert.wrap_model_call(model, sigma_transform)(sample, sigma_from, sigma_from),
-        sigma_from,
-        sigma_to,
-        sigma_transform,
+        convert.wrap_model_call(model)(sample, *point_from),
+        point_from,
+        point_to,
     )
 
     assert abs(x_from - x_to) < 1e-12
@@ -333,7 +330,7 @@ def test_require_noise(sampler: structured.StructuredSampler) -> None:
     ),
 )
 def test_maruyama(model: type[models.DiffusionModel], schedule: scheduling.SkrampleSchedule, noise: bool) -> None:
-    if model is models.NoiseModel and schedule.sigma_transform is sigma_complement:
+    if model is models.NoiseModel and isinstance(schedule.space, scheduling.VariancePreserving):
         return  # Noise / zero for compliment sigma=1
 
     dpm = interface.StructuredFunctionalAdapter(structured.DPM(order=1, stochasticity=noise))
@@ -378,7 +375,7 @@ def test_maruyama(model: type[models.DiffusionModel], schedule: scheduling.Skram
 def test_functional_adapter(
     sampler: structured.StructuredSampler, schedule: scheduling.ScheduleCommon, steps: int
 ) -> None:
-    def fake_model(x: float, _: float, s: float) -> float:
+    def fake_model(x: float, _t: float, s: float, _a: float) -> float:
         return x + math.sin(x) * s
 
     sample = 1.5
@@ -393,10 +390,10 @@ def test_functional_adapter(
     float_schedule = schedule.schedule(steps)
     sample_s = sample
     previous: list[structured.SKSamples[float]] = []
-    for n, (t, s) in enumerate(float_schedule):
+    for n, (t, s, a) in enumerate(float_schedule):
         results = sampler.sample(
             sample_s,
-            fake_model(sample_s, t, s),
+            fake_model(sample_s, t, s, a),
             Step.from_int(n, len(float_schedule)),
             model_transform,
             schedule,

@@ -10,10 +10,10 @@ from skrample.common import RNG, FloatSchedule, Sample, Step
 
 from . import models, tableaux, traits
 
-type SampleCallback[T: Sample] = Callable[[T, int, float, float], Any]
+type SampleCallback[T: Sample] = Callable[[T, int, float, float, float], Any]
 "Return is ignored"
-type SampleableModel[T: Sample] = Callable[[T, float, float], T]
-"sample, timestep, sigma"
+type SampleableModel[T: Sample] = Callable[[T, float, float, float], T]
+"sample, timestep, sigma, alpha"
 
 DEFAULT_PROVIDERS: Mapping[int, tableaux.TableauProvider[tableaux.TableauType]] = {
     1: tableaux.RK1.Euler,
@@ -62,29 +62,30 @@ def step_tableau[T: Sample](
         model = models.ModelConvert(
             model_transform,
             derivative_transform,
-        ).wrap_model_call(model, schedule.sigma_transform)
+        ).wrap_model_call(model)
         model_transform = derivative_transform
 
     derivatives: list[T] = []
-    S0, S1 = schedule.ipoints(step)[:, 1].tolist()
-    fractions: FloatSchedule = schedule.ipoints([step[0] + f[0] * (step[1] - step[0]) for f in nodes]).tolist()  # type: ignore
+    S0 = schedule.ipoint(step.time_from)
+    S1 = schedule.ipoint(step.time_to)
+    fractions: FloatSchedule = [
+        common.Point(*p) for p in schedule.ipoints([step[0] + f[0] * (step[1] - step[0]) for f in nodes]).tolist()
+    ]
 
     for frac_sc, icoeffs in zip(fractions, (t[1] for t in nodes), strict=True):
-        sigma_i = frac_sc[1]
         if icoeffs:
             X: T = model_transform.forward(  # type: ignore # sumprod is T
                 sample,
                 math.sumprod(derivatives, icoeffs) / math.fsum(icoeffs),  # type: ignore # sumprod is T
                 S0,
-                sigma_i,
-                schedule.sigma_transform,
+                frac_sc,
             )
         else:
             X = sample
 
         # Do not call model on timestep = 0 or sigma = 0
         if any(abs(v) < epsilon for v in frac_sc):
-            derivatives.append(model_transform.backward(sample, X, S0, S1, schedule.sigma_transform))
+            derivatives.append(model_transform.backward(sample, X, S0, S1))
         else:
             derivatives.append(model(X, *frac_sc))
 
@@ -94,7 +95,6 @@ def step_tableau[T: Sample](
             math.sumprod(derivatives, w),  # type: ignore # sumprod is T
             S0,
             S1,
-            schedule.sigma_transform,
             noise,
             stochasticity,
         )
@@ -140,9 +140,8 @@ class FunctionalSampler(ABC, traits.SamplingCommon):
             sample: T = self.merge_noise(  # type: ignore # 0 should be valid here because it's added to RNG so it becomes T
                 0 if initial is None else initial,
                 rng(),
-                schedule.ipoint((include.start or 0) / steps)[1],
-                schedule.sigma_transform,
-            ) / self.merge_noise(0.0, 1.0, schedule.ipoint(0)[1], schedule.sigma_transform)
+                schedule.ipoint((include.start or 0) / steps),
+            ) / self.merge_noise(0.0, 1.0, schedule.ipoint(0))
             # Rescale sample by initial sigma. Mostly just to handle quirks with Scaled
 
         return self.sample_model(sample, model, model_transform, schedule, steps, include, rng, callback)
@@ -325,45 +324,6 @@ class DynasauRK(FunctionalUnified, FunctionalSinglestep):
             rng() if rng else None,
             self.stochasticity,
         )[0]
-
-
-@dataclasses.dataclass(frozen=True)
-class FastHeun(FunctionalAdaptive, FunctionalHigher, FunctionalSinglestep):
-    threshold: float = 5e-2
-
-    @staticmethod
-    def min_order() -> int:
-        return 2
-
-    @staticmethod
-    def max_order() -> int:
-        return 2
-
-    def adjust_steps(self, steps: int) -> int:
-        return round(steps * 0.75 + 0.25)
-
-    def step[T: Sample](
-        self,
-        sample: T,
-        model: SampleableModel[T],
-        model_transform: models.DiffusionModel,
-        schedule: scheduling.SkrampleSchedule,
-        step: Step,
-        rng: RNG[T] | None = None,
-    ) -> T:
-        [time_t, sig_t], [time_s, sig_s] = schedule.ipoints(step).tolist()
-
-        k1 = model(sample, time_t, sig_t)
-        result: T = model_transform.forward(sample, k1, sig_t, sig_s, schedule.sigma_transform)
-
-        # Multiplying by step size here is kind of an asspull, but so is this whole solver so...
-        if time_s > 0 and self.evaluator(sample, result) / max(self.evaluator(0, result), 1e-16) > self.threshold * abs(
-            sig_t - sig_s
-        ):
-            k2: T = (k1 + model(result, time_s, sig_s)) / 2  # pyright: ignore [reportAssignmentType]
-            result: T = model_transform.forward(sample, k2, sig_t, sig_s, schedule.sigma_transform)
-
-        return result
 
 
 @dataclasses.dataclass(frozen=True)

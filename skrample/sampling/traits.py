@@ -12,13 +12,12 @@ class SamplingCommon:
         self,
         sample: T,
         noise: T,
-        sigma: float,
-        sigma_transform: common.SigmaTransform,
+        point: common.Point,
     ) -> T:
         """Merge noise into a sample at a given time.
         Some old samplers used to have different implmenetations,
         but now pretty for pretty much everything this is just points to `common.merge_noise`."""
-        return common.merge_noise(sample, noise, sigma, sigma_transform)
+        return common.merge_noise(sample, noise, point)
 
 
 @dataclasses.dataclass(frozen=True)

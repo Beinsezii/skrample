@@ -289,7 +289,8 @@ class Linear(ScheduleCommon):
             return self.custom_space
 
     def _points(self, t: NPSequence) -> NPSchedule:
-        return np.stack([t * self.base_timesteps, t * self.sigma_start], axis=1)
+        sigmas = t * self.sigma_start
+        return np.stack([t * self.base_timesteps, self.space.normalize(sigmas), self.space.alphas(sigmas)], axis=1)
 
     def _sigmas_to_points(self, sigmas: NPSequence) -> NPSchedule:
         return np.stack([sigmas * (self.base_timesteps / self.sigma_start), sigmas], axis=1)
