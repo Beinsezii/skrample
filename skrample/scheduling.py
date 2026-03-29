@@ -1,3 +1,5 @@
+import abc
+import dataclasses
 import functools
 import math
 from abc import ABC, abstractmethod
@@ -10,12 +12,9 @@ import numpy as np
 from .common import (
     FloatSchedule,
     Point,
-    SigmaTransform,
     normalize,
     regularize,
     rescale_positive,
-    sigma_complement,
-    sigma_polar,
     sigmoid,
 )
 
@@ -23,6 +22,47 @@ type NPSchedule = np.ndarray[tuple[int, Literal[2]], np.dtype[np.float64]]
 "[sequence..., timestep:sigma]"
 
 type NPSequence = np.ndarray[tuple[int], np.dtype[np.float64]]
+
+type Sigma = NPSequence | float
+
+
+@dataclasses.dataclass(frozen=True)
+class SigmaSpace(abc.ABC):
+    @abc.abstractmethod
+    def normalize(self, regular_sigmas: Sigma) -> NPSequence: ...
+
+    @abc.abstractmethod
+    def regularize(self, normal_sigmas: Sigma) -> NPSequence: ...
+
+    @abc.abstractmethod
+    def alphas(self, normal_sigmas: Sigma) -> NPSequence: ...
+
+    def alpha(self, normal_sigma: float) -> float:
+        return self.alphas(normal_sigma).item()
+
+
+@dataclasses.dataclass(frozen=True)
+class VariancePreserving(SigmaSpace):
+    def normalize(self, regular_sigmas: Sigma | float) -> NPSequence:
+        return np.sin(np.atan(regular_sigmas))
+
+    def regularize(self, normal_sigmas: Sigma | float) -> NPSequence:
+        return np.tan(np.asin(normal_sigmas))
+
+    def alphas(self, normal_sigmas: Sigma | float) -> NPSequence:
+        return np.cos(np.asin(normal_sigmas))
+
+
+@dataclasses.dataclass(frozen=True)
+class FlowMatching(SigmaSpace):
+    def normalize(self, regular_sigmas: Sigma) -> NPSequence:
+        return np.asarray(regular_sigmas)
+
+    def regularize(self, normal_sigmas: Sigma) -> NPSequence:
+        return np.asarray(normal_sigmas)
+
+    def alphas(self, normal_sigmas: Sigma) -> NPSequence:
+        return np.subtract(1, normal_sigmas)  # pyright: ignore[reportReturnType] # float RHS is NPSequence
 
 
 @functools.lru_cache
@@ -45,8 +85,8 @@ class SkrampleSchedule(ABC):
 
     @property
     @abstractmethod
-    def sigma_transform(self) -> SigmaTransform:
-        "SigmaTransform required for a given noise schedule"
+    def space(self) -> SigmaSpace:
+        "Space which sigmas are computed in"
 
     @abstractmethod
     def _points(self, t: NPSequence) -> NPSchedule:
@@ -86,6 +126,10 @@ class SkrampleSchedule(ABC):
         "Just the sigmas component as a 1-d array"
         return self.schedule_np(steps)[:, 1]
 
+    def alphas_np(self, steps: int) -> NPSequence:
+        "Compute alphas component as a 1-d array"
+        return self.space.alphas(self.schedule_np(steps)[:, 1])
+
     def schedule(self, steps: int) -> FloatSchedule:
         """Return the full noise schedule, [(timestep, sigma), ...)
         Excludes the trailing zero"""
@@ -98,6 +142,10 @@ class SkrampleSchedule(ABC):
     def sigmas(self, steps: int) -> Sequence[float]:
         "Just the sigmas component"
         return self.sigmas_np(steps).tolist()
+
+    def alphas(self, steps: int) -> Sequence[float]:
+        "Compute alphas"
+        return self.alphas_np(steps).tolist()
 
 
 @dataclass(frozen=True)
@@ -123,14 +171,14 @@ class ScheduleCommon(SkrampleSchedule):
 @dataclass(frozen=True)
 class FixedSchedule(SkrampleSchedule):
     fixed_schedule: FloatSchedule | NPSchedule
-    transform: SigmaTransform
+    sigma_space: SigmaSpace
 
     def _points(self, t: NPSequence) -> NPSchedule:
         return np.quantile(np.concatenate([np.asarray(self.fixed_schedule, dtype=np.float64), [[0, 0]]]), t, axis=0)
 
     @property
-    def sigma_transform(self) -> SigmaTransform:
-        return self.transform
+    def space(self) -> SigmaSpace:
+        return self.sigma_space
 
 
 @dataclass(frozen=True)
@@ -142,8 +190,8 @@ class Scaled(ScheduleCommon):
     beta_scale: float = 2
 
     @property
-    def sigma_transform(self) -> SigmaTransform:
-        return sigma_polar
+    def space(self) -> SigmaSpace:
+        return VariancePreserving()
 
     def continuous_alphas_cumprod(self, t: NPSequence) -> NPSequence:
         # Continuous version of
@@ -186,8 +234,8 @@ class Scaled(ScheduleCommon):
 
     def _points(self, t: NPSequence) -> NPSchedule:
         alphas_cumprod = self.continuous_alphas_cumprod(t)
-        sigmas = np.sqrt((1 - alphas_cumprod) / alphas_cumprod)
-        return np.stack([t * self.base_timesteps, sigmas], 1)
+        regular_sigmas = np.sqrt((1 - alphas_cumprod) / alphas_cumprod)
+        return np.stack([t * self.base_timesteps, self.space.normalize(regular_sigmas)], 1)
 
     def _sigmas_to_points(self, sigmas: NPSequence) -> NPSchedule:
         # TODO (beinsezii): continuous version instead of LRU + interp?
@@ -198,10 +246,6 @@ class Scaled(ScheduleCommon):
 @dataclass(frozen=True)
 class ZSNR(Scaled):
     "Zero Terminal SNR schedule from https://arxiv.org/abs/2305.08891"
-
-    # Just some funny number I made up when working on the diffusers PR that worked well. F32 smallest subnormal
-    epsilon: float = 2**-24
-    "Amount to shift the zero value by to keep calculations finite."
 
     def continuous_alphas_cumprod(self, t: NPSequence) -> NPSequence:
         ### from https://arxiv.org/pdf/2305.08891.pdf (Algorithm 1)
@@ -223,7 +267,6 @@ class ZSNR(Scaled):
         # Convert alphas_bar_sqrt to betas
         alphas_cumprod = alphas_bar_sqrt**2  # Revert sqrt
 
-        alphas_cumprod = np.maximum(self.epsilon, alphas_cumprod)  # Epsilon to avoid inf
         return alphas_cumprod
 
 
@@ -234,16 +277,16 @@ class Linear(ScheduleCommon):
     sigma_start: float = 1
     "Maximum (first) sigma value"
 
-    custom_transform: SigmaTransform | None = None
+    custom_space: SigmaSpace | None = None
     """If set, will be used for `self.sigma_transform`
     Otherwise, uses `sigma_polar` for sigma_start > 1 and sigma_complement for <= 1"""
 
     @property
-    def sigma_transform(self) -> SigmaTransform:
-        if self.custom_transform is None:
-            return sigma_complement if self.sigma_start <= 1 else sigma_polar
+    def space(self) -> SigmaSpace:
+        if self.custom_space is None:
+            return FlowMatching() if self.sigma_start <= 1 else VariancePreserving()
         else:
-            return self.custom_transform
+            return self.custom_space
 
     def _points(self, t: NPSequence) -> NPSchedule:
         return np.stack([t * self.base_timesteps, t * self.sigma_start], axis=1)
@@ -264,8 +307,8 @@ class _PartialSchedule(SkrampleSchedule):
         return self.base.base_timesteps
 
     @property
-    def sigma_transform(self) -> SigmaTransform:
-        return self.base.sigma_transform
+    def space(self) -> SigmaSpace:
+        return self.base.space
 
     def _sigmas_to_points(self, sigmas: NPSequence) -> NPSchedule:
         return self.base._sigmas_to_points(sigmas)
@@ -401,7 +444,7 @@ class Karras(SubSchedule):
     "Steps for computing the scale values."
 
     def _points(self, t: NPSequence) -> NPSchedule:
-        sigma_min, sigma_max = self.base.points([1 / self.steps, 1.0])[:, 1].tolist()
+        sigma_min, sigma_max = self.space.regularize(self.base.points([1 / self.steps, 1.0])[:, 1]).tolist()
 
         t = np.concatenate([[1, 0], t])
 
@@ -409,7 +452,7 @@ class Karras(SubSchedule):
 
         sigmas = normalize(sigmas[2:], sigmas[0], sigmas[1]) * sigma_max
 
-        return self.base._sigmas_to_points(sigmas)
+        return self.base._sigmas_to_points(self.space.normalize(sigmas))
 
 
 @dataclass(frozen=True)
@@ -423,7 +466,7 @@ class Exponential(SubSchedule):
     "Steps for computing the scale values."
 
     def _points(self, t: NPSequence) -> NPSchedule:
-        sigma_min, sigma_max = self.base.points([1 / self.steps, 1.0])[:, 1].tolist()
+        sigma_min, sigma_max = self.space.regularize(self.base.points([1 / self.steps, 1.0])[:, 1].tolist())
 
         t = np.concatenate([[1, 0], t]) ** self.rho
 
@@ -431,7 +474,7 @@ class Exponential(SubSchedule):
 
         sigmas = normalize(sigmas[2:], sigmas[0], sigmas[1]) * sigma_max
 
-        return self.base._sigmas_to_points(sigmas)
+        return self.base._sigmas_to_points(self.space.normalize(sigmas))
 
 
 @dataclass(frozen=True)
@@ -445,13 +488,13 @@ class Beta(SubSchedule):
     def _points(self, t: NPSequence) -> NPSchedule:
         from scipy.stats import beta
 
-        sigma_max = self.base.point(1)[1]
+        sigma_max = self.space.regularize(self.base.point(1)[1]).item()
         # Always include 1.0 for post-ppf normalize
         probabilities = np.concatenate([[1], t])
 
         sigmas = beta.ppf(probabilities, self.alpha, self.beta)
         sigmas = normalize(sigmas, sigmas[0])[1:]
-        return self.base._sigmas_to_points(sigmas * sigma_max)
+        return self.base._sigmas_to_points(self.space.normalize(sigmas * sigma_max))
 
 
 @dataclass(frozen=True)
@@ -473,7 +516,7 @@ class Probit(SubSchedule):
         sigmas = sigmoid(norm.ppf(probabilities, scale=self.scale))
         sigmas = normalize(sigmas[2:], *sigmas[:2])
 
-        return self.base._sigmas_to_points(sigmas * self.base.point(1)[1])
+        return self.base._sigmas_to_points(self.space.normalize(sigmas * self.space.regularize(self.base.point(1)[1])))
 
 
 @dataclass(frozen=True)

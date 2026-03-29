@@ -266,14 +266,14 @@ elif args.command == "schedules":
                             color=next(COLORS),
                         )
                     plt.plot(
-                        [schedule.sigma_transform(s).sigma for s in data[:, 1]],
+                        data[:, 1],
                         label=label + (" Sigmas" if args.timesteps or args.alphas else ""),
                         marker=marker,
                         color=(color := next(COLORS)),
                     )
                     if args.alphas:
                         plt.plot(
-                            [schedule.sigma_transform(s).alpha for s in data[:, 1]],
+                            schedule.space.alphas(data[:, 1]),
                             label=label + " Alphas",
                             marker=marker,
                             color=color,
