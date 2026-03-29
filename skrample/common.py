@@ -41,6 +41,7 @@ class SigmaTS(NamedTuple):
 class Point(NamedTuple):
     timestep: float
     sigma: float
+    alpha: float
 
 
 class DeltaPoint(NamedTuple):

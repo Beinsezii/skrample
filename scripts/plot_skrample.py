@@ -273,7 +273,7 @@ elif args.command == "schedules":
                     )
                     if args.alphas:
                         plt.plot(
-                            schedule.space.alphas(data[:, 1]),
+                            data[:, 2],
                             label=label + " Alphas",
                             marker=marker,
                             color=color,

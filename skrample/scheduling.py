@@ -18,7 +18,7 @@ from .common import (
     sigmoid,
 )
 
-type NPSchedule = np.ndarray[tuple[int, Literal[2]], np.dtype[np.float64]]
+type NPSchedule = np.ndarray[tuple[int, Literal[3]], np.dtype[np.float64]]
 "[sequence..., timestep:sigma]"
 
 type NPSequence = np.ndarray[tuple[int], np.dtype[np.float64]]
@@ -127,8 +127,8 @@ class SkrampleSchedule(ABC):
         return self.schedule_np(steps)[:, 1]
 
     def alphas_np(self, steps: int) -> NPSequence:
-        "Compute alphas component as a 1-d array"
-        return self.space.alphas(self.schedule_np(steps)[:, 1])
+        "Just the alphas component as a 1-d array"
+        return self.schedule_np(steps)[:, 2]
 
     def schedule(self, steps: int) -> FloatSchedule:
         """Return the full noise schedule, [(timestep, sigma), ...)
@@ -144,7 +144,7 @@ class SkrampleSchedule(ABC):
         return self.sigmas_np(steps).tolist()
 
     def alphas(self, steps: int) -> Sequence[float]:
-        "Compute alphas"
+        "Just the alphas component"
         return self.alphas_np(steps).tolist()
 
 
@@ -234,13 +234,13 @@ class Scaled(ScheduleCommon):
 
     def _points(self, t: NPSequence) -> NPSchedule:
         alphas_cumprod = self.continuous_alphas_cumprod(t)
-        regular_sigmas = np.sqrt((1 - alphas_cumprod) / alphas_cumprod)
-        return np.stack([t * self.base_timesteps, self.space.normalize(regular_sigmas)], 1)
+        sigmas = self.space.normalize(np.sqrt((1 - alphas_cumprod) / alphas_cumprod))
+        return np.stack([t * self.base_timesteps, sigmas, self.space.alphas(sigmas)], 1)
 
     def _sigmas_to_points(self, sigmas: NPSequence) -> NPSchedule:
         # TODO (beinsezii): continuous version instead of LRU + interp?
         timesteps = np.interp(sigmas, self.all_points[:, 1], self.all_points[:, 0])
-        return np.stack([timesteps, sigmas], axis=1)
+        return np.stack([timesteps, sigmas, self.space.alphas(sigmas)], axis=1)
 
 
 @dataclass(frozen=True)
