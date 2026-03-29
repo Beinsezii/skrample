@@ -1,4 +1,5 @@
 import abc
+import contextlib
 import dataclasses
 import functools
 import math
@@ -582,7 +583,6 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
         self._sample: Tensor | None = None
         self._noise: Tensor | None = None
         self._schedule = self.schedule  # copy of original for restoration in set_timesteps
-        self._full: scheduling.NPSchedule
 
     @abc.abstractmethod
     def functional_sampler(self) -> U: ...
@@ -597,12 +597,21 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
         return self.functional_interface()[0].adjust_steps(steps)
 
     @abc.abstractmethod
-    def _schedule_np_full(self, steps: int) -> tuple[scheduling.NPSchedule, scheduling.NPSchedule]: ...
+    def _schedule_np_full(self, steps: int) -> scheduling.NPSchedule: ...
+
+    @functools.cached_property
+    def schedule_np_full(self) -> scheduling.NPSchedule:
+        "Includes T=1 coefficients"
+        return self._schedule_np_full(self._steps)
+
+    @functools.cached_property
+    def schedule_np_trim(self) -> scheduling.NPSchedule:
+        "Excludes T=1 coefficients"
+        return np.asarray([p for p in self.schedule_np_full if (p > 1e-8).all()], dtype=np.float64)
 
     @property
     def schedule_np(self) -> NDArray[np.float64]:
-        self._full, snp = self._schedule_np_full(self._steps)
-        return snp
+        return self.schedule_np_trim
 
     @property
     def order(self) -> int:
@@ -628,6 +637,10 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
     ) -> None:
         self._index = 0
         self._derivatives.clear()
+
+        with contextlib.suppress(AttributeError):
+            del self.schedule_np_full
+            del self.schedule_np_trim
 
         self.schedule = self._schedule  # Restore any replaced props
 
@@ -720,7 +733,7 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
         generator: torch.Generator | list[torch.Generator] | None = None,
         return_dict: bool = True,
     ) -> tuple[Tensor, Tensor] | OrderedDict[str, Tensor]:
-        assert timestep == self._full[self._index, 0].item()
+        assert timestep == self.schedule_np_full[self._index, 0].item()
 
         if self._noise is None and abs(self.stochasticity) > 1e-8:
             self._noise = self.get_step_noise(
@@ -733,7 +746,7 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
                 self.schedule.schedule_np(self._steps),
             )
 
-        sigmas = np.concatenate([self._full[:, 1], [0]])
+        sigmas = np.concatenate([self.schedule_np_full[:, 1], [0]])
 
         if self.derivative_transform:
             model_output = models.ModelConvert(
@@ -759,7 +772,7 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
 
         self._index += 1
 
-        while self._index < len(self._full) and (abs(self._full[self._index]) < 1e-8).any():
+        while self._index < len(self.schedule_np_full) and (abs(self.schedule_np_full[self._index]) < 1e-8).any():
             sampled = self.step_tableau_inside_out(
                 sample=sample.to(dtype=self.compute_scale),
                 output=model_transform.backward(
@@ -854,13 +867,8 @@ class RKUltraWrapperScheduler[T: TensorNoiseProps | None](RKWrapperCore[T, funct
     def tableau(self) -> tableaux.Tableau:
         return self.functional_sampler().tableau()
 
-    @staticmethod
-    @functools.lru_cache
-    def _schedule_np_full_lru(
-        steps: int,
-        schedule: SkrampleSchedule,
-        tableau: tableaux.Tableau,
-    ) -> tuple[scheduling.NPSchedule, scheduling.NPSchedule]:
+    def _schedule_np_full(self, steps: int) -> scheduling.NPSchedule:
+        tableau = self.tableau()
         recorded_points: list[Point] = []
 
         def record_call(x: float, t: float, s: float) -> float:
@@ -874,18 +882,12 @@ class RKUltraWrapperScheduler[T: TensorNoiseProps | None](RKWrapperCore[T, funct
                 1,
                 record_call,
                 models.DataModel(),
-                schedule,
+                self.schedule,
                 Step.from_int(n, steps),
                 epsilon=-math.inf,  # ensure T=0 is always hit
             )
 
-        return (
-            np.asarray(recorded_points, dtype=np.float64),
-            np.asarray([p for p in recorded_points if all(abs(v) > 1e-8 for v in p)], dtype=np.float64),
-        )
-
-    def _schedule_np_full(self, steps: int) -> tuple[scheduling.NPSchedule, scheduling.NPSchedule]:
-        return self._schedule_np_full_lru(steps, self.schedule, self.tableau())
+        return np.asarray(recorded_points, dtype=np.float64)
 
 
 @dataclasses.dataclass
@@ -949,11 +951,7 @@ class DynasauRKWrapperScheduler[T: TensorNoiseProps | None](RKWrapperCore[T, fun
         stages = len(self.functional_sampler().tableau(Step(0, 1)).stages)
         return self.functional_sampler().tableau(Step.from_int(self._index // stages, self._steps))
 
-    @staticmethod
-    @functools.lru_cache
-    def _schedule_np_full_lru(
-        steps: int, sampler: functional.DynasauRK, schedule: SkrampleSchedule
-    ) -> tuple[scheduling.NPSchedule, scheduling.NPSchedule]:
+    def _schedule_np_full(self, steps: int) -> scheduling.NPSchedule:
         recorded_points: list[Point] = []
 
         def record_call(x: float, t: float, s: float) -> float:
@@ -961,12 +959,8 @@ class DynasauRKWrapperScheduler[T: TensorNoiseProps | None](RKWrapperCore[T, fun
             recorded_points.append(Point(t, s))
             return x
 
-        sampler.sample_model(1, record_call, models.DataModel(), schedule, steps)
+        self.functional_sample_model(1, record_call, steps)
 
-        return (
-            np.asarray(recorded_points, dtype=np.float64),
-            np.asarray([p for p in recorded_points if all(abs(v) > 1e-8 for v in p)], dtype=np.float64),
-        )
+        assert len(recorded_points) == self.order * steps
 
-    def _schedule_np_full(self, steps: int) -> tuple[scheduling.NPSchedule, scheduling.NPSchedule]:
-        return self._schedule_np_full_lru(steps, self.functional_sampler(), self.schedule)
+        return np.asarray(recorded_points, dtype=np.float64)
