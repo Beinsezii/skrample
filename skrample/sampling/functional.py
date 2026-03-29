@@ -262,6 +262,72 @@ class RKUltra(FunctionalUnified, FunctionalSinglestep):
 
 
 @dataclasses.dataclass(frozen=True)
+class DynasauRK(FunctionalUnified, FunctionalSinglestep):
+    """Dynamic RK solver that generates tableaux on-the-fly.
+    Initializes with a high stability method and moves towards
+    higher convergence methods through exponential decay.
+    This means that the overall stability properties change with step count,
+    with higher steps using lower mean stability."""
+
+    @staticmethod
+    def min_order() -> int:
+        return 2
+
+    @staticmethod
+    def max_order() -> int:
+        return 4
+
+    def adjust_steps(self, steps: int) -> int:
+        return max(round(steps / self.order), 1)
+
+    def tableau(self, step: Step) -> tableaux.Tableau:
+        "It's assumed that step sizes are uniform, ie in a for loop."
+        if self.order >= 4:
+            high: float = 1 / 4 * (2 - math.sqrt(2))  # SYM
+            low: float = 1 / 14 * (5 - 3 * math.sqrt(2))  # MIN
+            tf = tableaux.providers.ees27_tableau
+        elif self.order >= 3:
+            high: float = 0.25  # SYM
+            low: float = 0.1  # MIN
+            tf = tableaux.providers.ees25_tableau
+        else:
+            high: float = 1  # Heun
+            low: float = 0.5  # Mid
+            tf = tableaux.providers.rk2_tableau
+
+        step = step.normal().clamp()
+        try:
+            f, t = 1 - step.time_from, 1 - step.time_to
+            gradient = ((f + t) / 2 - 0.5) / (1 - (f - t)) + 0.5
+        except ZeroDivisionError:
+            gradient = 0.5  # f=1, t=0
+        gradient *= math.exp(-step.position())
+
+        return tf(gradient * high + (1 - gradient) * low)
+
+    def step[T: Sample](
+        self,
+        sample: T,
+        model: SampleableModel[T],
+        model_transform: models.DiffusionModel,
+        schedule: scheduling.SkrampleSchedule,
+        step: Step,
+        rng: RNG[T] | None = None,
+    ) -> T:
+        return step_tableau(
+            self.tableau(step),
+            sample,
+            model,
+            model_transform,
+            schedule,
+            step,
+            self.derivative_transform,
+            rng() if rng else None,
+            self.stochasticity,
+        )[0]
+
+
+@dataclasses.dataclass(frozen=True)
 class FastHeun(FunctionalAdaptive, FunctionalHigher, FunctionalSinglestep):
     threshold: float = 5e-2
 

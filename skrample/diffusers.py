@@ -1,9 +1,11 @@
 import abc
+import contextlib
 import dataclasses
 import functools
 import math
 from collections import OrderedDict
 from collections.abc import Hashable, Mapping
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
@@ -21,7 +23,7 @@ from skrample.pytorch.noise import (
     TensorNoiseProps,
     schedule_to_ramp,
 )
-from skrample.sampling import functional, interface, models, tableaux
+from skrample.sampling import functional, interface, models, tableaux, traits
 from skrample.sampling.models import DataModel, DiffusionModel, FlowModel, NoiseModel, VelocityModel
 from skrample.sampling.structured import SampleInput, SKSamples, StructuredSampler
 from skrample.scheduling import ScheduleCommon, ScheduleModifier, SkrampleSchedule, SubSchedule
@@ -557,13 +559,12 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
 
 
 @dataclasses.dataclass
-class RKUltraWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
+class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified](SkrampleWrapperCore):
     schedule: SkrampleSchedule
-    sampler_order: int = functional.RKUltra.order
+    sampler_order: int = traits.UnifiedModelling.order
     stochasticity: float = 0
-    providers: Mapping[int, tableaux.TableauProvider] = functional.RKUltra.providers
     model: DiffusionModel = NoiseModel()  # noqa: RUF009 # is immutable
-    derivative_transform: DiffusionModel | None = functional.RKUltra.derivative_transform
+    derivative_transform: DiffusionModel | None = traits.UnifiedModelling.derivative_transform
     noise_type: type[TensorNoiseCommon[T]] = Random  # type: ignore  # Unsure why?
     noise_props: T | None = None
     compute_scale: torch.dtype | None = torch.float32
@@ -582,113 +583,39 @@ class RKUltraWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
         self._sample: Tensor | None = None
         self._noise: Tensor | None = None
         self._schedule = self.schedule  # copy of original for restoration in set_timesteps
-        self._full: scheduling.NPSchedule
 
-    @classmethod
-    def from_diffusers_config[N: TensorNoiseProps | None](  # pyright fails if you use the outer generic
-        cls,
-        config: "dict[str, Any] | ConfigMixin",
-        schedule: type[SkrampleSchedule] | None = None,
-        sampler_order: int = functional.RKUltra.order,
-        stochasticity: float = 0,
-        subschedule: type[SubSchedule] | None = None,
-        schedule_modifiers: list[tuple[type[ScheduleModifier], dict[str, Any]]] = [],
-        providers: Mapping[int, tableaux.TableauProvider] = functional.RKUltra.providers,
-        model: DiffusionModel | None = None,
-        noise_type: type[TensorNoiseCommon[N]] = Random,  # ty: ignore # generic solver woes
-        derivative_transform: DiffusionModel | None = functional.RKUltra.derivative_transform,
-        compute_scale: torch.dtype | None = torch.float32,
-        schedule_props: dict[str, Any] = {},
-        subschedule_props: dict[str, Any] = {},
-        noise_props: N | None = None,
-        modifier_merge_strategy: MergeStrategy = MergeStrategy.UniqueBefore,
-        allow_dynamic: bool = True,
-    ) -> "RKUltraWrapperScheduler[N]":
-        "Thin sugar over `parse_diffusers_config` to make a complete wrapper with arbitrary customizations"
-        parsed = parse_diffusers_config(config=config, sampler=None, schedule=schedule)
+    @abc.abstractmethod
+    def functional_sampler(self) -> U: ...
 
-        built_schedule = (schedule or parsed.schedule)(**parsed.schedule_props | schedule_props)
+    def functional_interface(self) -> tuple[U, scheduling.SkrampleSchedule, models.DiffusionModel]:
+        return (self.functional_sampler(), self._schedule, self.model)
 
-        if (sub := subschedule or parsed.subschedule) is not None and isinstance(built_schedule, ScheduleCommon):
-            built_schedule = sub(built_schedule, **parsed.subschedule_props | subschedule_props)
-
-        if isinstance(built_schedule, ScheduleCommon | SubSchedule | ScheduleModifier):
-            for modifier, modifier_props in modifier_merge_strategy.merge(
-                ours=schedule_modifiers,
-                theirs=parsed.schedule_modifiers,
-                cmp=lambda a, b: a[0] is b[0],
-            ):
-                built_schedule = modifier(base=built_schedule, **modifier_props)
-
-        return cls(  # ty: ignore # generic solver woes
-            built_schedule,
-            sampler_order,
-            stochasticity,
-            providers,
-            model or parsed.model,
-            derivative_transform=derivative_transform,
-            noise_type=noise_type,  # pyright: ignore  # think these are weird because of the defaults?
-            noise_props=noise_props,  # pyright: ignore
-            compute_scale=compute_scale,
-            fake_config=config.copy() if isinstance(config, dict) else dict(config.config),
-            allow_dynamic=allow_dynamic,
-        )
-
-    def functional_interface(self) -> tuple[functional.RKUltra, scheduling.SkrampleSchedule, models.DiffusionModel]:
-        return (
-            functional.RKUltra(
-                order=self.sampler_order,
-                stochasticity=self.stochasticity,
-                derivative_transform=self.derivative_transform,
-                providers=self.providers,
-            ),
-            self._schedule,
-            self.model,
-        )
-
-    def tableau(self, order: int | None = None) -> tableaux.Tableau:
-        return self.functional_interface()[0].tableau(order)
+    @abc.abstractmethod
+    def tableau(self) -> tableaux.Tableau: ...
 
     def adjust_steps(self, steps: int) -> int:
         return self.functional_interface()[0].adjust_steps(steps)
 
-    @staticmethod
-    @functools.lru_cache
-    def _schedule_np(
-        steps: int, schedule: SkrampleSchedule, tableau: tableaux.Tableau
-    ) -> tuple[scheduling.NPSchedule, scheduling.NPSchedule]:
-        recorded_points: list[Point] = []
+    @abc.abstractmethod
+    def _schedule_np_full(self, steps: int) -> scheduling.NPSchedule: ...
 
-        def record_call(x: float, t: float, s: float) -> float:
-            nonlocal recorded_points
-            recorded_points.append(Point(t, s))
-            return x
+    @functools.cached_property
+    def schedule_np_full(self) -> scheduling.NPSchedule:
+        "Includes T=1 coefficients"
+        return self._schedule_np_full(self._steps)
 
-        for n in range(steps):
-            functional.step_tableau(
-                tableau,
-                1,
-                record_call,
-                models.DataModel(),
-                schedule,
-                Step.from_int(n, steps),
-                epsilon=-math.inf,  # ensure T=0 is always hit
-            )
-
-        return (
-            np.asarray(recorded_points, dtype=np.float64),
-            np.asarray([p for p in recorded_points if all(abs(v) > 1e-8 for v in p)], dtype=np.float64),
-        )
+    @functools.cached_property
+    def schedule_np_trim(self) -> scheduling.NPSchedule:
+        "Excludes T=1 coefficients"
+        return np.asarray([p for p in self.schedule_np_full if (p > 1e-8).all()], dtype=np.float64)
 
     @property
     def schedule_np(self) -> NDArray[np.float64]:
-        self._full, snp = self._schedule_np(self._steps, self.schedule, self.tableau())
-        return snp
+        return self.schedule_np_trim
 
     @property
     def order(self) -> int:
-        nodes, _weights = self.tableau()
-        return len(nodes)
+        return len(self.tableau().stages)
 
     @property
     def config(self) -> OrderedDict[str, Any]:
@@ -710,6 +637,10 @@ class RKUltraWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
     ) -> None:
         self._index = 0
         self._derivatives.clear()
+
+        with contextlib.suppress(AttributeError):
+            del self.schedule_np_full
+            del self.schedule_np_trim
 
         self.schedule = self._schedule  # Restore any replaced props
 
@@ -802,7 +733,7 @@ class RKUltraWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
         generator: torch.Generator | list[torch.Generator] | None = None,
         return_dict: bool = True,
     ) -> tuple[Tensor, Tensor] | OrderedDict[str, Tensor]:
-        assert timestep == self._full[self._index, 0].item()
+        assert timestep == self.schedule_np_full[self._index, 0].item()
 
         if self._noise is None and abs(self.stochasticity) > 1e-8:
             self._noise = self.get_step_noise(
@@ -815,7 +746,7 @@ class RKUltraWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
                 self.schedule.schedule_np(self._steps),
             )
 
-        sigmas = np.concatenate([self._full[:, 1], [0]])
+        sigmas = np.concatenate([self.schedule_np_full[:, 1], [0]])
 
         if self.derivative_transform:
             model_output = models.ModelConvert(
@@ -841,7 +772,7 @@ class RKUltraWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
 
         self._index += 1
 
-        while self._index < len(self._full) and (abs(self._full[self._index]) < 1e-8).any():
+        while self._index < len(self.schedule_np_full) and (abs(self.schedule_np_full[self._index]) < 1e-8).any():
             sampled = self.step_tableau_inside_out(
                 sample=sample.to(dtype=self.compute_scale),
                 output=model_transform.backward(
@@ -869,3 +800,167 @@ class RKUltraWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
                 sampled.to(device=model_output.device, dtype=model_output.dtype),
                 model_output.to(device=model_output.device, dtype=model_output.dtype),
             )
+
+
+@dataclasses.dataclass
+class RKUltraWrapperScheduler[T: TensorNoiseProps | None](RKWrapperCore[T, functional.RKUltra]):
+    providers: Mapping[int, tableaux.TableauProvider] = functional.RKUltra.providers
+
+    @classmethod
+    def from_diffusers_config[N: TensorNoiseProps | None](  # pyright fails if you use the outer generic
+        cls,
+        config: "dict[str, Any] | ConfigMixin",
+        schedule: type[SkrampleSchedule] | None = None,
+        sampler_order: int = functional.RKUltra.order,
+        stochasticity: float = 0,
+        subschedule: type[SubSchedule] | None = None,
+        schedule_modifiers: list[tuple[type[ScheduleModifier], dict[str, Any]]] = [],
+        providers: Mapping[int, tableaux.TableauProvider] = functional.RKUltra.providers,
+        model: DiffusionModel | None = None,
+        noise_type: type[TensorNoiseCommon[N]] = Random,  # ty: ignore # generic solver woes
+        derivative_transform: DiffusionModel | None = functional.RKUltra.derivative_transform,
+        compute_scale: torch.dtype | None = torch.float32,
+        schedule_props: dict[str, Any] = {},
+        subschedule_props: dict[str, Any] = {},
+        noise_props: N | None = None,
+        modifier_merge_strategy: MergeStrategy = MergeStrategy.UniqueBefore,
+        allow_dynamic: bool = True,
+    ) -> "RKUltraWrapperScheduler[N]":
+        "Thin sugar over `parse_diffusers_config` to make a complete wrapper with arbitrary customizations"
+        parsed = parse_diffusers_config(config=config, sampler=None, schedule=schedule)
+
+        built_schedule = (schedule or parsed.schedule)(**parsed.schedule_props | schedule_props)
+
+        if (sub := subschedule or parsed.subschedule) is not None and isinstance(built_schedule, ScheduleCommon):
+            built_schedule = sub(built_schedule, **parsed.subschedule_props | subschedule_props)
+
+        if isinstance(built_schedule, ScheduleCommon | SubSchedule | ScheduleModifier):
+            for modifier, modifier_props in modifier_merge_strategy.merge(
+                ours=schedule_modifiers,
+                theirs=parsed.schedule_modifiers,
+                cmp=lambda a, b: a[0] is b[0],
+            ):
+                built_schedule = modifier(base=built_schedule, **modifier_props)
+
+        return cls(  # ty: ignore # generic solver woes
+            built_schedule,
+            sampler_order,
+            stochasticity,
+            model or parsed.model,
+            providers=providers,
+            derivative_transform=derivative_transform,
+            noise_type=noise_type,  # pyright: ignore  # think these are weird because of the defaults?
+            noise_props=noise_props,  # pyright: ignore
+            compute_scale=compute_scale,
+            fake_config=config.copy() if isinstance(config, dict) else dict(config.config),
+            allow_dynamic=allow_dynamic,
+        )
+
+    def functional_sampler(self) -> functional.RKUltra:
+        return functional.RKUltra(
+            order=self.sampler_order,
+            stochasticity=self.stochasticity,
+            derivative_transform=self.derivative_transform,
+            providers=MappingProxyType(self.providers),
+        )
+
+    def tableau(self) -> tableaux.Tableau:
+        return self.functional_sampler().tableau()
+
+    def _schedule_np_full(self, steps: int) -> scheduling.NPSchedule:
+        tableau = self.tableau()
+        recorded_points: list[Point] = []
+
+        def record_call(x: float, t: float, s: float) -> float:
+            nonlocal recorded_points
+            recorded_points.append(Point(t, s))
+            return x
+
+        for n in range(steps):
+            functional.step_tableau(
+                tableau,
+                1,
+                record_call,
+                models.DataModel(),
+                self.schedule,
+                Step.from_int(n, steps),
+                epsilon=-math.inf,  # ensure T=0 is always hit
+            )
+
+        return np.asarray(recorded_points, dtype=np.float64)
+
+
+@dataclasses.dataclass
+class DynasauRKWrapperScheduler[T: TensorNoiseProps | None](RKWrapperCore[T, functional.DynasauRK]):
+    @classmethod
+    def from_diffusers_config[N: TensorNoiseProps | None](  # pyright fails if you use the outer generic
+        cls,
+        config: "dict[str, Any] | ConfigMixin",
+        schedule: type[SkrampleSchedule] | None = None,
+        sampler_order: int = functional.RKUltra.order,
+        stochasticity: float = 0,
+        subschedule: type[SubSchedule] | None = None,
+        schedule_modifiers: list[tuple[type[ScheduleModifier], dict[str, Any]]] = [],
+        model: DiffusionModel | None = None,
+        noise_type: type[TensorNoiseCommon[N]] = Random,  # ty: ignore # generic solver woes
+        derivative_transform: DiffusionModel | None = functional.RKUltra.derivative_transform,
+        compute_scale: torch.dtype | None = torch.float32,
+        schedule_props: dict[str, Any] = {},
+        subschedule_props: dict[str, Any] = {},
+        noise_props: N | None = None,
+        modifier_merge_strategy: MergeStrategy = MergeStrategy.UniqueBefore,
+        allow_dynamic: bool = True,
+    ) -> "DynasauRKWrapperScheduler[N]":
+        "Thin sugar over `parse_diffusers_config` to make a complete wrapper with arbitrary customizations"
+        parsed = parse_diffusers_config(config=config, sampler=None, schedule=schedule)
+
+        built_schedule = (schedule or parsed.schedule)(**parsed.schedule_props | schedule_props)
+
+        if (sub := subschedule or parsed.subschedule) is not None and isinstance(built_schedule, ScheduleCommon):
+            built_schedule = sub(built_schedule, **parsed.subschedule_props | subschedule_props)
+
+        if isinstance(built_schedule, ScheduleCommon | SubSchedule | ScheduleModifier):
+            for modifier, modifier_props in modifier_merge_strategy.merge(
+                ours=schedule_modifiers,
+                theirs=parsed.schedule_modifiers,
+                cmp=lambda a, b: a[0] is b[0],
+            ):
+                built_schedule = modifier(base=built_schedule, **modifier_props)
+
+        return cls(  # ty: ignore # generic solver woes
+            built_schedule,
+            sampler_order,
+            stochasticity,
+            model or parsed.model,
+            derivative_transform=derivative_transform,
+            noise_type=noise_type,  # pyright: ignore  # think these are weird because of the defaults?
+            noise_props=noise_props,  # pyright: ignore
+            compute_scale=compute_scale,
+            fake_config=config.copy() if isinstance(config, dict) else dict(config.config),
+            allow_dynamic=allow_dynamic,
+        )
+
+    def functional_sampler(self) -> functional.DynasauRK:
+        return functional.DynasauRK(
+            order=self.sampler_order,
+            stochasticity=self.stochasticity,
+            derivative_transform=self.derivative_transform,
+        )
+
+    def tableau(self) -> tableaux.Tableau:
+        stages = len(self.functional_sampler().tableau(Step(0, 1)).stages)
+        return self.functional_sampler().tableau(Step.from_int(self._index // stages, self._steps))
+
+    def _schedule_np_full(self, steps: int) -> scheduling.NPSchedule:
+        recorded_points: list[Point] = []
+
+        def record_call(x: float, t: float, s: float) -> float:
+            nonlocal recorded_points
+            recorded_points.append(Point(t, s))
+            return x
+
+        self.functional_sample_model(1, record_call, steps)
+
+        assert len(recorded_points) == self.order * steps
+
+        return np.asarray(recorded_points, dtype=np.float64)
