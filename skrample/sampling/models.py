@@ -71,12 +71,22 @@ class DiffusionModel(abc.ABC):
             return math.sumprod((sample, output), (gamma, delta))  # type: ignore # sumprod is always T
 
     def backward[T: Sample](
-        self, sample: T, result: T, sigma_from: float, sigma_to: float, sigma_transform: SigmaTransform
+        self,
+        sample: T,
+        result: T,
+        sigma_from: float,
+        sigma_to: float,
+        sigma_transform: SigmaTransform,
+        noise: T | None = None,
+        eta: float = 0,
     ) -> T:
-        "(output - sample * Γ) / Δ"
-        gamma = self.gamma(sigma_from, sigma_to, sigma_transform)
-        delta = self.delta(sigma_from, sigma_to, sigma_transform)
-        return (result - sample * gamma) / delta  # pyright: ignore [reportReturnType]
+        "(result - sample * Γ - noise * ζ) / Δ"
+        gamma = self.gamma(sigma_from, sigma_to, sigma_transform, eta)
+        delta = self.delta(sigma_from, sigma_to, sigma_transform, eta)
+        if noise is not None and (zeta := self.zeta(sigma_from, sigma_to, sigma_transform, eta)) != 0:
+            return (result - sample * gamma - noise * zeta) / delta  # pyright: ignore [reportReturnType]
+        else:
+            return (result - sample * gamma) / delta  # pyright: ignore [reportReturnType]
 
 
 @dataclasses.dataclass(frozen=True)
