@@ -29,40 +29,30 @@ type Sigma = NPSequence | float
 @dataclasses.dataclass(frozen=True)
 class SigmaSpace(abc.ABC):
     @abc.abstractmethod
-    def normalize(self, regular_sigmas: Sigma) -> NPSequence: ...
+    def normalize(self, regular_sigmas: Sigma) -> tuple[NPSequence, NPSequence]: ...
 
     @abc.abstractmethod
     def regularize(self, normal_sigmas: Sigma) -> NPSequence: ...
 
-    @abc.abstractmethod
-    def alphas(self, normal_sigmas: Sigma) -> NPSequence: ...
-
-    def alpha(self, normal_sigma: float) -> float:
-        return self.alphas(normal_sigma).item()
-
 
 @dataclasses.dataclass(frozen=True)
 class VariancePreserving(SigmaSpace):
-    def normalize(self, regular_sigmas: Sigma | float) -> NPSequence:
-        return np.sin(np.atan(regular_sigmas))
+    def normalize(self, regular_sigmas: Sigma) -> tuple[NPSequence, NPSequence]:
+        theta = np.atan(regular_sigmas)
+        return np.sin(theta), np.cos(theta)
 
     def regularize(self, normal_sigmas: Sigma | float) -> NPSequence:
         return np.tan(np.asin(normal_sigmas))
 
-    def alphas(self, normal_sigmas: Sigma | float) -> NPSequence:
-        return np.cos(np.asin(normal_sigmas))
-
 
 @dataclasses.dataclass(frozen=True)
 class FlowMatching(SigmaSpace):
-    def normalize(self, regular_sigmas: Sigma) -> NPSequence:
-        return np.asarray(regular_sigmas)
+    def normalize(self, regular_sigmas: Sigma) -> tuple[NPSequence, NPSequence]:
+        regular_sigmas = np.asarray(regular_sigmas)
+        return regular_sigmas, 1 - regular_sigmas
 
     def regularize(self, normal_sigmas: Sigma) -> NPSequence:
         return np.asarray(normal_sigmas)
-
-    def alphas(self, normal_sigmas: Sigma) -> NPSequence:
-        return np.subtract(1, normal_sigmas)  # pyright: ignore[reportReturnType] # float RHS is NPSequence
 
 
 @functools.lru_cache
@@ -161,11 +151,8 @@ class ScheduleCommon(SkrampleSchedule):
         return self.points(np.linspace(0, 1, self.base_timesteps))
 
     @abstractmethod
-    def _sigmas_to_points(self, sigmas: NPSequence) -> NPSchedule:
+    def _sigmas_to_points(self, sigmas: NPSequence, alphas: NPSequence) -> NPSchedule:
         pass
-
-    def sigmas_to_points(self, sigmas: Sequence[float] | NPSequence) -> NPSchedule:
-        return self._sigmas_to_points(np.asarray(sigmas, dtype=np.float64))
 
 
 @dataclass(frozen=True)
@@ -234,13 +221,13 @@ class Scaled(ScheduleCommon):
 
     def _points(self, t: NPSequence) -> NPSchedule:
         alphas_cumprod = self.continuous_alphas_cumprod(t)
-        sigmas = self.space.normalize(np.sqrt((1 - alphas_cumprod) / alphas_cumprod))
-        return np.stack([t * self.base_timesteps, sigmas, self.space.alphas(sigmas)], 1)
+        sigmas = np.sqrt((1 - alphas_cumprod) / alphas_cumprod)
+        return np.stack([t * self.base_timesteps, *self.space.normalize(sigmas)], 1)
 
-    def _sigmas_to_points(self, sigmas: NPSequence) -> NPSchedule:
+    def _sigmas_to_points(self, sigmas: NPSequence, alphas: NPSequence) -> NPSchedule:
         # TODO (beinsezii): continuous version instead of LRU + interp?
         timesteps = np.interp(sigmas, self.all_points[:, 1], self.all_points[:, 0])
-        return np.stack([timesteps, sigmas, self.space.alphas(sigmas)], axis=1)
+        return np.stack([timesteps, sigmas, alphas], axis=1)
 
 
 @dataclass(frozen=True)
@@ -289,11 +276,10 @@ class Linear(ScheduleCommon):
             return self.custom_space
 
     def _points(self, t: NPSequence) -> NPSchedule:
-        sigmas = t * self.sigma_start
-        return np.stack([t * self.base_timesteps, self.space.normalize(sigmas), self.space.alphas(sigmas)], axis=1)
+        return np.stack([t * self.base_timesteps, *self.space.normalize(t * self.sigma_start)], axis=1)
 
-    def _sigmas_to_points(self, sigmas: NPSequence) -> NPSchedule:
-        return np.stack([sigmas * (self.base_timesteps / self.sigma_start), sigmas], axis=1)
+    def _sigmas_to_points(self, sigmas: NPSequence, alphas: NPSequence) -> NPSchedule:
+        return np.stack([sigmas * (self.base_timesteps / self.sigma_start), sigmas, alphas], axis=1)
 
 
 @dataclass(frozen=True)
@@ -311,11 +297,8 @@ class _PartialSchedule(SkrampleSchedule):
     def space(self) -> SigmaSpace:
         return self.base.space
 
-    def _sigmas_to_points(self, sigmas: NPSequence) -> NPSchedule:
-        return self.base._sigmas_to_points(sigmas)
-
-    def sigmas_to_points(self, sigmas: Sequence[float] | NPSequence) -> NPSchedule:
-        return self._sigmas_to_points(np.asarray(sigmas, dtype=np.float64))
+    def _sigmas_to_points(self, sigmas: NPSequence, alphas: NPSequence) -> NPSchedule:
+        return self.base._sigmas_to_points(sigmas, alphas)
 
 
 @dataclass(frozen=True)
@@ -453,7 +436,7 @@ class Karras(SubSchedule):
 
         sigmas = normalize(sigmas[2:], sigmas[0], sigmas[1]) * sigma_max
 
-        return self.base._sigmas_to_points(self.space.normalize(sigmas))
+        return self.base._sigmas_to_points(*self.space.normalize(sigmas))
 
 
 @dataclass(frozen=True)
@@ -475,7 +458,7 @@ class Exponential(SubSchedule):
 
         sigmas = normalize(sigmas[2:], sigmas[0], sigmas[1]) * sigma_max
 
-        return self.base._sigmas_to_points(self.space.normalize(sigmas))
+        return self.base._sigmas_to_points(*self.space.normalize(sigmas))
 
 
 @dataclass(frozen=True)
@@ -495,7 +478,7 @@ class Beta(SubSchedule):
 
         sigmas = beta.ppf(probabilities, self.alpha, self.beta)
         sigmas = normalize(sigmas, sigmas[0])[1:]
-        return self.base._sigmas_to_points(self.space.normalize(sigmas * sigma_max))
+        return self.base._sigmas_to_points(*self.space.normalize(sigmas * sigma_max))
 
 
 @dataclass(frozen=True)
@@ -517,7 +500,7 @@ class Probit(SubSchedule):
         sigmas = sigmoid(norm.ppf(probabilities, scale=self.scale))
         sigmas = normalize(sigmas[2:], *sigmas[:2])
 
-        return self.base._sigmas_to_points(self.space.normalize(sigmas * self.space.regularize(self.base.point(1)[1])))
+        return self.base._sigmas_to_points(*self.space.normalize(sigmas * self.space.regularize(self.base.point(1)[1])))
 
 
 @dataclass(frozen=True)

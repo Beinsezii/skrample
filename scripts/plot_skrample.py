@@ -72,7 +72,6 @@ SAMPLERS: dict[str, structured.StructuredSampler | functional.FunctionalSampler]
     "rku": functional.RKUltra(),
     "ssprk": functional.RKUltra(providers={**functional.DEFAULT_PROVIDERS, **functional.STABLE_PROVIDERS}),
     "rkm": functional.RKMoire(),
-    "fheun": functional.FastHeun(),
 }
 for k, v in list(SAMPLERS.items()):
     if isinstance(v, traits.HigherOrder):
