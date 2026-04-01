@@ -453,7 +453,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
 
     @property
     def init_noise_sigma(self) -> float:
-        return self.sampler.scale_input(1, self.schedule_np[0][1].item(), sigma_transform=self.schedule.sigma_transform)
+        return self.sampler.scale_input(1, Point(*self.schedule_np[0]))
 
     @property
     def order(self) -> int:
@@ -509,14 +509,12 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
     def scale_noise(self, sample: Tensor, timestep: Tensor, noise: Tensor) -> Tensor:
         schedule = self.schedule_np
         step = schedule[:, 0].tolist().index(timestep.item())
-        sigma = schedule[step, 1].item()
-        return self.sampler.merge_noise(sample, noise, sigma, sigma_transform=self.schedule.sigma_transform)
+        return self.sampler.merge_noise(sample, noise, Point(*schedule[step]))
 
     def scale_model_input(self, sample: Tensor, timestep: float | Tensor) -> Tensor:
         schedule = self.schedule_np
         step = schedule[:, 0].tolist().index(timestep if isinstance(timestep, (int | float)) else timestep.item())
-        sigma = schedule[step, 1].item()
-        return self.sampler.scale_input(sample, sigma, sigma_transform=self.schedule.sigma_transform)
+        return self.sampler.scale_input(sample, Point(*schedule[step]))
 
     def step(
         self,
