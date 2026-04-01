@@ -40,7 +40,11 @@ def compare_sigmas(
     steps: int,
     tolerance: float = 0.5,
 ) -> None:
-    compare_pp(a.sigmas_np(steps), get_diffusers_schedule(b, steps)[:, 1], tolerance)
+    compare_pp(
+        a.sigmas_np(steps),
+        a.space.normalize(get_diffusers_schedule(b, steps)[:, 1])[0],
+        tolerance,
+    )
 
 
 @pytest.mark.parametrize("steps", STEPS)
