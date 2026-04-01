@@ -58,10 +58,10 @@ def test_mu_set() -> None:
 def test_sigmas_to_points(schedule: type[ScheduleCommon], modifier: type[ScheduleModifier] | None) -> None:
     schedule_object = modifier(schedule()) if modifier else schedule()
     points = schedule_object.points(np.linspace(1, 0, 33))
-    points_inv = schedule_object.sigmas_to_points(points[:, 1])
+    points_inv = schedule_object._sigmas_to_points(points[:, 1], points[:, 2])
 
     for _ in range(0, 99):
-        points_inv = schedule_object.sigmas_to_points(points_inv[:, 1])
+        points_inv = schedule_object._sigmas_to_points(points_inv[:, 1], points_inv[:, 2])
 
     compare_pp(points, points_inv, 0.1)
 
@@ -80,20 +80,20 @@ def test_continuously_variable(schedule: type[ScheduleCommon], modifier: type[Sc
 @pytest.mark.parametrize(("schedule", "modifier"), itertools.product(ALL_SCHEDULES, ALL_MODIFIERS_OPTION))
 def test_zero_point(schedule: type[ScheduleCommon], modifier: type[ScheduleModifier] | None) -> None:
     schedule_object = modifier(schedule()) if modifier else schedule()
-    assert schedule_object.point(0) == (0, 0)
+    assert schedule_object.point(0) == (0, 0, 1)
 
 
 @pytest.mark.parametrize(("schedule", "modifier"), itertools.product(ALL_SCHEDULES, ALL_MODIFIERS))
 def test_modified_one_point(schedule: type[ScheduleCommon], modifier: type[ScheduleModifier]) -> None:
     base = schedule()
     modified = modifier(base)
-    assert modified.point(1) == base.point(1)
+    np.testing.assert_allclose(modified.point(1), base.point(1), rtol=0, atol=1e-15)
 
 
 @pytest.mark.parametrize(("key"), MEASURED_SCHEDULE_RESULTS.keys())
 def test_self_schedules(key: ScheduleCommon) -> None:
     compare_pp(
-        key.points(np.linspace(1, 0, MEASURED_SCHEDULES_STEPS)),
+        key.points(np.linspace(1, 0, MEASURED_SCHEDULES_STEPS))[:, :2],  # TODO (beinsezii): measure alphas
         np.asarray(MEASURED_SCHEDULE_RESULTS[key], dtype=np.float64),
         1e-3,
     )
