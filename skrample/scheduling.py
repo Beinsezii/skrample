@@ -5,7 +5,7 @@ import math
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from typing import Literal
+from typing import Literal, Self
 
 import numpy as np
 
@@ -160,8 +160,13 @@ class FixedSchedule(SkrampleSchedule):
     fixed_schedule: FloatSchedule | NPSchedule
     sigma_space: SigmaSpace
 
+    @classmethod
+    def from_regular(cls, timesteps: NPSequence, regular_sigmas: NPSequence, sigma_space: SigmaSpace) -> Self:
+        return cls(np.stack([timesteps, *sigma_space.normalize(regular_sigmas)], axis=1), sigma_space)
+
     def _points(self, t: NPSequence) -> NPSchedule:
-        return np.quantile(np.concatenate([np.asarray(self.fixed_schedule, dtype=np.float64), [[0, 0]]]), t, axis=0)
+        sch = np.concatenate([np.asarray(self.fixed_schedule, dtype=np.float64), [[0, 0, 1]]])
+        return np.concatenate([np.quantile(sch[:, :2], t, axis=0), np.quantile(sch[:, 2:], 1 - t, axis=0)], axis=1)
 
     @property
     def space(self) -> SigmaSpace:
