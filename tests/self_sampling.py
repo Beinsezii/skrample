@@ -41,12 +41,12 @@ def capture(
     (
         interface.StructuredFunctionalAdapter(sampler) if isinstance(sampler, structured.StructuredSampler) else sampler
     ).generate_model(
-        lambda x, t, s: x - math.sin(t),
+        lambda x, t, s, a: x - math.sin(t),
         model,
         scheduling.Hyper(schedule),
         random.random,
         MEASURED_STEPS,
-        callback=lambda x, i, t, s: samples.append(x),
+        callback=lambda x, i, t, s, a: samples.append(x),
     )
     return samples
 
@@ -82,15 +82,19 @@ MEASURED_SAMPLER_RESULTS: dict[SamplerTestKey, list[float]] = {
 # fmt: on
 
 
-@pytest.mark.parametrize(("key"), MEASURED_SAMPLER_RESULTS.keys())
-def test_self_samplers(key: SamplerTestKey) -> None:
-    smp, sch, md = key
+@pytest.mark.parametrize(("sampler", "schedule", "model"), MEASURED_SAMPLER_RESULTS.keys())
+def test_self_samplers(
+    sampler: type[structured.StructuredSampler] | type[functional.FunctionalSampler],
+    schedule: type[scheduling.ScheduleCommon],
+    model: type[models.DiffusionModel],
+) -> None:
+    key: SamplerTestKey = (sampler, schedule, model)
     compare_pp(
         np.asarray(
             capture(
-                smp(providers={2: tableaux.RKE2.Heun}) if issubclass(smp, functional.RKUltra) else smp(),
-                sch(),
-                md(),
+                sampler(providers={2: tableaux.RKE2.Heun}) if issubclass(sampler, functional.RKUltra) else sampler(),
+                schedule(),
+                model(),
             ),
             dtype=np.float64,
         ),
@@ -330,7 +334,7 @@ def test_require_noise(sampler: structured.StructuredSampler) -> None:
     ),
 )
 def test_maruyama(model: type[models.DiffusionModel], schedule: scheduling.SkrampleSchedule, noise: bool) -> None:
-    if model is models.NoiseModel and isinstance(schedule.space, scheduling.VariancePreserving):
+    if model is models.NoiseModel and isinstance(schedule.space, scheduling.FlowMatching):
         return  # Noise / zero for compliment sigma=1
 
     dpm = interface.StructuredFunctionalAdapter(structured.DPM(order=1, stochasticity=noise))
@@ -338,16 +342,16 @@ def test_maruyama(model: type[models.DiffusionModel], schedule: scheduling.Skram
     samples_dpm: list[float] = []
     samples_maru: list[float] = []
 
-    def fake_model(x: float, _: float, s: float) -> float:
+    def fake_model(x: float, _: float, s: float, _a: float) -> float:
         return x + math.sin(x) * s
 
-    def fake_model_dpm(x: float, t: float, s: float) -> float:
+    def fake_model_dpm(x: float, t: float, s: float, a: float) -> float:
         samples_dpm.append(x)
-        return fake_model(x, t, s)
+        return fake_model(x, t, s, a)
 
-    def fake_model_maru(x: float, t: float, s: float) -> float:
+    def fake_model_maru(x: float, t: float, s: float, a: float) -> float:
         samples_maru.append(x)
-        return fake_model(x, t, s)
+        return fake_model(x, t, s, a)
 
     steps: int = random.randint(5, 51)
 
@@ -430,18 +434,18 @@ def test_runge_kutta_diffusers(
     points_ref: list[Point] = []
     points_wrap: list[Point] = []
 
-    def fake_model(x: float, _: float, s: float) -> float:
+    def fake_model(x: float, _t: float, s: float, _a: float) -> float:
         return x + math.sin(x) * s
 
-    def fake_model_ref(x: float, t: float, s: float) -> float:
+    def fake_model_ref(x: float, t: float, s: float, a: float) -> float:
         samples_ref.append(x)
-        points_ref.append(Point(t, s))
-        return fake_model(x, t, s)
+        points_ref.append(Point(t, s, a))
+        return fake_model(x, t, s, a)
 
-    def fake_model_wrap(x: float, t: float, s: float) -> float:
+    def fake_model_wrap(x: float, t: float, s: float, a: float) -> float:
         samples_wrap.append(x)
-        points_wrap.append(Point(t, s))
-        return fake_model(x, t, s)
+        points_wrap.append(Point(t, s, a))
+        return fake_model(x, t, s, a)
 
     sampler_wrap = wrapper(
         schedule,
@@ -470,9 +474,11 @@ def test_runge_kutta_diffusers(
 
     data_wrap: float = data_init
     for n, (t, s) in enumerate(zip(sampler_wrap.timesteps, sampler_wrap.sigmas)):
-        output = fake_model_wrap(data_wrap, t.item(), s.item())
+        output = fake_model_wrap(
+            data_wrap, t.item(), *(x.item() for x in sampler_wrap.schedule.space.normalize(s.item()))
+        )
 
-        assert points_ref[n] == points_wrap[n], (points_ref[: n + 1], points_wrap)
+        np.testing.assert_allclose(points_wrap[n], points_ref[n], rtol=0, atol=1e-15)
         assert abs(samples_ref[n] - samples_wrap[n]) < 1e-8, (samples_ref[: n + 1], samples_wrap)
 
         data_wrap = (

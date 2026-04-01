@@ -84,7 +84,7 @@ def step_tableau[T: Sample](
             X = sample
 
         # Do not call model on timestep = 0 or sigma = 0
-        if any(abs(v) < epsilon for v in frac_sc):
+        if abs(frac_sc.timestep) < epsilon or abs(frac_sc.sigma) < epsilon:
             derivatives.append(model_transform.backward(sample, X, S0, S1))
         else:
             derivatives.append(model(X, *frac_sc))

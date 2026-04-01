@@ -7,17 +7,7 @@ from dataclasses import dataclass, replace
 import numpy as np
 
 from skrample import common
-from skrample.common import (
-    DeltaPoint,
-    Point,
-    Sample,
-    SigmaTransform,
-    Step,
-    divf,
-    ln,
-    softmax,
-    spowf,
-)
+from skrample.common import DeltaPoint, Point, Sample, Step, divf, ln, softmax, spowf
 from skrample.scheduling import SkrampleSchedule
 
 from . import models, traits
@@ -98,7 +88,7 @@ class StructuredSampler(ABC, traits.SamplingCommon):
             previous=previous,
         )
 
-    def scale_input[T: Sample](self, sample: T, sigma: float, sigma_transform: SigmaTransform) -> T:
+    def scale_input[T: Sample](self, sample: T, point: Point) -> T:
         """Some old samplers used to have different implmenetations,
         but now pretty for pretty much everything this is just a no-op."""
         return sample
