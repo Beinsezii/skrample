@@ -68,7 +68,7 @@ with torch.inference_mode():
         ).input_ids.to(device=device)
     ).last_hidden_state
 
-    def call_model(x: torch.Tensor, t: float, s: float) -> torch.Tensor:
+    def call_model(x: torch.Tensor, t: float, s: float, a: float) -> torch.Tensor:
         conditioned, unconditioned = model(
             x.expand([x.shape[0] * 2, *x.shape[1:]]).to(model.dtype),
             t,
@@ -106,10 +106,10 @@ with torch.inference_mode():
         geo_score: float = 0
         nfes: int = 0
 
-        def call_model_nfes(x: torch.Tensor, t: float, s: float) -> torch.Tensor:
+        def call_model_nfes(x: torch.Tensor, t: float, s: float, a: float) -> torch.Tensor:
             nonlocal nfes
             nfes += 1
-            return call_model(x, t, s)
+            return call_model(x, t, s, a)
 
         clock = time.perf_counter()
 

@@ -13,7 +13,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from skrample import scheduling
-from skrample.common import SigmaTransform, sigma_complement, sigma_polar, spowf
+from skrample.common import spowf
 from skrample.sampling import functional, models, structured, traits
 from skrample.sampling.interface import StructuredFunctionalAdapter
 
@@ -58,9 +58,9 @@ def colors(hue_steps: int) -> Generator[list[float]]:
                 yield oklch_to_srgb(np.array([lighness_actual, chroma_actual, hue], dtype=np.float64))
 
 
-TRANSFORMS: dict[str, tuple[float, SigmaTransform, models.DiffusionModel]] = {
-    "polar": (1.0, sigma_polar, models.NoiseModel()),
-    "complement": (1.0, sigma_complement, models.FlowModel()),
+SPACES: dict[str, tuple[float, scheduling.SigmaSpace, models.DiffusionModel]] = {
+    "vp": (1.0, scheduling.VariancePreserving(), models.NoiseModel()),
+    "flowmatch": (1.0, scheduling.FlowMatching(), models.FlowModel()),
 }
 SAMPLERS: dict[str, structured.StructuredSampler | functional.FunctionalSampler] = {
     "euler": structured.Euler(),
@@ -71,6 +71,7 @@ SAMPLERS: dict[str, structured.StructuredSampler | functional.FunctionalSampler]
     "spc": structured.SPC(),
     "rku": functional.RKUltra(),
     "ssprk": functional.RKUltra(providers={**functional.DEFAULT_PROVIDERS, **functional.STABLE_PROVIDERS}),
+    "dynrk": functional.DynasauRK(),
     "rkm": functional.RKMoire(),
 }
 for k, v in list(SAMPLERS.items()):
@@ -113,7 +114,7 @@ subparsers = parser.add_subparsers(dest="command")
 parser_sampler = subparsers.add_parser("samplers")
 parser_sampler.add_argument("--adjust", type=bool, default=True, action=BooleanOptionalAction)
 parser_sampler.add_argument("--curve", "-k", type=int, default=30)
-parser_sampler.add_argument("--transform", "-t", type=str, choices=list(TRANSFORMS.keys()), default="polar")
+parser_sampler.add_argument("--transform", "-t", type=str, choices=list(SPACES.keys()), default="vp")
 parser_sampler.add_argument(
     "--sampler",
     "-S",
@@ -173,9 +174,9 @@ if args.command == "samplers":
 
     schedule = scheduling.Hyper(
         scheduling.Linear(
-            sigma_start=TRANSFORMS[args.transform][0],
+            sigma_start=SPACES[args.transform][0],
             base_timesteps=10_000,
-            custom_transform=TRANSFORMS[args.transform][1],
+            custom_space=SPACES[args.transform][1],
         ),
         -2,
         False,
@@ -191,7 +192,7 @@ if args.command == "samplers":
         sampled_values = [sample]
         timesteps = [0.0]
 
-        def callback(x: float, n: int, t: float, s: float) -> None:
+        def callback(x: float, n: int, t: float, s: float, a: float) -> None:
             nonlocal sampled_values, timesteps
             sampled_values.append(x)
             timesteps.insert(-1, t / schedule.base_timesteps)
@@ -205,8 +206,8 @@ if args.command == "samplers":
 
         sampler.sample_model(
             sample=sample,
-            model=lambda x, t, s: x - math.sin(t / schedule.base_timesteps * args.curve),
-            model_transform=TRANSFORMS[args.transform][2],
+            model=lambda x, t, s, a: x - math.sin(t / schedule.base_timesteps * args.curve),
+            model_transform=SPACES[args.transform][2],
             schedule=schedule,
             steps=adjusted,
             rng=random,

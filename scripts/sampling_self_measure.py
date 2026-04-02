@@ -41,12 +41,12 @@ def capture(
     (
         interface.StructuredFunctionalAdapter(sampler) if isinstance(sampler, structured.StructuredSampler) else sampler
     ).generate_model(
-        lambda x, t, s: x - math.sin(t),
+        lambda x, t, s, a: x - math.sin(t),
         model,
         scheduling.Hyper(schedule),
         random.random,
         MEASURED_STEPS,
-        callback=lambda x, i, t, s: samples.append(x),
+        callback=lambda x, i, t, s, a: samples.append(x),
     )
     return samples
 

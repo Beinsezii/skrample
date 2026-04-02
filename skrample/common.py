@@ -60,6 +60,7 @@ class DeltaPoint(NamedTuple):
         return Point(
             timestep=self.point_to.timestep - self.point_from.timestep,
             sigma=self.point_to.sigma - self.point_from.sigma,
+            alpha=self.point_to.alpha - self.point_from.alpha,
         )
 
     def sigma_ts(self, transform: SigmaTransform) -> SigmaTS:
