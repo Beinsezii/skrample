@@ -6,14 +6,14 @@ from diffusers.schedulers.scheduling_euler_discrete import EulerDiscreteSchedule
 from diffusers.schedulers.scheduling_flow_match_euler_discrete import FlowMatchEulerDiscreteScheduler
 from testing_common import FLOW_CONFIG, SCALED_CONFIG, compare_pp
 
-from skrample.scheduling import ZSNR, FlowShift, Linear, NPSchedule, Scaled, SkrampleSchedule
+from skrample.scheduling import ZSNR, FlowShift, Linear, NPPoints, Scaled, SkrampleSchedule
 
 STEPS: Iterable[int] = [*range(1, 12)]
 
 
 def get_diffusers_schedule(
     diffusers_scheduler: EulerDiscreteScheduler | FlowMatchEulerDiscreteScheduler, steps: int
-) -> NPSchedule:
+) -> NPPoints:
     b = diffusers_scheduler
     if isinstance(b, FlowMatchEulerDiscreteScheduler):
         # b.set_timesteps(num_inference_steps=steps, mu=mu)

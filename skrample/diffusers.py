@@ -4,7 +4,7 @@ import dataclasses
 import functools
 import math
 from collections import OrderedDict
-from collections.abc import Hashable, Mapping
+from collections.abc import Hashable, Mapping, Sequence
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, cast
 
@@ -302,7 +302,7 @@ class SkrampleWrapperCore(abc.ABC):
         noise_props: T | None,
         generator: torch.Generator | list[torch.Generator] | None = None,
         dtype: torch.dtype | None = None,
-        schedule: scheduling.NPSchedule | None = None,
+        schedule: scheduling.NPPoints | None = None,
     ) -> torch.Tensor:
         if self._noise_generator is None:
             if isinstance(generator, list) and len(generator) == sample.shape[0]:
@@ -601,15 +601,15 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
         return self.functional_interface()[0].adjust_steps(steps)
 
     @abc.abstractmethod
-    def _schedule_full(self, steps: int) -> scheduling.FloatSchedule: ...
+    def _schedule_full(self, steps: int) -> Sequence[Point]: ...
 
     @functools.cached_property
-    def all_points(self) -> scheduling.FloatSchedule:
+    def all_points(self) -> Sequence[Point]:
         "Includes T=1 coefficients"
         return self._schedule_full(self._steps)
 
     @functools.cached_property
-    def schedule_np_trim(self) -> scheduling.NPSchedule:
+    def schedule_np_trim(self) -> scheduling.NPPoints:
         "Excludes T=1 coefficients"
         return np.asarray([p for p in self.all_points if p.timestep > 1e-8 and p.sigma > 1e-8], dtype=np.float64)
 
@@ -870,7 +870,7 @@ class RKUltraWrapperScheduler[T: TensorNoiseProps | None](RKWrapperCore[T, funct
     def tableau(self) -> tableaux.Tableau:
         return self.functional_sampler().tableau()
 
-    def _schedule_full(self, steps: int) -> scheduling.FloatSchedule:
+    def _schedule_full(self, steps: int) -> Sequence[Point]:
         tableau = self.tableau()
         recorded_points: list[Point] = []
 
@@ -954,7 +954,7 @@ class DynasauRKWrapperScheduler[T: TensorNoiseProps | None](RKWrapperCore[T, fun
         stages = len(self.functional_sampler().tableau(Step(0, 1)).stages)
         return self.functional_sampler().tableau(Step.from_int(self._index // stages, self._steps))
 
-    def _schedule_full(self, steps: int) -> scheduling.FloatSchedule:
+    def _schedule_full(self, steps: int) -> Sequence[Point]:
         recorded_points: list[Point] = []
 
         def record_call(x: float, t: float, s: float, a: float) -> float:

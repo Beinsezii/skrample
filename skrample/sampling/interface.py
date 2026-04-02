@@ -1,9 +1,13 @@
 import dataclasses
+from typing import TYPE_CHECKING
 
 from skrample import scheduling
-from skrample.common import RNG, FloatSchedule, Point, Sample, Step
+from skrample.common import RNG, Point, Sample, Step
 
 from . import functional, models, structured
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 
 @dataclasses.dataclass(frozen=True)
@@ -25,7 +29,7 @@ class StructuredFunctionalAdapter(functional.FunctionalSampler):
         callback: functional.SampleCallback | None = None,
     ) -> T:
         previous: list[structured.SKSamples[T]] = []
-        float_schedule: FloatSchedule = schedule.schedule(steps)
+        float_schedule: Sequence[Point] = schedule.schedule(steps)
 
         for n, point in list(enumerate(float_schedule))[include]:
             sksamples = self.sampler.sample_packed(

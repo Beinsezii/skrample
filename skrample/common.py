@@ -1,6 +1,6 @@
 import enum
 import math
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from functools import lru_cache
 from itertools import repeat
 from typing import TYPE_CHECKING, NamedTuple
@@ -17,32 +17,24 @@ else:
     type Sample = float | NDArray[np.floating]
 
 
-type FloatSchedule = Sequence[Point]
-"Sequence of timestep, sigma"
-
 type RNG[T: Sample] = Callable[[], T]
 "Distribution should match model, typically normal"
 
 
 class Point(NamedTuple):
     timestep: float
+    "Time to evaluate"
     sigma: float
+    "Noise in sample"
     alpha: float
+    "Clean data in sample"
 
 
 class DeltaPoint(NamedTuple):
     point_from: Point
     point_to: Point
 
-    @property
-    def sigmas(self) -> tuple[float, float]:
-        return self.point_from.sigma, self.point_to.sigma
-
-    @property
-    def timesteps(self) -> tuple[float, float]:
-        return self.point_from.timestep, self.point_to.timestep
-
-    def dt(self) -> Point:
+    def difference(self) -> Point:
         return Point(
             timestep=self.point_to.timestep - self.point_from.timestep,
             sigma=self.point_to.sigma - self.point_from.sigma,
