@@ -26,8 +26,8 @@ with torch.inference_mode():
     sampler = StructuredFunctionalAdapter(structured.DPM(order=2, stochasticity=True))
     # Native functional example
     sampler = functional.RKUltra(4)
-    # Dynamic step sizes
-    sampler = functional.RKMoire()
+    # # Dynamic step sizes
+    # sampler = functional.RKMoire()
 
     tokenizer: CLIPTokenizer = CLIPTokenizer.from_pretrained(url, subfolder="tokenizer")
     text_encoder: CLIPTextModel = CLIPTextModel.from_pretrained(
