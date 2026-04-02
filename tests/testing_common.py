@@ -5,7 +5,6 @@ import numpy as np
 import torch
 from huggingface_hub import hf_hub_download
 
-from skrample.common import SigmaTransform, sigma_complement, sigma_polar
 from skrample.sampling import tableaux
 from skrample.sampling.models import (
     DataModel,
@@ -90,10 +89,6 @@ ALL_FAKE_MODELS: list[type[DiffusionModel]] = [
     ScaleX,
 ]
 
-ALL_TRANSFROMS: list[SigmaTransform] = [
-    sigma_complement,
-    sigma_polar,
-]
 ALL_SPACES: list[SigmaSpace] = [
     FlowMatching(),
     VariancePreserving(),
