@@ -31,7 +31,7 @@ def compare_timesteps(
     steps: int,
     tolerance: float = 0.5,
 ) -> None:
-    compare_pp(a.timesteps_np(steps), get_diffusers_schedule(b, steps)[:, 0], tolerance)
+    compare_pp(a.schedule_np(steps)[:, 0], get_diffusers_schedule(b, steps)[:, 0], tolerance)
 
 
 def compare_sigmas(
@@ -41,7 +41,7 @@ def compare_sigmas(
     tolerance: float = 0.5,
 ) -> None:
     compare_pp(
-        a.sigmas_np(steps),
+        a.schedule_np(steps)[:, 1],
         a.space.normalize(get_diffusers_schedule(b, steps)[:, 1])[0],
         tolerance,
     )
