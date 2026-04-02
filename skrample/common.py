@@ -129,8 +129,7 @@ class MergeStrategy(enum.StrEnum):  # str for easy UI options
 
 
 def merge_noise[T: Sample](sample: T, noise: T, point: Point) -> T:
-    _t, sigma_u, sigma_v = point
-    return sample * sigma_v + noise * sigma_u  # pyright: ignore [reportReturnType] # float rhs is always T
+    return sample * point.alpha + noise * point.sigma  # pyright: ignore [reportReturnType] # float rhs is always T
 
 
 def divf(lhs: float, rhs: float) -> float:
