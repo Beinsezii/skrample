@@ -48,7 +48,7 @@ def dual_sample(
     mu: float | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     # Inputs
-    a_sample = torch.zeros([1, 4, 128, 128], dtype=torch.float32)
+    a_sample = torch.zeros([1, 4, 32, 32], dtype=torch.float32)
     b_sample = a_sample.clone()
     seed = torch.manual_seed(0)
     initial_noise = torch.randn(a_sample.shape, generator=seed, dtype=a_sample.dtype)
