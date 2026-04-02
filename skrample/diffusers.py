@@ -158,9 +158,8 @@ def parse_diffusers_config(
         flow_keys = [f.name for f in dataclasses.fields(scheduling.FlowShift)]
         schedule_modifiers.append((scheduling.FlowShift, {k: v for k, v in remapped.items() if k in flow_keys}))
 
-    subschedule: type[SubSchedule] | None
     if "skrample_subschedule" in remapped:
-        subschedule = cast("type[SubSchedule]", remapped.pop("skrample_subschedule"))
+        subschedule: type[SubSchedule] | None = cast("type[SubSchedule]", remapped.pop("skrample_subschedule"))
         modifier_keys = [f.name for f in dataclasses.fields(subschedule)]
         subschedule_props = {k: v for k, v in remapped.items() if k in modifier_keys}
     else:
