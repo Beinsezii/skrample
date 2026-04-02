@@ -89,7 +89,7 @@ SUBSCHEDULES: dict[str, tuple[type[scheduling.SubSchedule], dict[str, Any]] | No
     "beta": (scheduling.Beta, {}),
     "exponential": (scheduling.Exponential, {}),
     "karras": (scheduling.Karras, {}),
-    "sigauss": (scheduling.Probit, {}),
+    "probit": (scheduling.Probit, {}),
     "none": None,
 }
 MODIFIERS: dict[str, tuple[type[scheduling.ScheduleModifier], dict[str, Any]] | None] = {
