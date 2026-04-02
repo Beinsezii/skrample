@@ -150,8 +150,7 @@ def parse_diffusers_config(
         scaled_keys = [f.name for f in dataclasses.fields(scheduling.Scaled)]
         # non-uniform misses a whole timestep
         scaled = scheduling.Scaled(**{k: v for k, v in remapped.items() if k in scaled_keys})
-        sigma_start: float = scaled.ipoint(1).sigma
-        remapped["sigma_start"] = math.sqrt(sigma_start)
+        remapped["sigma_start"] = scaled.space.regularize(scaled.ipoint(0).sigma).item()
 
     schedule_modifiers: list[tuple[type[ScheduleModifier], dict[str, Any]]] = []
 
