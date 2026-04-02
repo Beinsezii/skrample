@@ -31,10 +31,7 @@ class SampleInput[T: Sample]:
     "The extra stochastic noise"
 
     def delta_point(self, schedule: SkrampleSchedule) -> DeltaPoint:
-        return DeltaPoint(*(Point(*p) for p in schedule.ipoints(self.step).tolist()))
-
-    def delta_uv(self, schedule: SkrampleSchedule) -> DeltaPoint:
-        return self.delta_point(schedule)
+        return DeltaPoint(*schedule.ipoints(self.step))
 
 
 @dataclass(frozen=True)

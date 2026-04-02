@@ -57,7 +57,7 @@ def test_mu_set() -> None:
 @pytest.mark.parametrize(("schedule", "modifier"), itertools.product(ALL_SCHEDULES, ALL_MODIFIERS_OPTION))
 def test_sigmas_to_points(schedule: type[ScheduleCommon], modifier: type[ScheduleModifier] | None) -> None:
     schedule_object = modifier(schedule()) if modifier else schedule()
-    points = schedule_object.points(np.linspace(1, 0, 33))
+    points = schedule_object.points_np(np.linspace(1, 0, 33))
     points_inv = schedule_object._sigmas_to_points(points[:, 1], points[:, 2])
 
     for _ in range(0, 99):
@@ -70,7 +70,7 @@ def test_sigmas_to_points(schedule: type[ScheduleCommon], modifier: type[Schedul
 def test_continuously_variable(schedule: type[ScheduleCommon], modifier: type[ScheduleModifier] | None) -> None:
     schedule_object = modifier(schedule()) if modifier else schedule()
     t100: list[float] = [0, 1, *(random.random() for _ in range(98))]
-    points_batch = schedule_object.points(t100)
+    points_batch = schedule_object.points_np(t100)
     points_single = np.array([schedule_object.point(t) for t in t100], dtype=np.float64)
     assert points_batch.shape == points_single.shape
     # Converting np.float64 -> float -> np.float64 should be exact
@@ -93,7 +93,7 @@ def test_modified_one_point(schedule: type[ScheduleCommon], modifier: type[Sched
 @pytest.mark.parametrize(("key"), MEASURED_SCHEDULE_RESULTS.keys())
 def test_self_schedules(key: ScheduleCommon) -> None:
     compare_pp(
-        key.points(np.linspace(1, 0, MEASURED_SCHEDULES_STEPS))[:, :2],  # TODO (beinsezii): measure alphas
+        key.points_np(np.linspace(1, 0, MEASURED_SCHEDULES_STEPS))[:, :2],  # TODO (beinsezii): measure alphas
         np.asarray(MEASURED_SCHEDULE_RESULTS[key], dtype=np.float64),
         1e-3,
     )

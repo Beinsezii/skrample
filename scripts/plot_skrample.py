@@ -255,7 +255,7 @@ elif args.command == "schedules":
 
                     label = " ".join([s.capitalize() for s in label.split("_")])
 
-                    data = composed.ipoints(np.linspace(0, 1, args.steps + 1))
+                    data = composed.ipoints_np(np.linspace(0, 1, args.steps + 1))
 
                     marker = "+" if args.steps <= 50 else ""
                     if args.timesteps:

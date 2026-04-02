@@ -83,59 +83,43 @@ class SkrampleSchedule(ABC):
         """Core implementation of the continuously variable schedule.
         0.0 is more noise, 1.0 is no noise."""
 
-    def points(self, t: Sequence[float] | NPSequence) -> NPSchedule:
+    def points_np(self, t: Sequence[float] | NPSequence) -> NPSchedule:
         """Sample the schedule along T points in time.
-        0.0 is more noise, 1.0 is no noise."""
+        0.0 is no noise, 1.0 is all noise."""
         return self._points(np.asarray(t, dtype=np.float64).clip(0, 1))
 
-    def ipoints(self, t: Sequence[float] | NPSequence) -> NPSchedule:
+    def points(self, t: Sequence[float] | NPSequence) -> FloatSchedule:
+        """Sample the schedule along T points in time.
+        0.0 is no noise, 1.0 is all noise."""
+        return [Point(*p) for p in self.points_np(t)]
+
+    def ipoints_np(self, t: Sequence[float] | NPSequence) -> NPSchedule:
         """Inverse of `points`, or `inference` points.
-        0.0 is more noise, 1.0 is no noise."""
+        0.0 is all noise, 1.0 is no noise."""
         return self._points(1 - np.asarray(t, dtype=np.float64).clip(0, 1))
+
+    def ipoints(self, t: Sequence[float] | NPSequence) -> FloatSchedule:
+        """Sample the schedule along T points in time.
+        0.0 is all noise, 1.0 is no noise."""
+        return [Point(*p) for p in self.ipoints_np(t)]
 
     def point(self, t: float) -> Point:
         """Sample the schedule at T point in time.
-        0.0 is more noise, 1.0 is no noise."""
+        0.0 is no noise, 1.0 is all noise."""
         return Point(*self._points(np.expand_dims(np.float64(t).clip(0, 1), 0))[0].tolist())
 
     def ipoint(self, t: float) -> Point:
         """Inverse of `point`, or `inference` points.
-        0.0 is more noise, 1.0 is no noise."""
+        0.0 is all noise, 1.0 is no noise."""
         return Point(*self._points(np.expand_dims(1 - np.float64(t).clip(0, 1), 0))[0].tolist())
 
     def schedule_np(self, steps: int) -> NPSchedule:
-        """Return the full noise schedule, timesteps stacked on top of sigmas.
-        Excludes the trailing zero"""
+        """Return the full noise schedule, excluding the trailing zero"""
         return self._points(np.linspace(1, 0, steps, endpoint=False))
 
-    def timesteps_np(self, steps: int) -> NPSequence:
-        "Just the timesteps component as a 1-d array"
-        return self.schedule_np(steps)[:, 0]
-
-    def sigmas_np(self, steps: int) -> NPSequence:
-        "Just the sigmas component as a 1-d array"
-        return self.schedule_np(steps)[:, 1]
-
-    def alphas_np(self, steps: int) -> NPSequence:
-        "Just the alphas component as a 1-d array"
-        return self.schedule_np(steps)[:, 2]
-
     def schedule(self, steps: int) -> FloatSchedule:
-        """Return the full noise schedule, [(timestep, sigma), ...)
-        Excludes the trailing zero"""
+        """Return the full noise schedule, excluding the trailing zero"""
         return tuple(Point(*p) for p in self.schedule_np(steps).tolist())
-
-    def timesteps(self, steps: int) -> Sequence[float]:
-        "Just the timesteps component"
-        return self.timesteps_np(steps).tolist()
-
-    def sigmas(self, steps: int) -> Sequence[float]:
-        "Just the sigmas component"
-        return self.sigmas_np(steps).tolist()
-
-    def alphas(self, steps: int) -> Sequence[float]:
-        "Just the alphas component"
-        return self.alphas_np(steps).tolist()
 
 
 @dataclass(frozen=True)
@@ -148,7 +132,7 @@ class ScheduleCommon(SkrampleSchedule):
     @functools.cached_property
     def all_points(self) -> NPSchedule:
         "Returns all points over `base_timesteps` with LRU cache"
-        return self.points(np.linspace(0, 1, self.base_timesteps))
+        return self.points_np(np.linspace(0, 1, self.base_timesteps))
 
     @abstractmethod
     def _sigmas_to_points(self, sigmas: NPSequence, alphas: NPSequence) -> NPSchedule:
@@ -435,7 +419,7 @@ class Karras(SubSchedule):
     "Steps for computing the scale values."
 
     def _points(self, t: NPSequence) -> NPSchedule:
-        sigma_min, sigma_max = self.space.regularize(self.base.points([1 / self.steps, 1.0])[:, 1]).tolist()
+        sigma_min, sigma_max = self.space.regularize(self.base.points_np([1 / self.steps, 1.0])[:, 1]).tolist()
 
         t = np.concatenate([[1, 0], t])
 
@@ -457,7 +441,7 @@ class Exponential(SubSchedule):
     "Steps for computing the scale values."
 
     def _points(self, t: NPSequence) -> NPSchedule:
-        sigma_min, sigma_max = self.space.regularize(self.base.points([1 / self.steps, 1.0])[:, 1].tolist())
+        sigma_min, sigma_max = self.space.regularize(self.base.points_np([1 / self.steps, 1.0])[:, 1].tolist())
 
         t = np.concatenate([[1, 0], t]) ** self.rho
 

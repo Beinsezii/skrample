@@ -6,7 +6,7 @@ from types import MappingProxyType
 from typing import Any
 
 from skrample import common, scheduling
-from skrample.common import RNG, FloatSchedule, Sample, Step
+from skrample.common import RNG, Sample, Step
 
 from . import models, tableaux, traits
 
@@ -66,11 +66,7 @@ def step_tableau[T: Sample](
         model_transform = derivative_transform
 
     derivatives: list[T] = []
-    S0 = schedule.ipoint(step.time_from)
-    S1 = schedule.ipoint(step.time_to)
-    fractions: FloatSchedule = [
-        common.Point(*p) for p in schedule.ipoints([step[0] + f[0] * (step[1] - step[0]) for f in nodes]).tolist()
-    ]
+    S0, S1, *fractions = schedule.ipoints([*step, *(step[0] + f[0] * (step[1] - step[0]) for f in nodes)])
 
     for frac_sc, icoeffs in zip(fractions, (t[1] for t in nodes), strict=True):
         if icoeffs:
@@ -414,7 +410,7 @@ class RKMoire(traits.DerivativeTransform, FunctionalAdaptive, FunctionalHigher):
                     self.derivative_transform,
                 )
 
-                [sigma0, sigma1, sigma2] = schedule.ipoints(
+                [sigma0, sigma1, sigma2] = schedule.ipoints_np(
                     [step / steps, step_next / steps, (step_next + step_size) / steps]
                 )[:, 1].tolist()
 
