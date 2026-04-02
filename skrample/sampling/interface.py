@@ -1,17 +1,21 @@
 import dataclasses
+from typing import TYPE_CHECKING
 
 from skrample import scheduling
-from skrample.common import RNG, FloatSchedule, Sample, SigmaTransform, Step
+from skrample.common import RNG, Point, Sample, Step
 
 from . import functional, models, structured
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 
 @dataclasses.dataclass(frozen=True)
 class StructuredFunctionalAdapter(functional.FunctionalSampler):
     sampler: structured.StructuredSampler
 
-    def merge_noise[T: Sample](self, sample: T, noise: T, sigma: float, sigma_transform: SigmaTransform) -> T:
-        return self.sampler.merge_noise(sample, noise, sigma, sigma_transform)
+    def merge_noise[T: Sample](self, sample: T, noise: T, point: Point) -> T:
+        return self.sampler.merge_noise(sample, noise, point)
 
     def sample_model[T: Sample](
         self,
@@ -25,13 +29,13 @@ class StructuredFunctionalAdapter(functional.FunctionalSampler):
         callback: functional.SampleCallback | None = None,
     ) -> T:
         previous: list[structured.SKSamples[T]] = []
-        float_schedule: FloatSchedule = schedule.schedule(steps)
+        float_schedule: Sequence[Point] = schedule.schedule(steps)
 
         for n, point in list(enumerate(float_schedule))[include]:
             sksamples = self.sampler.sample_packed(
                 structured.SampleInput(
                     sample=sample,
-                    prediction=model(self.sampler.scale_input(sample, point.sigma, schedule.sigma_transform), *point),
+                    prediction=model(self.sampler.scale_input(sample, point), *point),
                     step=Step.from_int(n, len(float_schedule)),
                     noise=rng() if rng and self.sampler.require_noise else None,
                 ),

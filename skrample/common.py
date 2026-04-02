@@ -1,6 +1,6 @@
 import enum
 import math
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from functools import lru_cache
 from itertools import repeat
 from typing import TYPE_CHECKING, NamedTuple
@@ -17,52 +17,29 @@ else:
     type Sample = float | NDArray[np.floating]
 
 
-type SigmaTransform = Callable[[float], SigmaSA]
-"Transforms a single noise sigma into a pair"
-
-
-type FloatSchedule = Sequence[Point]
-"Sequence of timestep, sigma"
-
 type RNG[T: Sample] = Callable[[], T]
 "Distribution should match model, typically normal"
 
 
-class SigmaSA(NamedTuple):
-    sigma: float
-    alpha: float
-
-
-class SigmaTS(NamedTuple):
-    t: SigmaSA
-    s: SigmaSA
-
-
 class Point(NamedTuple):
     timestep: float
+    "Time to evaluate"
     sigma: float
+    "Noise in sample"
+    alpha: float
+    "Clean data in sample"
 
 
 class DeltaPoint(NamedTuple):
     point_from: Point
     point_to: Point
 
-    @property
-    def sigmas(self) -> tuple[float, float]:
-        return self.point_from.sigma, self.point_to.sigma
-
-    @property
-    def timesteps(self) -> tuple[float, float]:
-        return self.point_from.timestep, self.point_to.timestep
-
-    def dt(self) -> Point:
+    def difference(self) -> Point:
         return Point(
             timestep=self.point_to.timestep - self.point_from.timestep,
             sigma=self.point_to.sigma - self.point_from.sigma,
+            alpha=self.point_to.alpha - self.point_from.alpha,
         )
-
-    def sigma_ts(self, transform: SigmaTransform) -> SigmaTS:
-        return SigmaTS(transform(self.point_from.sigma), transform(self.point_to.sigma))
 
 
 class Step(NamedTuple):
@@ -143,34 +120,8 @@ class MergeStrategy(enum.StrEnum):  # str for easy UI options
                 return theirs + [i for i in ours if not any(map(cmp, theirs, repeat(i)))]
 
 
-def sigma_complement(sigma: float) -> SigmaSA:
-    return SigmaSA(sigma, 1 - sigma)
-
-
-def sigma_polar(sigma: float) -> SigmaSA:
-    theta = math.atan(sigma)
-    return SigmaSA(math.sin(theta), math.cos(theta))
-
-
-def scaled_delta(sigma: float, sigma_next: float, sigma_transform: SigmaTransform) -> tuple[float, float]:
-    "Returns delta (h) and scale factor to perform the euler method."
-    sigma_u, sigma_v = sigma_transform(sigma)
-    sigma_u_next, sigma_v_next = sigma_transform(sigma_next)
-
-    scale = sigma_u_next / sigma_u
-    delta = sigma_v_next - sigma_v * scale  # aka `h` or `dt`
-    return delta, scale
-
-
-def euler[T: Sample](sample: T, prediction: T, sigma: float, sigma_next: float, sigma_transform: SigmaTransform) -> T:
-    "Perform the euler method using scaled_delta"
-    # Returns delta, scale so prediction is first
-    return math.sumprod((prediction, sample), scaled_delta(sigma, sigma_next, sigma_transform))  # type: ignore
-
-
-def merge_noise[T: Sample](sample: T, noise: T, sigma: float, sigma_transform: SigmaTransform) -> T:
-    sigma_u, sigma_v = sigma_transform(sigma)
-    return sample * sigma_v + noise * sigma_u  # pyright: ignore [reportReturnType] # float rhs is always T
+def merge_noise[T: Sample](sample: T, noise: T, point: Point) -> T:
+    return sample * point.alpha + noise * point.sigma  # pyright: ignore [reportReturnType] # float rhs is always T
 
 
 def divf(lhs: float, rhs: float) -> float:

@@ -12,12 +12,11 @@ from testing_common import (
     ALL_SCHEDULES,
     ALL_STRUCTURED,
     ALL_TABLEAUX,
-    ALL_TRANSFROMS,
     compare_pp,
 )
 
 from skrample import diffusers, scheduling
-from skrample.common import Point, SigmaTransform, Step, euler, sigma_complement
+from skrample.common import DeltaPoint, Point, Step
 from skrample.pytorch.noise import Brownian
 from skrample.sampling import functional, interface, models, structured, tableaux, traits
 
@@ -42,12 +41,12 @@ def capture(
     (
         interface.StructuredFunctionalAdapter(sampler) if isinstance(sampler, structured.StructuredSampler) else sampler
     ).generate_model(
-        lambda x, t, s: x - math.sin(t),
+        lambda x, t, s, a: x - math.sin(t),
         model,
         scheduling.Hyper(schedule),
         random.random,
         MEASURED_STEPS,
-        callback=lambda x, i, t, s: samples.append(x),
+        callback=lambda x, i, t, s, a: samples.append(x),
     )
     return samples
 
@@ -83,15 +82,19 @@ MEASURED_SAMPLER_RESULTS: dict[SamplerTestKey, list[float]] = {
 # fmt: on
 
 
-@pytest.mark.parametrize(("key"), MEASURED_SAMPLER_RESULTS.keys())
-def test_self_samplers(key: SamplerTestKey) -> None:
-    smp, sch, md = key
+@pytest.mark.parametrize(("sampler", "schedule", "model"), MEASURED_SAMPLER_RESULTS.keys())
+def test_self_samplers(
+    sampler: type[structured.StructuredSampler] | type[functional.FunctionalSampler],
+    schedule: type[scheduling.ScheduleCommon],
+    model: type[models.DiffusionModel],
+) -> None:
+    key: SamplerTestKey = (sampler, schedule, model)
     compare_pp(
         np.asarray(
             capture(
-                smp(providers={2: tableaux.RKE2.Heun}) if issubclass(smp, functional.RKUltra) else smp(),
-                sch(),
-                md(),
+                sampler(providers={2: tableaux.RKE2.Heun}) if issubclass(sampler, functional.RKUltra) else sampler(),
+                schedule(),
+                model(),
             ),
             dtype=np.float64,
         ),
@@ -101,43 +104,40 @@ def test_self_samplers(key: SamplerTestKey) -> None:
 
 
 @pytest.mark.parametrize(
-    ("model_type", "sigma_transform", "eta"), itertools.product(ALL_MODELS, ALL_TRANSFROMS, [-1.5, 0, 0.5, 1])
+    ("model_type", "schedule", "eta"),
+    itertools.product(ALL_MODELS, [scheduling.Linear, scheduling.Scaled], [-1.5, 0, 0.5, 1]),
 )
-def test_model_transforms(model_type: type[models.DiffusionModel], sigma_transform: SigmaTransform, eta: float) -> None:
+def test_model_transforms(
+    model_type: type[models.DiffusionModel], schedule: type[scheduling.SkrampleSchedule], eta: float
+) -> None:
     model_transform = model_type()
     sample = 0.8
     output = 0.3
-    sigma = 0.2
     noise = 0.6
 
-    x = model_transform.to_x(sample, output, sigma, sigma_transform)
-    o = model_transform.from_x(sample, x, sigma, sigma_transform)
+    point_from = schedule().point(0.6)
+
+    x = model_transform.to_x(sample, output, point_from)
+    o = model_transform.from_x(sample, x, point_from)
     assert abs(output - o) < 1e-12
 
-    sigma_next = 0.05
-    for sigma_next in 0.05, 0:  # extra 0 to validate X̂
-        snr = euler(
-            sample, model_transform.to_x(sample, output, sigma, sigma_transform), sigma, sigma_next, sigma_transform
-        )
-        df = model_transform.forward(sample, output, sigma, sigma_next, sigma_transform)
-        assert abs(snr - df) < 1e-12
-
-        ob = model_transform.backward(sample, df, sigma, sigma_next, sigma_transform)
-        assert abs(o - ob) < 1e-12
-
-        fsde = model_transform.forward(sample, output, sigma, sigma_next, sigma_transform, noise, eta)
-        bsde = model_transform.backward(sample, fsde, sigma, sigma_next, sigma_transform, noise, eta)
+    for t_next in 0.05, 0:  # extra 0 to validate X̂
+        delta = DeltaPoint(point_from, schedule().point(t_next))
+        fsde = model_transform.forward(sample, output, delta, noise, eta)
+        fsde_x = models.DataModel().forward(sample, x, delta, noise, eta)
+        assert abs(fsde - fsde_x) < 1e-12
+        bsde = model_transform.backward(sample, fsde, delta, noise, eta)
         assert abs(output - bsde) < 1e-12
 
 
 @pytest.mark.parametrize(
-    ("model_from", "model_to", "sigma_transform", "sigma_to"),
-    itertools.product(ALL_MODELS, ALL_MODELS + ALL_FAKE_MODELS, ALL_TRANSFROMS, (0.05, 0.0)),
+    ("model_from", "model_to", "schedule", "sigma_to"),
+    itertools.product(ALL_MODELS, ALL_MODELS + ALL_FAKE_MODELS, [scheduling.Linear, scheduling.Scaled], (0.05, 0.0)),
 )
 def test_model_convert(
     model_from: type[models.DiffusionModel],
     model_to: type[models.DiffusionModel],
-    sigma_transform: SigmaTransform,
+    schedule: type[scheduling.SkrampleSchedule],
     sigma_to: float,
 ) -> None:
     convert = models.ModelConvert(model_from(), model_to())
@@ -145,23 +145,13 @@ def test_model_convert(
     output = 0.3
     sigma_from = 0.2
 
-    def model(x: float, t: float, s: float) -> float:
+    def model(x: float, t: float, s: float, a: float) -> float:
         return output
 
-    x_from = convert.transform_from.forward(
-        sample,
-        model(sample, sigma_from, sigma_from),
-        sigma_from,
-        sigma_to,
-        sigma_transform,
-    )
-    x_to = convert.transform_to.forward(
-        sample,
-        convert.wrap_model_call(model, sigma_transform)(sample, sigma_from, sigma_from),
-        sigma_from,
-        sigma_to,
-        sigma_transform,
-    )
+    delta = DeltaPoint(schedule().point(sigma_from), schedule().point(sigma_to))
+
+    x_from = convert.transform_from.forward(sample, model(sample, *delta.point_from), delta)
+    x_to = convert.transform_to.forward(sample, convert.wrap_model_call(model)(sample, *delta.point_from), delta)
 
     assert abs(x_from - x_to) < 1e-12
 
@@ -333,7 +323,7 @@ def test_require_noise(sampler: structured.StructuredSampler) -> None:
     ),
 )
 def test_maruyama(model: type[models.DiffusionModel], schedule: scheduling.SkrampleSchedule, noise: bool) -> None:
-    if model is models.NoiseModel and schedule.sigma_transform is sigma_complement:
+    if model is models.NoiseModel and isinstance(schedule.space, scheduling.FlowMatching):
         return  # Noise / zero for compliment sigma=1
 
     dpm = interface.StructuredFunctionalAdapter(structured.DPM(order=1, stochasticity=noise))
@@ -341,16 +331,16 @@ def test_maruyama(model: type[models.DiffusionModel], schedule: scheduling.Skram
     samples_dpm: list[float] = []
     samples_maru: list[float] = []
 
-    def fake_model(x: float, _: float, s: float) -> float:
+    def fake_model(x: float, _: float, s: float, _a: float) -> float:
         return x + math.sin(x) * s
 
-    def fake_model_dpm(x: float, t: float, s: float) -> float:
+    def fake_model_dpm(x: float, t: float, s: float, a: float) -> float:
         samples_dpm.append(x)
-        return fake_model(x, t, s)
+        return fake_model(x, t, s, a)
 
-    def fake_model_maru(x: float, t: float, s: float) -> float:
+    def fake_model_maru(x: float, t: float, s: float, a: float) -> float:
         samples_maru.append(x)
-        return fake_model(x, t, s)
+        return fake_model(x, t, s, a)
 
     steps: int = random.randint(5, 51)
 
@@ -378,7 +368,7 @@ def test_maruyama(model: type[models.DiffusionModel], schedule: scheduling.Skram
 def test_functional_adapter(
     sampler: structured.StructuredSampler, schedule: scheduling.ScheduleCommon, steps: int
 ) -> None:
-    def fake_model(x: float, _: float, s: float) -> float:
+    def fake_model(x: float, _t: float, s: float, _a: float) -> float:
         return x + math.sin(x) * s
 
     sample = 1.5
@@ -393,10 +383,10 @@ def test_functional_adapter(
     float_schedule = schedule.schedule(steps)
     sample_s = sample
     previous: list[structured.SKSamples[float]] = []
-    for n, (t, s) in enumerate(float_schedule):
+    for n, (t, s, a) in enumerate(float_schedule):
         results = sampler.sample(
             sample_s,
-            fake_model(sample_s, t, s),
+            fake_model(sample_s, t, s, a),
             Step.from_int(n, len(float_schedule)),
             model_transform,
             schedule,
@@ -433,18 +423,18 @@ def test_runge_kutta_diffusers(
     points_ref: list[Point] = []
     points_wrap: list[Point] = []
 
-    def fake_model(x: float, _: float, s: float) -> float:
+    def fake_model(x: float, _t: float, s: float, _a: float) -> float:
         return x + math.sin(x) * s
 
-    def fake_model_ref(x: float, t: float, s: float) -> float:
+    def fake_model_ref(x: float, t: float, s: float, a: float) -> float:
         samples_ref.append(x)
-        points_ref.append(Point(t, s))
-        return fake_model(x, t, s)
+        points_ref.append(Point(t, s, a))
+        return fake_model(x, t, s, a)
 
-    def fake_model_wrap(x: float, t: float, s: float) -> float:
+    def fake_model_wrap(x: float, t: float, s: float, a: float) -> float:
         samples_wrap.append(x)
-        points_wrap.append(Point(t, s))
-        return fake_model(x, t, s)
+        points_wrap.append(Point(t, s, a))
+        return fake_model(x, t, s, a)
 
     sampler_wrap = wrapper(
         schedule,
@@ -473,9 +463,11 @@ def test_runge_kutta_diffusers(
 
     data_wrap: float = data_init
     for n, (t, s) in enumerate(zip(sampler_wrap.timesteps, sampler_wrap.sigmas)):
-        output = fake_model_wrap(data_wrap, t.item(), s.item())
+        output = fake_model_wrap(
+            data_wrap, t.item(), *(x.item() for x in sampler_wrap.schedule.space.normalize(s.item()))
+        )
 
-        assert points_ref[n] == points_wrap[n], (points_ref[: n + 1], points_wrap)
+        np.testing.assert_allclose(points_wrap[n], points_ref[n], rtol=0, atol=1e-15)
         assert abs(samples_ref[n] - samples_wrap[n]) < 1e-8, (samples_ref[: n + 1], samples_wrap)
 
         data_wrap = (

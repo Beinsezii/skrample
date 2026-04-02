@@ -28,10 +28,8 @@ wrapper = SkrampleWrapperScheduler(
 sampler = StructuredFunctionalAdapter(structured.DPM(order=2, stochasticity=True))
 # Native functional example
 sampler = functional.RKUltra(4)
-# Dynamic model calls
-sampler = functional.FastHeun()
-# Dynamic step sizes
-sampler = functional.RKMoire()
+# # Dynamic step sizes
+# sampler = functional.RKMoire()
 
 
 class FunctionalDenoise(FluxDenoiseStep):
@@ -49,7 +47,7 @@ class FunctionalDenoise(FluxDenoiseStep):
 
         i = 0
 
-        def call_model(sample: torch.Tensor, timestep: float, sigma: float) -> torch.Tensor:
+        def call_model(sample: torch.Tensor, timestep: float, sigma: float, alpha: float) -> torch.Tensor:
             nonlocal i, components, block_state, progress
             block_state["latents"] = sample
             components, block_state = self.loop_step(
@@ -60,7 +58,7 @@ class FunctionalDenoise(FluxDenoiseStep):
             )
             return block_state["noise_pred"]  # pyright: ignore [reportIndexIssue] # It's still a dict
 
-        def sample_callback(x: torch.Tensor, n: int, t: float, s: float) -> None:
+        def sample_callback(x: torch.Tensor, n: int, t: float, s: float, a: float) -> None:
             nonlocal i
             progress.update(n + 1 - progress.n)
             i = n + 1

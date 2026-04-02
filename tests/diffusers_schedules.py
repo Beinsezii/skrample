@@ -6,14 +6,14 @@ from diffusers.schedulers.scheduling_euler_discrete import EulerDiscreteSchedule
 from diffusers.schedulers.scheduling_flow_match_euler_discrete import FlowMatchEulerDiscreteScheduler
 from testing_common import FLOW_CONFIG, SCALED_CONFIG, compare_pp
 
-from skrample.scheduling import ZSNR, FlowShift, Linear, NPSchedule, Scaled, SkrampleSchedule
+from skrample.scheduling import ZSNR, FlowShift, Linear, NPPoints, Scaled, SkrampleSchedule
 
 STEPS: Iterable[int] = [*range(1, 12)]
 
 
 def get_diffusers_schedule(
     diffusers_scheduler: EulerDiscreteScheduler | FlowMatchEulerDiscreteScheduler, steps: int
-) -> NPSchedule:
+) -> NPPoints:
     b = diffusers_scheduler
     if isinstance(b, FlowMatchEulerDiscreteScheduler):
         # b.set_timesteps(num_inference_steps=steps, mu=mu)
@@ -31,7 +31,7 @@ def compare_timesteps(
     steps: int,
     tolerance: float = 0.5,
 ) -> None:
-    compare_pp(a.timesteps_np(steps), get_diffusers_schedule(b, steps)[:, 0], tolerance)
+    compare_pp(a.schedule_np(steps)[:, 0], get_diffusers_schedule(b, steps)[:, 0], tolerance)
 
 
 def compare_sigmas(
@@ -40,7 +40,11 @@ def compare_sigmas(
     steps: int,
     tolerance: float = 0.5,
 ) -> None:
-    compare_pp(a.sigmas_np(steps), get_diffusers_schedule(b, steps)[:, 1], tolerance)
+    compare_pp(
+        a.schedule_np(steps)[:, 1],
+        a.space.normalize(get_diffusers_schedule(b, steps)[:, 1])[0],
+        tolerance,
+    )
 
 
 @pytest.mark.parametrize("steps", STEPS)

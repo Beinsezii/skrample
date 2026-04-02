@@ -4,7 +4,7 @@ import dataclasses
 import functools
 import math
 from collections import OrderedDict
-from collections.abc import Hashable, Mapping
+from collections.abc import Hashable, Mapping, Sequence
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, cast
 
@@ -15,7 +15,7 @@ from torch import Tensor
 
 import skrample.sampling.structured as sampling
 from skrample import scheduling
-from skrample.common import MergeStrategy, Point, Sample, Step, merge_noise
+from skrample.common import DeltaPoint, MergeStrategy, Point, Sample, Step, merge_noise
 from skrample.pytorch.noise import (
     BatchTensorNoise,
     Random,
@@ -150,8 +150,7 @@ def parse_diffusers_config(
         scaled_keys = [f.name for f in dataclasses.fields(scheduling.Scaled)]
         # non-uniform misses a whole timestep
         scaled = scheduling.Scaled(**{k: v for k, v in remapped.items() if k in scaled_keys})
-        sigma_start: float = scaled.sigmas(1)[0]
-        remapped["sigma_start"] = math.sqrt(sigma_start)
+        remapped["sigma_start"] = scaled.space.regularize(scaled.ipoint(0).sigma).item()
 
     schedule_modifiers: list[tuple[type[ScheduleModifier], dict[str, Any]]] = []
 
@@ -159,9 +158,8 @@ def parse_diffusers_config(
         flow_keys = [f.name for f in dataclasses.fields(scheduling.FlowShift)]
         schedule_modifiers.append((scheduling.FlowShift, {k: v for k, v in remapped.items() if k in flow_keys}))
 
-    subschedule: type[SubSchedule] | None
     if "skrample_subschedule" in remapped:
-        subschedule = cast("type[SubSchedule]", remapped.pop("skrample_subschedule"))
+        subschedule: type[SubSchedule] | None = cast("type[SubSchedule]", remapped.pop("skrample_subschedule"))
         modifier_keys = [f.name for f in dataclasses.fields(subschedule)]
         subschedule_props = {k: v for k, v in remapped.items() if k in modifier_keys}
     else:
@@ -232,6 +230,10 @@ class SkrampleWrapperCore(abc.ABC):
 
     @property
     @abc.abstractmethod
+    def sigma_space(self) -> scheduling.SigmaSpace: ...
+
+    @property
+    @abc.abstractmethod
     def schedule_np(self) -> NDArray[np.float64]: ...
 
     @property
@@ -248,7 +250,7 @@ class SkrampleWrapperCore(abc.ABC):
 
     @property
     def sigmas(self) -> Tensor:
-        sigmas = torch.from_numpy(self.schedule_np[:, 1]).to(self._device)
+        sigmas = torch.from_numpy(self.sigma_space.regularize(self.schedule_np[:, 1])).to(self._device)
         # diffusers expects the extra zero
         return torch.cat([sigmas, torch.zeros([1], device=sigmas.device, dtype=sigmas.dtype)])
 
@@ -300,7 +302,7 @@ class SkrampleWrapperCore(abc.ABC):
         noise_props: T | None,
         generator: torch.Generator | list[torch.Generator] | None = None,
         dtype: torch.dtype | None = None,
-        schedule: scheduling.NPSchedule | None = None,
+        schedule: scheduling.NPPoints | None = None,
     ) -> torch.Tensor:
         if self._noise_generator is None:
             if isinstance(generator, list) and len(generator) == sample.shape[0]:
@@ -440,12 +442,16 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
         return interface.StructuredFunctionalAdapter(self.sampler), self._schedule, self.model
 
     @property
+    def sigma_space(self) -> scheduling.SigmaSpace:
+        return self.schedule.space
+
+    @property
     def schedule_np(self) -> NDArray[np.float64]:
         return scheduling.np_schedule_lru(self.schedule, self._steps)
 
     @property
     def init_noise_sigma(self) -> float:
-        return self.sampler.scale_input(1, self.schedule_np[0][1].item(), sigma_transform=self.schedule.sigma_transform)
+        return self.sampler.scale_input(1, Point(*self.schedule_np[0]))
 
     @property
     def order(self) -> int:
@@ -501,14 +507,12 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
     def scale_noise(self, sample: Tensor, timestep: Tensor, noise: Tensor) -> Tensor:
         schedule = self.schedule_np
         step = schedule[:, 0].tolist().index(timestep.item())
-        sigma = schedule[step, 1].item()
-        return self.sampler.merge_noise(sample, noise, sigma, sigma_transform=self.schedule.sigma_transform)
+        return self.sampler.merge_noise(sample, noise, Point(*schedule[step]))
 
     def scale_model_input(self, sample: Tensor, timestep: float | Tensor) -> Tensor:
         schedule = self.schedule_np
         step = schedule[:, 0].tolist().index(timestep if isinstance(timestep, (int | float)) else timestep.item())
-        sigma = schedule[step, 1].item()
-        return self.sampler.scale_input(sample, sigma, sigma_transform=self.schedule.sigma_transform)
+        return self.sampler.scale_input(sample, Point(*schedule[step]))
 
     def step(
         self,
@@ -597,17 +601,21 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
         return self.functional_interface()[0].adjust_steps(steps)
 
     @abc.abstractmethod
-    def _schedule_np_full(self, steps: int) -> scheduling.NPSchedule: ...
+    def _schedule_full(self, steps: int) -> Sequence[Point]: ...
 
     @functools.cached_property
-    def schedule_np_full(self) -> scheduling.NPSchedule:
+    def all_points(self) -> Sequence[Point]:
         "Includes T=1 coefficients"
-        return self._schedule_np_full(self._steps)
+        return self._schedule_full(self._steps)
 
     @functools.cached_property
-    def schedule_np_trim(self) -> scheduling.NPSchedule:
+    def schedule_np_trim(self) -> scheduling.NPPoints:
         "Excludes T=1 coefficients"
-        return np.asarray([p for p in self.schedule_np_full if (p > 1e-8).all()], dtype=np.float64)
+        return np.asarray([p for p in self.all_points if p.timestep > 1e-8 and p.sigma > 1e-8], dtype=np.float64)
+
+    @property
+    def sigma_space(self) -> scheduling.SigmaSpace:
+        return self.schedule.space
 
     @property
     def schedule_np(self) -> NDArray[np.float64]:
@@ -639,7 +647,7 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
         self._derivatives.clear()
 
         with contextlib.suppress(AttributeError):
-            del self.schedule_np_full
+            del self.all_points
             del self.schedule_np_trim
 
         self.schedule = self._schedule  # Restore any replaced props
@@ -673,17 +681,16 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
     def scale_noise(self, sample: Tensor, timestep: Tensor, noise: Tensor) -> Tensor:
         schedule = self.schedule_np
         step = schedule[:, 0].tolist().index(timestep.item())
-        sigma = schedule[step, 1].item()
-        return merge_noise(sample, noise, sigma, sigma_transform=self.schedule.sigma_transform)
+        return merge_noise(sample, noise, Point(*schedule[step]))
 
     def step_tableau_inside_out(
         self,
         sample: Tensor,
         output: Tensor,
         model_transform: DiffusionModel,
-        S0: float,
-        S1: float,
-        SN: float,
+        S0: Point,
+        S1: Point,
+        SN: Point,
     ) -> Tensor:
         nodes, weights = self.tableau()
 
@@ -696,9 +703,7 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
             final: Tensor = model_transform.forward(  # ty: ignore # output is a tensor
                 sample,
                 math.sumprod(self._derivatives, weights),  # type: ignore # it's a tensor
-                S0,
-                S1,
-                self.schedule.sigma_transform,
+                DeltaPoint(S0, S1),
                 self._noise,
                 self.stochasticity,
             )
@@ -713,9 +718,7 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
             X: Tensor = model_transform.forward(  # ty: ignore # output is a tensor
                 sample,
                 math.sumprod(self._derivatives, node[1]) / math.fsum(node[1]),  # type: ignore # it's a tensor
-                S0,
-                SN,
-                self.schedule.sigma_transform,
+                DeltaPoint(S0, SN),
             )
             return X
 
@@ -733,7 +736,7 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
         generator: torch.Generator | list[torch.Generator] | None = None,
         return_dict: bool = True,
     ) -> tuple[Tensor, Tensor] | OrderedDict[str, Tensor]:
-        assert timestep == self.schedule_np_full[self._index, 0].item()
+        assert timestep == self.all_points[self._index].timestep
 
         if self._noise is None and abs(self.stochasticity) > 1e-8:
             self._noise = self.get_step_noise(
@@ -746,13 +749,13 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
                 self.schedule.schedule_np(self._steps),
             )
 
-        sigmas = np.concatenate([self.schedule_np_full[:, 1], [0]])
+        points = [*self.all_points, Point(0, 0, 1)]
 
         if self.derivative_transform:
             model_output = models.ModelConvert(
                 self.model,
                 self.derivative_transform,
-            ).output_to(sample, model_output, sigmas[self._index], self.schedule.sigma_transform)
+            ).output_to(sample, model_output, points[self._index])
             model_transform = self.derivative_transform
         else:
             model_transform = self.model
@@ -765,27 +768,27 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
             sample=sample.to(dtype=self.compute_scale),
             output=model_output.to(dtype=self.compute_scale),
             model_transform=model_transform,
-            S0=sigmas[S0_idx],
-            S1=sigmas[S1_idx],
-            SN=sigmas[SN_idx],
+            S0=points[S0_idx],
+            S1=points[S1_idx],
+            SN=points[SN_idx],
         )
 
         self._index += 1
 
-        while self._index < len(self.schedule_np_full) and (abs(self.schedule_np_full[self._index]) < 1e-8).any():
+        while self._index < len(self.all_points) and (
+            abs(self.all_points[self._index].timestep) < 1e-8 or abs(self.all_points[self._index].sigma) < 1e-8
+        ):
             sampled = self.step_tableau_inside_out(
                 sample=sample.to(dtype=self.compute_scale),
                 output=model_transform.backward(
                     (sample if self._sample is None else self._sample).to(dtype=self.compute_scale),
                     sampled,
-                    sigmas[S0_idx],
-                    sigmas[S1_idx],
-                    self.schedule.sigma_transform,
+                    DeltaPoint(points[S0_idx], points[S1_idx]),
                 ),
                 model_transform=model_transform,
-                S0=sigmas[S0_idx],
-                S1=sigmas[S1_idx],
-                SN=sigmas[SN_idx + 1],
+                S0=points[S0_idx],
+                S1=points[S1_idx],
+                SN=points[SN_idx + 1],
             )
 
             self._index += 1
@@ -867,13 +870,13 @@ class RKUltraWrapperScheduler[T: TensorNoiseProps | None](RKWrapperCore[T, funct
     def tableau(self) -> tableaux.Tableau:
         return self.functional_sampler().tableau()
 
-    def _schedule_np_full(self, steps: int) -> scheduling.NPSchedule:
+    def _schedule_full(self, steps: int) -> Sequence[Point]:
         tableau = self.tableau()
         recorded_points: list[Point] = []
 
-        def record_call(x: float, t: float, s: float) -> float:
+        def record_call(x: float, t: float, s: float, a: float) -> float:
             nonlocal recorded_points
-            recorded_points.append(Point(t, s))
+            recorded_points.append(Point(t, s, a))
             return x
 
         for n in range(steps):
@@ -887,7 +890,7 @@ class RKUltraWrapperScheduler[T: TensorNoiseProps | None](RKWrapperCore[T, funct
                 epsilon=-math.inf,  # ensure T=0 is always hit
             )
 
-        return np.asarray(recorded_points, dtype=np.float64)
+        return recorded_points
 
 
 @dataclasses.dataclass
@@ -951,16 +954,16 @@ class DynasauRKWrapperScheduler[T: TensorNoiseProps | None](RKWrapperCore[T, fun
         stages = len(self.functional_sampler().tableau(Step(0, 1)).stages)
         return self.functional_sampler().tableau(Step.from_int(self._index // stages, self._steps))
 
-    def _schedule_np_full(self, steps: int) -> scheduling.NPSchedule:
+    def _schedule_full(self, steps: int) -> Sequence[Point]:
         recorded_points: list[Point] = []
 
-        def record_call(x: float, t: float, s: float) -> float:
+        def record_call(x: float, t: float, s: float, a: float) -> float:
             nonlocal recorded_points
-            recorded_points.append(Point(t, s))
+            recorded_points.append(Point(t, s, a))
             return x
 
         self.functional_sample_model(1, record_call, steps)
 
         assert len(recorded_points) == self.order * steps
 
-        return np.asarray(recorded_points, dtype=np.float64)
+        return recorded_points
