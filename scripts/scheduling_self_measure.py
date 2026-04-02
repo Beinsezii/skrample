@@ -12,6 +12,7 @@ from skrample.scheduling import (
     Karras,
     Linear,
     Probit,
+    Scaled,
     ScheduleModifier,
     Sinner,
     SkrampleSchedule,
@@ -24,11 +25,15 @@ MEASURED_SCHEDULES: list[SkrampleSchedule] = [
     Exponential(Linear()),
     Probit(Linear()),
     Hyper(Linear()),
-    Hyper(Hyper(Linear())),
-    # Hyper(Linear(), tail=False),
-    # Hyper(Linear(), scale=-2),
-    # Hyper(Hyper(Linear(), scale=4), scale=-3),
     Sinner(Linear()),
+    Hyper(Hyper(Linear())),
+    Karras(Scaled()),
+    Beta(Scaled()),
+    Exponential(Scaled()),
+    Probit(Scaled()),
+    Hyper(Scaled()),
+    Sinner(Scaled()),
+    Hyper(Hyper(Scaled())),
 ]
 STEPS: int = 7
 
