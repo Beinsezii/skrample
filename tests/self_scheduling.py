@@ -92,8 +92,10 @@ def test_modified_one_point(schedule: type[ScheduleCommon], modifier: type[Sched
 
 @pytest.mark.parametrize(("key"), MEASURED_SCHEDULE_RESULTS.keys())
 def test_self_schedules(key: ScheduleCommon) -> None:
-    compare_pp(
-        key.points_np(np.linspace(1, 0, MEASURED_SCHEDULES_STEPS))[:, :2],  # TODO (beinsezii): measure alphas
+    points = key.points_np(np.linspace(1, 0, MEASURED_SCHEDULES_STEPS))[:, :2]  # TODO (beinsezii): measure alphas
+    points[:, 1] = key.space.regularize(points[:, 1])
+    np.testing.assert_allclose(
+        points,
         np.asarray(MEASURED_SCHEDULE_RESULTS[key], dtype=np.float64),
-        1e-3,
+        1e-5,
     )
