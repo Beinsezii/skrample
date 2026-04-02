@@ -46,6 +46,6 @@ for schedule in MEASURED_SCHEDULES:
         schedule.all if isinstance(schedule, ScheduleModifier | SubSchedule) else (schedule,)
     )
     graph_string = "".join(type(g).__name__ + "(" for g in graph) + ")" * len(graph)
-    print(f"    {graph_string}: {schedule.points(np.linspace(1, 0, STEPS)).tolist()},  # noqa: E501")
+    print(f"    {graph_string}: {schedule.points_np(np.linspace(1, 0, STEPS)).tolist()},  # noqa: E501")
 print("}")
 print("# fmt: on")
