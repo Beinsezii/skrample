@@ -165,8 +165,10 @@ class FixedSchedule(SkrampleSchedule):
         return cls(np.stack([timesteps, *sigma_space.normalize(regular_sigmas)], axis=1), sigma_space)
 
     def _points(self, t: NPSequence) -> NPSchedule:
+        from scipy.interpolate import make_interp_spline
+
         sch = np.concatenate([np.asarray(self.fixed_schedule, dtype=np.float64), [[0, 0, 1]]])
-        return np.concatenate([np.quantile(sch[:, :2], t, axis=0), np.quantile(sch[:, 2:], 1 - t, axis=0)], axis=1)
+        return make_interp_spline(np.linspace(0, 1, len(sch)), sch, k=1, axis=0)(1 - t)
 
     @property
     def space(self) -> SigmaSpace:
