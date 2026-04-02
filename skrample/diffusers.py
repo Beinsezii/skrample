@@ -15,7 +15,7 @@ from torch import Tensor
 
 import skrample.sampling.structured as sampling
 from skrample import scheduling
-from skrample.common import MergeStrategy, Point, Sample, Step, merge_noise
+from skrample.common import DeltaPoint, MergeStrategy, Point, Sample, Step, merge_noise
 from skrample.pytorch.noise import (
     BatchTensorNoise,
     Random,
@@ -601,17 +601,17 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
         return self.functional_interface()[0].adjust_steps(steps)
 
     @abc.abstractmethod
-    def _schedule_np_full(self, steps: int) -> scheduling.NPSchedule: ...
+    def _schedule_full(self, steps: int) -> scheduling.FloatSchedule: ...
 
     @functools.cached_property
-    def schedule_np_full(self) -> scheduling.NPSchedule:
+    def all_points(self) -> scheduling.FloatSchedule:
         "Includes T=1 coefficients"
-        return self._schedule_np_full(self._steps)
+        return self._schedule_full(self._steps)
 
     @functools.cached_property
     def schedule_np_trim(self) -> scheduling.NPSchedule:
         "Excludes T=1 coefficients"
-        return np.asarray([p for p in self.schedule_np_full if (p[:2] > 1e-8).all()], dtype=np.float64)
+        return np.asarray([p for p in self.all_points if p.timestep > 1e-8 and p.sigma > 1e-8], dtype=np.float64)
 
     @property
     def sigma_space(self) -> scheduling.SigmaSpace:
@@ -647,7 +647,7 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
         self._derivatives.clear()
 
         with contextlib.suppress(AttributeError):
-            del self.schedule_np_full
+            del self.all_points
             del self.schedule_np_trim
 
         self.schedule = self._schedule  # Restore any replaced props
@@ -703,8 +703,7 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
             final: Tensor = model_transform.forward(  # ty: ignore # output is a tensor
                 sample,
                 math.sumprod(self._derivatives, weights),  # type: ignore # it's a tensor
-                S0,
-                S1,
+                DeltaPoint(S0, S1),
                 self._noise,
                 self.stochasticity,
             )
@@ -719,8 +718,7 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
             X: Tensor = model_transform.forward(  # ty: ignore # output is a tensor
                 sample,
                 math.sumprod(self._derivatives, node[1]) / math.fsum(node[1]),  # type: ignore # it's a tensor
-                S0,
-                SN,
+                DeltaPoint(S0, SN),
             )
             return X
 
@@ -738,7 +736,7 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
         generator: torch.Generator | list[torch.Generator] | None = None,
         return_dict: bool = True,
     ) -> tuple[Tensor, Tensor] | OrderedDict[str, Tensor]:
-        assert timestep == self.schedule_np_full[self._index, 0].item()
+        assert timestep == self.all_points[self._index].timestep
 
         if self._noise is None and abs(self.stochasticity) > 1e-8:
             self._noise = self.get_step_noise(
@@ -751,13 +749,13 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
                 self.schedule.schedule_np(self._steps),
             )
 
-        points = np.concatenate([self.schedule_np_full[:], [[0, 0, 1]]])
+        points = [*self.all_points, Point(0, 0, 1)]
 
         if self.derivative_transform:
             model_output = models.ModelConvert(
                 self.model,
                 self.derivative_transform,
-            ).output_to(sample, model_output, Point(*points[self._index]))
+            ).output_to(sample, model_output, points[self._index])
             model_transform = self.derivative_transform
         else:
             model_transform = self.model
@@ -770,26 +768,27 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
             sample=sample.to(dtype=self.compute_scale),
             output=model_output.to(dtype=self.compute_scale),
             model_transform=model_transform,
-            S0=Point(*points[S0_idx]),
-            S1=Point(*points[S1_idx]),
-            SN=Point(*points[SN_idx]),
+            S0=points[S0_idx],
+            S1=points[S1_idx],
+            SN=points[SN_idx],
         )
 
         self._index += 1
 
-        while self._index < len(self.schedule_np_full) and (abs(self.schedule_np_full[self._index]) < 1e-8).any():
+        while self._index < len(self.all_points) and (
+            abs(self.all_points[self._index].timestep) < 1e-8 or abs(self.all_points[self._index].sigma) < 1e-8
+        ):
             sampled = self.step_tableau_inside_out(
                 sample=sample.to(dtype=self.compute_scale),
                 output=model_transform.backward(
                     (sample if self._sample is None else self._sample).to(dtype=self.compute_scale),
                     sampled,
-                    Point(*points[S0_idx]),
-                    Point(*points[S1_idx]),
+                    DeltaPoint(points[S0_idx], points[S1_idx]),
                 ),
                 model_transform=model_transform,
-                S0=Point(*points[S0_idx]),
-                S1=Point(*points[S1_idx]),
-                SN=Point(*points[SN_idx + 1]),
+                S0=points[S0_idx],
+                S1=points[S1_idx],
+                SN=points[SN_idx + 1],
             )
 
             self._index += 1
@@ -871,7 +870,7 @@ class RKUltraWrapperScheduler[T: TensorNoiseProps | None](RKWrapperCore[T, funct
     def tableau(self) -> tableaux.Tableau:
         return self.functional_sampler().tableau()
 
-    def _schedule_np_full(self, steps: int) -> scheduling.NPSchedule:
+    def _schedule_full(self, steps: int) -> scheduling.FloatSchedule:
         tableau = self.tableau()
         recorded_points: list[Point] = []
 
@@ -891,7 +890,7 @@ class RKUltraWrapperScheduler[T: TensorNoiseProps | None](RKWrapperCore[T, funct
                 epsilon=-math.inf,  # ensure T=0 is always hit
             )
 
-        return np.asarray(recorded_points, dtype=np.float64)
+        return recorded_points
 
 
 @dataclasses.dataclass
@@ -955,7 +954,7 @@ class DynasauRKWrapperScheduler[T: TensorNoiseProps | None](RKWrapperCore[T, fun
         stages = len(self.functional_sampler().tableau(Step(0, 1)).stages)
         return self.functional_sampler().tableau(Step.from_int(self._index // stages, self._steps))
 
-    def _schedule_np_full(self, steps: int) -> scheduling.NPSchedule:
+    def _schedule_full(self, steps: int) -> scheduling.FloatSchedule:
         recorded_points: list[Point] = []
 
         def record_call(x: float, t: float, s: float, a: float) -> float:
@@ -967,4 +966,4 @@ class DynasauRKWrapperScheduler[T: TensorNoiseProps | None](RKWrapperCore[T, fun
 
         assert len(recorded_points) == self.order * steps
 
-        return np.asarray(recorded_points, dtype=np.float64)
+        return recorded_points

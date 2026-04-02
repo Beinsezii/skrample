@@ -67,21 +67,21 @@ def step_tableau[T: Sample](
 
     derivatives: list[T] = []
     S0, S1, *fractions = schedule.ipoints([*step, *(step[0] + f[0] * (step[1] - step[0]) for f in nodes)])
+    delta = common.DeltaPoint(S0, S1)
 
     for frac_sc, icoeffs in zip(fractions, (t[1] for t in nodes), strict=True):
         if icoeffs:
             X: T = model_transform.forward(  # type: ignore # sumprod is T
                 sample,
                 math.sumprod(derivatives, icoeffs) / math.fsum(icoeffs),  # type: ignore # sumprod is T
-                S0,
-                frac_sc,
+                common.DeltaPoint(delta.point_from, frac_sc),
             )
         else:
             X = sample
 
         # Do not call model on timestep = 0 or sigma = 0
         if abs(frac_sc.timestep) < epsilon or abs(frac_sc.sigma) < epsilon:
-            derivatives.append(model_transform.backward(sample, X, S0, S1))
+            derivatives.append(model_transform.backward(sample, X, delta))
         else:
             derivatives.append(model(X, *frac_sc))
 
@@ -89,8 +89,7 @@ def step_tableau[T: Sample](
         model_transform.forward(
             sample,
             math.sumprod(derivatives, w),  # type: ignore # sumprod is T
-            S0,
-            S1,
+            delta,
             noise,
             stochasticity,
         )

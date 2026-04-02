@@ -16,7 +16,7 @@ from testing_common import (
 )
 
 from skrample import diffusers, scheduling
-from skrample.common import Point, Step
+from skrample.common import DeltaPoint, Point, Step
 from skrample.pytorch.noise import Brownian
 from skrample.sampling import functional, interface, models, structured, tableaux, traits
 
@@ -122,11 +122,11 @@ def test_model_transforms(
     assert abs(output - o) < 1e-12
 
     for t_next in 0.05, 0:  # extra 0 to validate X̂
-        point_to = schedule().point(t_next)
-        fsde = model_transform.forward(sample, output, point_from, point_to, noise, eta)
-        fsde_x = models.DataModel().forward(sample, x, point_from, point_to, noise, eta)
+        delta = DeltaPoint(point_from, schedule().point(t_next))
+        fsde = model_transform.forward(sample, output, delta, noise, eta)
+        fsde_x = models.DataModel().forward(sample, x, delta, noise, eta)
         assert abs(fsde - fsde_x) < 1e-12
-        bsde = model_transform.backward(sample, fsde, point_from, point_to, noise, eta)
+        bsde = model_transform.backward(sample, fsde, delta, noise, eta)
         assert abs(output - bsde) < 1e-12
 
 
@@ -148,21 +148,10 @@ def test_model_convert(
     def model(x: float, t: float, s: float, a: float) -> float:
         return output
 
-    point_from = schedule().point(sigma_from)
-    point_to = schedule().point(sigma_to)
+    delta = DeltaPoint(schedule().point(sigma_from), schedule().point(sigma_to))
 
-    x_from = convert.transform_from.forward(
-        sample,
-        model(sample, *point_from),
-        point_from,
-        point_to,
-    )
-    x_to = convert.transform_to.forward(
-        sample,
-        convert.wrap_model_call(model)(sample, *point_from),
-        point_from,
-        point_to,
-    )
+    x_from = convert.transform_from.forward(sample, model(sample, *delta.point_from), delta)
+    x_to = convert.transform_to.forward(sample, convert.wrap_model_call(model)(sample, *delta.point_from), delta)
 
     assert abs(x_from - x_to) < 1e-12
 

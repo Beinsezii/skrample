@@ -171,12 +171,10 @@ class Euler(StructuredStochastic, StatedSampler):
         schedule: SkrampleSchedule,
         previous: Sequence[SKSamples[T]],
     ) -> T:
-        delta = packed.delta_point(schedule)
         return model_transform.forward(
             packed.sample,
             packed.prediction,
-            delta.point_from,
-            delta.point_to,
+            packed.delta_point(schedule),
             packed.noise,
             self.stochasticity,
         )
@@ -279,8 +277,7 @@ class DPM(StructuredUnified, StatedSampler):
         return model_transform.forward(
             packed.sample,
             prediction,
-            delta.point_from,
-            delta.point_to,
+            delta,
             packed.noise,
             eta=self.stochasticity,
         )
@@ -327,8 +324,7 @@ class Adams(StructuredUnified, StatedSampler):
         return model_transform.forward(
             packed.sample,
             weighted_prediction,
-            delta.point_from,
-            delta.point_to,
+            delta,
             packed.noise,
             self.stochasticity,
         )
@@ -434,8 +430,7 @@ class UniP(StructuredUnified, StatedSampler):
         return model_transform.forward(
             packed.sample,
             prediction,
-            delta.point_from,
-            delta.point_to,
+            delta,
             packed.noise,
             eta=self.stochasticity,
         )

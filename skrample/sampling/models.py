@@ -20,11 +20,11 @@ class DiffusionModel(abc.ABC):
         "X̂ -> output"
 
     @abc.abstractmethod
-    def gamma(self, point_from: Point, point_to: Point, eta: float = 0) -> float:
+    def gamma(self, delta_point: DeltaPoint, eta: float = 0) -> float:
         "σₜ, σₛ, η -> Γ"
 
     @abc.abstractmethod
-    def delta(self, point_from: Point, point_to: Point, eta: float = 0) -> float:
+    def delta(self, delta_point: DeltaPoint, eta: float = 0) -> float:
         "σₜ, σₛ, η -> Δ"
 
     def zeta_ts(self, delta: DeltaPoint, eta: float = 1.0, epsilon: float = 1e-8) -> float:
@@ -37,15 +37,15 @@ class DiffusionModel(abc.ABC):
         variance = (delta.point_to.sigma**2) * (1.0 - ratio**2)
         return eta * math.sqrt(max(0.0, variance))
 
-    def zeta(self, point_from: Point, point_to: Point, eta: float = 1.0) -> float:
+    def zeta(self, delta_point: DeltaPoint, eta: float = 1.0) -> float:
         "σₜ, σₛ, η -> ζ"
-        return self.zeta_ts(DeltaPoint(point_from, point_to), eta)
+        return self.zeta_ts(delta_point, eta)
 
-    def sigma_transform_eta(self, point_from: Point, point_to: Point, eta: float = 0) -> DeltaPoint:
+    def eta_transform(self, delta_point: DeltaPoint, eta: float = 0) -> DeltaPoint:
         "Co-authored by Gemini 3.1 Pro"
-        sa_t, sa_s = point_from, point_to
+        sa_t, sa_s = delta_point
 
-        if (zeta := self.zeta_ts(DeltaPoint(sa_t, sa_s), eta)) != 0:  # zeta_ts already checks <1e-8
+        if (zeta := self.zeta_ts(delta_point, eta)) != 0:  # zeta_ts already checks <1e-8
             sa_s = Point(sa_s.timestep, math.sqrt(max(0.0, sa_s.sigma**2 - zeta**2)), sa_s.alpha)
 
         return DeltaPoint(sa_t, sa_s)
@@ -54,15 +54,14 @@ class DiffusionModel(abc.ABC):
         self,
         sample: T,
         output: T,
-        point_from: Point,
-        point_to: Point,
+        delta_point: DeltaPoint,
         noise: T | None = None,
         eta: float = 0,
     ) -> T:
         "sample * Γ + output * Δ + noise * ζ"
-        gamma = self.gamma(point_from, point_to, eta)
-        delta = self.delta(point_from, point_to, eta)
-        if noise is not None and (zeta := self.zeta(point_from, point_to, eta)) != 0:
+        gamma = self.gamma(delta_point, eta)
+        delta = self.delta(delta_point, eta)
+        if noise is not None and (zeta := self.zeta(delta_point, eta)) != 0:
             return math.sumprod((sample, output, noise), (gamma, delta, zeta))  # type: ignore # sumprod is always T
         else:
             return math.sumprod((sample, output), (gamma, delta))  # type: ignore # sumprod is always T
@@ -71,15 +70,14 @@ class DiffusionModel(abc.ABC):
         self,
         sample: T,
         result: T,
-        point_from: Point,
-        point_to: Point,
+        delta_point: DeltaPoint,
         noise: T | None = None,
         eta: float = 0,
     ) -> T:
         "(result - sample * Γ - noise * ζ) / Δ"
-        gamma = self.gamma(point_from, point_to, eta)
-        delta = self.delta(point_from, point_to, eta)
-        if noise is not None and (zeta := self.zeta(point_from, point_to, eta)) != 0:
+        gamma = self.gamma(delta_point, eta)
+        delta = self.delta(delta_point, eta)
+        if noise is not None and (zeta := self.zeta(delta_point, eta)) != 0:
             return (result - sample * gamma - noise * zeta) / delta  # pyright: ignore [reportReturnType]
         else:
             return (result - sample * gamma) / delta  # pyright: ignore [reportReturnType]
@@ -99,12 +97,12 @@ class DataModel(DiffusionModel):
         "X̂ -> output"
         return x
 
-    def gamma(self, point_from: Point, point_to: Point, eta: float = 0) -> float:
-        ts = self.sigma_transform_eta(point_from, point_to, eta)
+    def gamma(self, delta_point: DeltaPoint, eta: float = 0) -> float:
+        ts = self.eta_transform(delta_point, eta)
         return ts.point_to.sigma / ts.point_from.sigma
 
-    def delta(self, point_from: Point, point_to: Point, eta: float = 0) -> float:
-        ts = self.sigma_transform_eta(point_from, point_to, eta)
+    def delta(self, delta_point: DeltaPoint, eta: float = 0) -> float:
+        ts = self.eta_transform(delta_point, eta)
         return ts.point_to.alpha - ts.point_from.alpha * ts.point_to.sigma / ts.point_from.sigma
 
 
@@ -122,11 +120,11 @@ class NoiseModel(DiffusionModel):
         _timestep, sigma_t, alpha_t = point
         return (sample - alpha_t * x) / sigma_t  # pyright: ignore [reportReturnType]
 
-    def gamma(self, point_from: Point, point_to: Point, eta: float = 0) -> float:
-        return point_to.alpha / point_from.alpha
+    def gamma(self, delta_point: DeltaPoint, eta: float = 0) -> float:
+        return delta_point.point_to.alpha / delta_point.point_from.alpha
 
-    def delta(self, point_from: Point, point_to: Point, eta: float = 0) -> float:
-        ts = self.sigma_transform_eta(point_from, point_to, eta)
+    def delta(self, delta_point: DeltaPoint, eta: float = 0) -> float:
+        ts = self.eta_transform(delta_point, eta)
         return ts.point_to.sigma - (ts.point_to.alpha * ts.point_from.sigma) / ts.point_from.alpha
 
 
@@ -143,12 +141,12 @@ class FlowModel(DiffusionModel):
         _timestep, sigma_t, alpha_t = point
         return (sample - (alpha_t + sigma_t) * x) / sigma_t  # pyright: ignore [reportReturnType]
 
-    def gamma(self, point_from: Point, point_to: Point, eta: float = 0) -> float:
-        ts = self.sigma_transform_eta(point_from, point_to, eta)
+    def gamma(self, delta_point: DeltaPoint, eta: float = 0) -> float:
+        ts = self.eta_transform(delta_point, eta)
         return (ts.point_to.sigma + ts.point_to.alpha) / (ts.point_from.sigma + ts.point_from.alpha)
 
-    def delta(self, point_from: Point, point_to: Point, eta: float = 0) -> float:
-        ts = self.sigma_transform_eta(point_from, point_to, eta)
+    def delta(self, delta_point: DeltaPoint, eta: float = 0) -> float:
+        ts = self.eta_transform(delta_point, eta)
         return (ts.point_from.alpha * ts.point_to.sigma - ts.point_to.alpha * ts.point_from.sigma) / (
             ts.point_from.alpha + ts.point_from.sigma
         )
@@ -167,14 +165,14 @@ class VelocityModel(DiffusionModel):
         _timestep, sigma_t, alpha_t = point
         return (alpha_t * sample - x) / sigma_t  # pyright: ignore [reportReturnType]
 
-    def gamma(self, point_from: Point, point_to: Point, eta: float = 0) -> float:
-        ts = self.sigma_transform_eta(point_from, point_to, eta)
+    def gamma(self, delta_point: DeltaPoint, eta: float = 0) -> float:
+        ts = self.eta_transform(delta_point, eta)
         return (ts.point_to.sigma / ts.point_from.sigma) * (
             1 - ts.point_from.alpha * ts.point_from.alpha
         ) + ts.point_to.alpha * ts.point_from.alpha
 
-    def delta(self, point_from: Point, point_to: Point, eta: float = 0) -> float:
-        ts = self.sigma_transform_eta(point_from, point_to, eta)
+    def delta(self, delta_point: DeltaPoint, eta: float = 0) -> float:
+        ts = self.eta_transform(delta_point, eta)
         return ts.point_from.alpha * ts.point_to.sigma - ts.point_to.alpha * ts.point_from.sigma
 
 
@@ -203,12 +201,12 @@ class ScaleX(FakeModel):
     def from_x[T: Sample](self, sample: T, x: T, point: Point) -> T:
         return x / self.x_scale(point)  # pyright: ignore [reportReturnType]
 
-    def gamma(self, point_from: Point, point_to: Point, eta: float = 0) -> float:
-        ts = self.sigma_transform_eta(point_from, point_to, eta)
+    def gamma(self, delta_point: DeltaPoint, eta: float = 0) -> float:
+        ts = self.eta_transform(delta_point, eta)
         return ts.point_to.sigma / ts.point_from.sigma
 
-    def delta(self, point_from: Point, point_to: Point, eta: float = 0) -> float:
-        ts = self.sigma_transform_eta(point_from, point_to, eta)
+    def delta(self, delta_point: DeltaPoint, eta: float = 0) -> float:
+        ts = self.eta_transform(delta_point, eta)
         return (ts.point_to.alpha - ts.point_from.alpha * ts.point_to.sigma / ts.point_from.sigma) * self.x_scale(
             ts.point_from
         )
