@@ -261,7 +261,19 @@ class DynasauRK(FunctionalUnified, FunctionalSinglestep):
     Initializes with a high stability method and moves towards
     higher convergence methods through exponential decay.
     This means that the overall stability properties change with step count,
-    with higher steps using lower mean stability."""
+    with higher steps using lower mean stability.
+    The exact formulation is e^-st * e^-ST where
+    s == per_step_decay    t == current NFEs
+    S == total_step_decay  T == total NFEs"""
+
+    per_step_decay: float = math.log(0.5) / -2  # 50% every 2 nfes
+    """Exponential decay factor over each successive step.
+    Negative values become exponential growth."""
+    total_step_decay: float = math.log(0.5) / -20  # 50% every nfes
+    """Exponential decay factor for total step count
+    Negative values become exponential growth."""
+    invert: bool = False
+    "Invert the final gradient"
 
     @staticmethod
     def min_order() -> int:
@@ -273,6 +285,15 @@ class DynasauRK(FunctionalUnified, FunctionalSinglestep):
 
     def adjust_steps(self, steps: int) -> int:
         return max(round(steps / self.order), 1)
+
+    def gradient(self, step: Step, stages: int) -> float:
+        "Gradient from most stable (1.0) to most convergent (0.0) methods"
+        step = step.normal().clamp()
+
+        # e^-stn * e^-STn == e^(-st - ST)n
+        gradient = math.exp((-self.total_step_decay * step.amount() - self.per_step_decay * step.position()) * stages)
+
+        return abs(self.invert - min(max(gradient, 0), 1))
 
     def tableau(self, step: Step) -> tableaux.Tableau:
         "It's assumed that step sizes are uniform, ie in a for loop."
@@ -289,13 +310,7 @@ class DynasauRK(FunctionalUnified, FunctionalSinglestep):
             low: float = 0.5  # Mid
             tf = tableaux.providers.rk2_tableau
 
-        step = step.normal().clamp()
-        try:
-            f, t = 1 - step.time_from, 1 - step.time_to
-            gradient = ((f + t) / 2 - 0.5) / (1 - (f - t)) + 0.5
-        except ZeroDivisionError:
-            gradient = 0.5  # f=1, t=0
-        gradient *= math.exp(-step.position())
+        gradient = self.gradient(step, len(tf((high + low) / 2).stages))
 
         return tf(gradient * high + (1 - gradient) * low)
 

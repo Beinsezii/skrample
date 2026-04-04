@@ -84,7 +84,7 @@ class SkrampleSchedule(ABC):
     def points(self, t: Sequence[float] | NPSequence) -> Sequence[Point]:
         """Sample the schedule along T points in time.
         0.0 is no noise, 1.0 is all noise."""
-        return [Point(*p) for p in self.points_np(t)]
+        return [Point(*p) for p in self.points_np(t).tolist()]
 
     def ipoints_np(self, t: Sequence[float] | NPSequence) -> NPPoints:
         """Inverse of `points`, or `inference` points.
@@ -94,7 +94,7 @@ class SkrampleSchedule(ABC):
     def ipoints(self, t: Sequence[float] | NPSequence) -> Sequence[Point]:
         """Sample the schedule along T points in time.
         0.0 is all noise, 1.0 is no noise."""
-        return [Point(*p) for p in self.ipoints_np(t)]
+        return [Point(*p) for p in self.ipoints_np(t).tolist()]
 
     def point(self, t: float) -> Point:
         """Sample the schedule at T point in time.
