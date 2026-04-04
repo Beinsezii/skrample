@@ -6,11 +6,11 @@ from types import MappingProxyType
 from typing import Any
 
 from skrample import common, scheduling
-from skrample.common import RNG, Sample, Step
+from skrample.common import RNG, DeltaPoint, Sample, Step
 
 from . import models, tableaux, traits
 
-type SampleCallback[T: Sample] = Callable[[T, int, float, float, float], Any]
+type SampleCallback[T: Sample] = Callable[[T, int, DeltaPoint], Any]
 "Return is ignored"
 type SampleableModel[T: Sample] = Callable[[T, float, float, float], T]
 "sample, timestep, sigma, alpha"
@@ -178,10 +178,11 @@ class FunctionalSinglestep(FunctionalSampler):
         callback: SampleCallback | None = None,
     ) -> T:
         for n in list(range(steps))[include]:
-            sample = self.step(sample, model, model_transform, schedule, Step.from_int(n, steps), rng)
+            step = Step.from_int(n, steps)
+            sample = self.step(sample, model, model_transform, schedule, step, rng)
 
             if callback:
-                callback(sample, n, *schedule.ipoint(n / steps))
+                callback(sample, n, schedule.istep(step))
 
         return sample
 
@@ -456,7 +457,7 @@ class RKMoire(traits.DerivativeTransform, FunctionalAdaptive, FunctionalHigher):
             sample = sample_high
 
             if callback:
-                callback(sample, step_next - 1, *schedule.ipoint(step / steps))
+                callback(sample, step_next - 1, schedule.istep(Step.from_int(step, steps)))
 
             step = step_next
 

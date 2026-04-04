@@ -58,7 +58,7 @@ class FunctionalDenoise(FluxDenoiseStep):
             )
             return block_state["noise_pred"]  # pyright: ignore [reportIndexIssue] # It's still a dict
 
-        def sample_callback(x: torch.Tensor, n: int, t: float, s: float, a: float) -> None:
+        def sample_callback(x: torch.Tensor, n: int, d: tuple) -> None:
             nonlocal i
             progress.update(n + 1 - progress.n)
             i = n + 1

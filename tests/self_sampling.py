@@ -46,7 +46,7 @@ def capture(
         scheduling.Hyper(schedule),
         random.random,
         MEASURED_STEPS,
-        callback=lambda x, i, t, s, a: samples.append(x),
+        callback=lambda x, i, d: samples.append(x),
     )
     return samples
 

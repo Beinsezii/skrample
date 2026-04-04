@@ -13,7 +13,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from skrample import scheduling
-from skrample.common import spowf
+from skrample.common import DeltaPoint, spowf
 from skrample.sampling import functional, models, structured, traits
 from skrample.sampling.interface import StructuredFunctionalAdapter
 
@@ -192,10 +192,10 @@ if args.command == "samplers":
         sampled_values = [sample]
         timesteps = [0.0]
 
-        def callback(x: float, n: int, t: float, s: float, a: float) -> None:
+        def callback(x: float, n: int, d: DeltaPoint) -> None:
             nonlocal sampled_values, timesteps
             sampled_values.append(x)
-            timesteps.insert(-1, t / schedule.base_timesteps)
+            timesteps.insert(-1, d.point_from.timestep / schedule.base_timesteps)
 
         if isinstance(sampler, functional.RKMoire) and args.adjust:
             adjusted = schedule.base_timesteps

@@ -67,7 +67,7 @@ with torch.inference_mode():
         schedule=schedule,
         steps=steps,
         rng=lambda: rng.generate().to(dtype=dtype, device=device),
-        callback=lambda x, n, t, s, a: bar.update(n + 1 - bar.n),
+        callback=lambda x, n, d: bar.update(n + 1 - bar.n),
     )
 
     image: torch.Tensor = image_encoder.decode(sample / image_encoder.config.scaling_factor).sample[0]  # type: ignore
