@@ -29,6 +29,16 @@ class Point(NamedTuple):
     alpha: float
     "Clean data in sample"
 
+    def add_noise[T: Sample](self, sample: T, noise: T) -> T:
+        return sample * self.alpha + noise * self.sigma  # pyright: ignore [reportReturnType] # float rhs is always T
+
+    def remove_noise[T: Sample](self, sample: T, noise: T) -> T:
+        noise = noise * self.sigma  # pyright: ignore [reportAssignmentType] # float rhs is always T
+        try:
+            return (sample - noise) / self.alpha  # pyright: ignore [reportReturnType] # float rhs is always T
+        except ZeroDivisionError:
+            return noise
+
 
 class DeltaPoint(NamedTuple):
     point_from: Point
@@ -118,10 +128,6 @@ class MergeStrategy(enum.StrEnum):  # str for easy UI options
                 return ours + [i for i in theirs if not any(map(cmp, ours, repeat(i)))]
             case MergeStrategy.UniqueBefore:
                 return theirs + [i for i in ours if not any(map(cmp, theirs, repeat(i)))]
-
-
-def merge_noise[T: Sample](sample: T, noise: T, point: Point) -> T:
-    return sample * point.alpha + noise * point.sigma  # pyright: ignore [reportReturnType] # float rhs is always T
 
 
 def divf(lhs: float, rhs: float) -> float:

@@ -15,7 +15,7 @@ from torch import Tensor
 
 import skrample.sampling.structured as sampling
 from skrample import scheduling
-from skrample.common import DeltaPoint, MergeStrategy, Point, Sample, Step, merge_noise
+from skrample.common import DeltaPoint, MergeStrategy, Point, Sample, Step
 from skrample.pytorch.noise import (
     BatchTensorNoise,
     Random,
@@ -507,7 +507,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
     def scale_noise(self, sample: Tensor, timestep: Tensor, noise: Tensor) -> Tensor:
         schedule = self.schedule_np
         step = schedule[:, 0].tolist().index(timestep.item())
-        return self.sampler.merge_noise(sample, noise, Point(*schedule[step]))
+        return self.sampler.add_noise(sample, noise, Point(*schedule[step]))
 
     def scale_model_input(self, sample: Tensor, timestep: float | Tensor) -> Tensor:
         schedule = self.schedule_np
@@ -681,7 +681,7 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
     def scale_noise(self, sample: Tensor, timestep: Tensor, noise: Tensor) -> Tensor:
         schedule = self.schedule_np
         step = schedule[:, 0].tolist().index(timestep.item())
-        return merge_noise(sample, noise, Point(*schedule[step]))
+        return Point(*schedule[step]).add_noise(sample, noise)
 
     def step_tableau_inside_out(
         self,
