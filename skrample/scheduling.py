@@ -9,7 +9,7 @@ from typing import Literal, Self
 
 import numpy as np
 
-from .common import Point, normalize, regularize, rescale_positive, sigmoid
+from .common import DeltaPoint, Point, Step, normalize, regularize, rescale_positive, sigmoid
 
 type NPPoints = np.ndarray[tuple[int, Literal[3]], np.dtype[np.float64]]
 "[sequence..., timestep:sigma:alpha]"
@@ -105,6 +105,16 @@ class SkrampleSchedule(ABC):
         """Inverse of `point`, or `inference` points.
         0.0 is all noise, 1.0 is no noise."""
         return Point(*self._points(np.expand_dims(1 - np.float64(t).clip(0, 1), 0))[0].tolist())
+
+    def step(self, step: Step) -> DeltaPoint:
+        """Sample the schedule at the begin and end of `step`.
+        0.0 is all noise, 1.0 is no noise."""
+        return DeltaPoint(*self.points(step))
+
+    def istep(self, step: Step) -> DeltaPoint:
+        """Sample the schedule at the begin and end of `step`.
+        0.0 is all noise, 1.0 is no noise."""
+        return DeltaPoint(*self.ipoints(step))
 
     def schedule_np(self, steps: int) -> NPPoints:
         """Return the full noise schedule, excluding the trailing zero"""
