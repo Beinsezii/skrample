@@ -157,6 +157,20 @@ def test_model_convert(
 
 
 @pytest.mark.parametrize(
+    ("sigma", "alpha", "sample", "noise"),
+    itertools.product([1, 0.65, 0], [1, 0.35, 0], [-1.5, 0, 0.5, 1.5], [-1.5, 0, 0.5, 1.5]),
+)
+def test_point(sigma: float, alpha: float, sample: float, noise: float) -> None:
+    point = Point(sigma, sigma, alpha)
+    noisy = point.add_noise(sample, noise)
+    clean = point.remove_noise(noisy, noise)
+    if alpha != 0:  # impossible to recover clean image
+        assert abs(sample - clean) < 1e-15
+    else:
+        assert abs(noisy - clean) < 1e-15
+
+
+@pytest.mark.parametrize(
     ("sampler", "schedule"),
     itertools.product(
         [

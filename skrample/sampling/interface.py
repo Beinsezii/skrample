@@ -14,8 +14,11 @@ if TYPE_CHECKING:
 class StructuredFunctionalAdapter(functional.FunctionalSampler):
     sampler: structured.StructuredSampler
 
-    def merge_noise[T: Sample](self, sample: T, noise: T, point: Point) -> T:
-        return self.sampler.merge_noise(sample, noise, point)
+    def add_noise[T: Sample](self, sample: T, noise: T, point: Point) -> T:
+        return self.sampler.add_noise(sample, noise, point)
+
+    def remove_noise[T: Sample](self, sample: T, noise: T, point: Point) -> T:
+        return self.sampler.remove_noise(sample, noise, point)
 
     def sample_model[T: Sample](
         self,

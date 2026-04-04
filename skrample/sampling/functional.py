@@ -132,11 +132,11 @@ class FunctionalSampler(ABC, traits.SamplingCommon):
         if initial is None and include.start is None:  # Short circuit for common case
             sample: T = rng()
         else:
-            sample: T = self.merge_noise(  # type: ignore # 0 should be valid here because it's added to RNG so it becomes T
+            sample: T = self.add_noise(  # type: ignore # 0 should be valid here because it's added to RNG so it becomes T
                 0 if initial is None else initial,
                 rng(),
                 schedule.ipoint((include.start or 0) / steps),
-            ) / self.merge_noise(0.0, 1.0, schedule.ipoint(0))
+            ) / self.add_noise(0.0, 1.0, schedule.ipoint(0))
             # Rescale sample by initial sigma. Mostly just to handle quirks with Scaled
 
         return self.sample_model(sample, model, model_transform, schedule, steps, include, rng, callback)

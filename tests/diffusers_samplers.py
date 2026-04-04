@@ -69,7 +69,7 @@ def dual_sample(
     # Use the same exact schedule for both to reduce variables
     skrample_schedule = FixedSchedule.from_regular(b.timesteps.numpy(), b.sigmas[:-1].numpy(), sigma_space)
 
-    a_sample = a.merge_noise(a_sample, initial_noise, skrample_schedule.ipoint(steps.start / steps.stop))
+    a_sample = a.add_noise(a_sample, initial_noise, skrample_schedule.ipoint(steps.start / steps.stop))
 
     prior_steps: list[SKSamples] = []
     for step in steps:

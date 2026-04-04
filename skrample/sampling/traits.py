@@ -8,16 +8,17 @@ from . import models
 
 @dataclasses.dataclass(frozen=True)
 class SamplingCommon:
-    def merge_noise[T: common.Sample](
-        self,
-        sample: T,
-        noise: T,
-        point: common.Point,
-    ) -> T:
+    def add_noise[T: common.Sample](self, sample: T, noise: T, point: common.Point) -> T:
         """Merge noise into a sample at a given time.
         Some old samplers used to have different implmenetations,
-        but now pretty for pretty much everything this is just points to `common.merge_noise`."""
-        return common.merge_noise(sample, noise, point)
+        but now pretty for pretty much everything this is just an alias to Point."""
+        return point.add_noise(sample, noise)
+
+    def remove_noise[T: common.Sample](self, sample: T, noise: T, point: common.Point) -> T:
+        """Merge noise into a sample at a given time.
+        Some old samplers used to have different implmenetations,
+        but now pretty for pretty much everything this is just an alias to Point."""
+        return point.remove_noise(sample, noise)
 
 
 @dataclasses.dataclass(frozen=True)
