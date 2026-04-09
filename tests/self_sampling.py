@@ -236,7 +236,7 @@ def test_sampler_generics(sampler: structured.StructuredSampler, schedule: sched
             )
             for sampler in samplers
         ),
-        *(structured.UniPC(order=o1, solver=structured.Adams(order=o2)) for o1 in range(1, 4) for o2 in range(1, 4)),
+        *(structured.UniPC(order=o1, predictor=structured.Adams(order=o2)) for o1 in range(1, 4) for o2 in range(1, 4)),
         *(
             structured.SPC(predictor=structured.Adams(order=o1), corrector=structured.Adams(order=o2))
             for o1 in range(1, 4)
@@ -286,7 +286,7 @@ def test_require_previous(sampler: structured.StructuredSampler) -> None:
             )
             for sampler in samplers
         ),
-        *(structured.UniPC(solver=structured.DPM(stochasticity=n1)) for n1 in (False, True)),
+        *(structured.UniPC(predictor=structured.DPM(stochasticity=n1)) for n1 in (False, True)),
         *(
             structured.SPC(predictor=structured.DPM(stochasticity=n1), corrector=structured.DPM(stochasticity=n2))
             for n1 in (False, True)

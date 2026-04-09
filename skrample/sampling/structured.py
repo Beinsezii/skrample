@@ -451,7 +451,7 @@ class UniPC(UniP):
     The additional correction essentially adds +1 order on top of what is set.
     https://arxiv.org/abs/2302.04867"""
 
-    solver: StructuredSampler | None = None
+    predictor: StructuredSampler | None = None
     "If not set, defaults to `UniSolver(order=self.order)`"
 
     @staticmethod
@@ -460,11 +460,11 @@ class UniPC(UniP):
 
     @property
     def require_noise(self) -> bool:
-        return super().require_noise or (self.solver.require_noise if self.solver else False)
+        return super().require_noise or (self.predictor.require_noise if self.predictor else False)
 
     @property
     def require_previous(self) -> int:
-        return max(super().require_previous + 1, self.solver.require_previous if self.solver else 0)
+        return max(super().require_previous + 1, self.predictor.require_previous if self.predictor else 0)
 
     def sample_packed[T: Sample](
         self,
@@ -494,7 +494,7 @@ class UniPC(UniP):
             )
             packed = replace(packed, sample=corrected_sample)
 
-        return (self.solver or super()).sample_packed(packed, model_transform, schedule, previous)
+        return (self.predictor or super()).sample_packed(packed, model_transform, schedule, previous)
 
 
 @dataclass(frozen=True)
