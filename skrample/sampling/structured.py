@@ -86,8 +86,8 @@ class StructuredSampler(ABC, traits.SamplingCommon):
         )
 
     def scale_input[T: Sample](self, sample: T, point: Point) -> T:
-        """Some old samplers used to have different implmenetations,
-        but now pretty for pretty much everything this is just a no-op."""
+        """Some old samplers used to have different implementations,
+        but now pretty much everything is just a no-op."""
         return sample
 
 
@@ -128,7 +128,7 @@ class StatedSampler(StructuredSampler):
 @dataclass(frozen=True)
 class StructuredMultistep(traits.HigherOrder, StructuredSampler):
     """Samplers inheriting this trait support order > 1, and will require
-    `prevous` be managed and passed to function accordingly."""
+    `previous` be managed and passed to function accordingly."""
 
     @property
     def require_previous(self) -> int:
