@@ -10,14 +10,14 @@ from . import models
 class SamplingCommon:
     def add_noise[T: common.Sample](self, sample: T, noise: T, point: common.Point) -> T:
         """Merge noise into a sample at a given time.
-        Some old samplers used to have different implmenetations,
-        but now pretty for pretty much everything this is just an alias to Point."""
+        Some old samplers used to have different implementations,
+        but now pretty much everything is just an alias to Point."""
         return point.add_noise(sample, noise)
 
     def remove_noise[T: common.Sample](self, sample: T, noise: T, point: common.Point) -> T:
         """Merge noise into a sample at a given time.
-        Some old samplers used to have different implmenetations,
-        but now pretty for pretty much everything this is just an alias to Point."""
+        Some old samplers used to have different implementations,
+        but now pretty much everything is just an alias to Point."""
         return point.remove_noise(sample, noise)
 
 
@@ -25,7 +25,7 @@ class SamplingCommon:
 class HigherOrder(abc.ABC):
     order: int = 2
     """Order of the solver.
-    Higher values use more model evaluations to calcualte the sample update step.
+    Higher values use more model evaluations to calculate the sample update step.
     Compute cost varies by implementation.
     The actual order used may be less for a given schedule and step.
     Order 1 is almost always equivalent to the Euler method."""
@@ -50,7 +50,7 @@ class Stochastic:
 
 @dataclasses.dataclass(frozen=True)
 class DerivativeTransform:
-    "Common trait for sapmlers that can perform computations in a different space than the original data."
+    "Common trait for samplers that can perform computations in a different space than the original data."
 
     derivative_transform: models.DiffusionModel | None = models.DataModel()  # noqa: RUF009 # is immutable
     "Transform model output to this space when computing the result."

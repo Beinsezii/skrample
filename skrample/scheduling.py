@@ -51,14 +51,14 @@ class FlowMatching(SigmaSpace):
 @functools.lru_cache
 def np_schedule_lru(schedule: "SkrampleSchedule", steps: int) -> NPPoints:
     """Globally cached function for SkrampleSchedule.schedule(steps).
-    Prefer moving SkrampleScheudle.schedule() outside of any loops if possible."""
+    Prefer moving SkrampleSchedule.schedule() outside of any loops if possible."""
     return schedule.schedule_np(steps)
 
 
 @functools.lru_cache
 def schedule_lru(schedule: "SkrampleSchedule", steps: int) -> Sequence[Point]:
     """Globally cached function for SkrampleSchedule.schedule(steps).
-    Prefer moving SkrampleScheudle.schedule() outside of any loops if possible."""
+    Prefer moving SkrampleSchedule.schedule() outside of any loops if possible."""
     return tuple(Point(*p) for p in np_schedule_lru(schedule, steps).tolist())
 
 
@@ -457,7 +457,7 @@ class Exponential(SubSchedule):
 
 @dataclass(frozen=True)
 class Beta(SubSchedule):
-    """Beta continuous distribtuion function. A sort of S-curve.
+    """Beta continuous distribution function. A sort of S-curve.
     https://arxiv.org/abs/2407.12173"""
 
     alpha: float = 0.6
