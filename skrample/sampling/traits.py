@@ -38,7 +38,7 @@ class HigherOrder(abc.ABC):
     @staticmethod
     @abc.abstractmethod
     def max_order() -> int:
-        "Minimum order that this solver will attempt to use."
+        "Maximum order that this solver will attempt to use."
 
 
 @dataclasses.dataclass(frozen=True)
