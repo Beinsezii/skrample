@@ -110,10 +110,9 @@ class FunctionalSampler(ABC, traits.SamplingCommon):
         include: slice = slice(None),
         rng: RNG[T] | None = None,
         callback: SampleCallback | None = None,
-    ) -> T: ...
-
-    """Runs the noisy sample through the model for a given range `include` of total steps.
-    Calls callback every step with sampled value."""
+    ) -> T:
+        """Runs the noisy sample through the model for a given range `include` of total steps.
+        Calls callback every step with sampled value."""
 
     def generate_model[T: Sample](
         self,
