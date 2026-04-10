@@ -359,6 +359,8 @@ class SkrampleWrapperCore(abc.ABC):
         self._index = begin_index
 
     def add_noise(self, original_samples: Tensor, noise: Tensor, timesteps: Tensor) -> Tensor:
+        if len(timesteps) == 0:
+            return original_samples
         return self.scale_noise(original_samples, timesteps[0], noise)
 
     def scale_model_input(self, sample: Tensor, timestep: float | Tensor) -> Tensor:
