@@ -302,7 +302,6 @@ class SkrampleWrapperCore(abc.ABC):
         noise_props: T | None,
         generator: torch.Generator | list[torch.Generator] | None = None,
         dtype: torch.dtype | None = None,
-        schedule: scheduling.NPPoints | None = None,
     ) -> torch.Tensor:
         if self._noise_generator is None:
             if isinstance(generator, list) and len(generator) == sample.shape[0]:
@@ -323,7 +322,7 @@ class SkrampleWrapperCore(abc.ABC):
                 unit_shape=sample.shape[1:],
                 seeds=seeds,  # ty: ignore # no clue
                 props=noise_props,
-                ramp=schedule_to_ramp(self.schedule_np if schedule is None else schedule)[self._index // self.order :],
+                ramp=schedule_to_ramp(self.schedule_np[:: self.order])[self._index // self.order :],
                 dtype=torch.float32,
             )
 
@@ -746,7 +745,6 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
                 self.noise_props,
                 generator,
                 self.compute_scale,
-                self.schedule.schedule_np(self._steps),
             )
 
         points = [*self.all_points, Point(0, 0, 1)]
