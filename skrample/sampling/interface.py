@@ -39,8 +39,8 @@ class StructuredFunctionalAdapter(functional.FunctionalSampler):
                 structured.SampleInput(
                     sample=sample,
                     prediction=model(self.sampler.scale_input(sample, point), *point),
-                    step=Step.from_int(n, len(points)),
-                    noise=rng() if rng and self.sampler.require_noise else None,
+                    step=(step := Step.from_int(n, len(points))),
+                    noise=rng(step) if rng and self.sampler.require_noise else None,
                 ),
                 model_transform,
                 schedule,

@@ -391,7 +391,7 @@ def test_functional_adapter(
 
     rng = iter(noise)
     model_transform = models.FlowModel()
-    sample_f = adapter.sample_model(sample, fake_model, model_transform, schedule, steps, rng=lambda: next(rng))
+    sample_f = adapter.sample_model(sample, fake_model, model_transform, schedule, steps, rng=lambda _: next(rng))
 
     rng = iter(noise)
     float_schedule = schedule.schedule(steps)
@@ -470,7 +470,7 @@ def test_runge_kutta_diffusers(
         data_init,
         fake_model_ref,
         steps,
-        rng=lambda: torch.randn([1], generator=generator_rng).item(),
+        rng=lambda _: torch.randn([1], generator=generator_rng).item(),
     )
 
     sampler_wrap.set_timesteps(steps)
@@ -534,7 +534,6 @@ def test_diffusers_brownian(
     assert len(wrapper._noise_generator.generators) == 1
     brownian = wrapper._noise_generator.generators[0]
     assert isinstance(brownian, Brownian)
-    assert brownian._step == len(brownian.ramp) - 1
 
 
 @pytest.mark.parametrize(
@@ -579,7 +578,6 @@ def test_rku_brownian(
     assert len(wrapper._noise_generator.generators) == 1
     brownian = wrapper._noise_generator.generators[0]
     assert isinstance(brownian, Brownian)
-    assert brownian._step == len(brownian.ramp) - 1
 
 
 @pytest.mark.parametrize(

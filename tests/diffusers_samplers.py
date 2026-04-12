@@ -287,7 +287,7 @@ def test_heun(
         lambda x, t, s, a: fake_model(x),
         model_transform,
         skrample_schedule,
-        lambda: torch.randn(sk_sample.shape, generator=seed, dtype=sk_sample.dtype),
+        lambda _: torch.randn(sk_sample.shape, generator=seed, dtype=sk_sample.dtype),
         steps,
         initial=sk_sample,
     )

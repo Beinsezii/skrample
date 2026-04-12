@@ -44,7 +44,7 @@ def capture(
         lambda x, t, s, a: x - math.sin(t),
         model,
         scheduling.Hyper(schedule),
-        random.random,
+        lambda _: random.random(),
         MEASURED_STEPS,
         callback=lambda x, i, d: samples.append(x),
     )
