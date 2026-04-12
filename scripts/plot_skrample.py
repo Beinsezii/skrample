@@ -1,11 +1,11 @@
 #! /usr/bin/env python
 
 import math
+import random
 from argparse import ArgumentParser, BooleanOptionalAction
 from collections.abc import Generator
 from dataclasses import replace
 from pathlib import Path
-from random import random
 from typing import Any
 
 import matplotlib.pyplot as plt
@@ -210,7 +210,7 @@ if args.command == "samplers":
             model_transform=SPACES[args.transform][2],
             schedule=schedule,
             steps=adjusted,
-            rng=random,
+            rng=lambda _: random.random(),
             callback=callback,
         )
 

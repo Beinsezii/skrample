@@ -16,13 +16,7 @@ from torch import Tensor
 import skrample.sampling.structured as sampling
 from skrample import scheduling
 from skrample.common import DeltaPoint, MergeStrategy, Point, Sample, Step
-from skrample.pytorch.noise import (
-    BatchTensorNoise,
-    Random,
-    TensorNoiseCommon,
-    TensorNoiseProps,
-    schedule_to_ramp,
-)
+from skrample.pytorch.noise import BatchTensorNoise, Random, TensorNoiseCommon, TensorNoiseProps
 from skrample.sampling import functional, interface, models, tableaux, traits
 from skrample.sampling.models import DataModel, DiffusionModel, FlowModel, NoiseModel, VelocityModel
 from skrample.sampling.structured import SampleInput, SKSamples, StructuredSampler
@@ -296,7 +290,7 @@ class SkrampleWrapperCore(abc.ABC):
 
     def get_step_noise[T: TensorNoiseProps | None](
         self,
-        step: int,
+        step: Step,
         sample: torch.Tensor,
         noise_type: type[TensorNoiseCommon[T]],
         noise_props: T | None,
@@ -313,7 +307,9 @@ class SkrampleWrapperCore(abc.ABC):
                 # multiply by step index to spread the values and minimize clash
                 # does not work across batch sizes but at least Flux will have something mostly deterministic
                 seeds = [
-                    torch.Generator().manual_seed(int(b.reshape(b.numel())[b.numel() // 2].item() * 1e4) * (step + 1))
+                    torch.Generator().manual_seed(
+                        int(b.reshape(b.numel())[b.numel() // 2].item() * 1e4 * (step.position() + 1))
+                    )
                     for b in sample
                 ]
 
@@ -322,11 +318,11 @@ class SkrampleWrapperCore(abc.ABC):
                 unit_shape=sample.shape[1:],
                 seeds=seeds,  # ty: ignore # no clue
                 props=noise_props,
-                ramp=schedule_to_ramp(self.schedule_np[:: self.order])[self._index // self.order :],
-                dtype=torch.float32,
+                # Anything except float32 performs terribly on cpu, otherwise native model precision is best
+                dtype=torch.float32 if any(s.device.type == "cpu" for s in seeds) else sample.dtype,
             )
 
-        return self._noise_generator.generate().to(dtype=dtype or sample.dtype, device=sample.device)
+        return self._noise_generator.generate(step).to(dtype=dtype or sample.dtype, device=sample.device)
 
     @abc.abstractmethod
     def scale_noise(self, sample: Tensor, timestep: Tensor, noise: Tensor) -> Tensor: ...
@@ -529,6 +525,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
     ) -> tuple[Tensor, Tensor] | OrderedDict[str, Tensor]:
         schedule = self.schedule_np
         step = schedule[:, 0].tolist().index(timestep if isinstance(timestep, int | float) else timestep.item())
+        step = Step.from_int(step, len(schedule))
 
         if self.sampler.require_noise:
             noise = self.get_step_noise(step, sample, self.noise_type, self.noise_props, generator, self.compute_scale)
@@ -541,7 +538,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
             packed=SampleInput(
                 sample=sample_cast,
                 prediction=model_output.to(dtype=self.compute_scale),
-                step=Step.from_int(step, len(schedule)),
+                step=step,
                 noise=noise,
             ),
             model_transform=self.model,
@@ -586,7 +583,6 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
         self._index: int = 0
         self._derivatives: list[Tensor] = []
         self._sample: Tensor | None = None
-        self._noise: Tensor | None = None
         self._schedule = self.schedule  # copy of original for restoration in set_timesteps
 
     @abc.abstractmethod
@@ -692,6 +688,7 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
         S0: Point,
         S1: Point,
         SN: Point,
+        generator: torch.Generator | list[torch.Generator] | None,
     ) -> Tensor:
         nodes, weights = self.tableau()
 
@@ -701,17 +698,27 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
         sample = self._sample
 
         if len(self._derivatives) == len(weights):
+            if abs(self.stochasticity) > 1e-8:
+                noise = self.get_step_noise(
+                    Step.from_int(self._index // self.order, self._steps),
+                    sample,
+                    self.noise_type,
+                    self.noise_props,
+                    generator,
+                    self.compute_scale,
+                )
+            else:
+                noise = None
             final: Tensor = model_transform.forward(  # ty: ignore # output is a tensor
                 sample,
                 math.sumprod(self._derivatives, weights),  # type: ignore # it's a tensor
                 DeltaPoint(S0, S1),
-                self._noise,
+                noise,
                 self.stochasticity,
             )
 
             self._derivatives.clear()
             self._sample = None
-            self._noise = None
 
             return final
 
@@ -739,16 +746,6 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
     ) -> tuple[Tensor, Tensor] | OrderedDict[str, Tensor]:
         assert timestep == self.all_points[self._index].timestep
 
-        if self._noise is None and abs(self.stochasticity) > 1e-8:
-            self._noise = self.get_step_noise(
-                self._index,
-                sample,
-                self.noise_type,
-                self.noise_props,
-                generator,
-                self.compute_scale,
-            )
-
         points = [*self.all_points, Point(0, 0, 1)]
 
         if self.derivative_transform:
@@ -771,6 +768,7 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
             S0=points[S0_idx],
             S1=points[S1_idx],
             SN=points[SN_idx],
+            generator=generator,
         )
 
         self._index += 1
@@ -789,6 +787,7 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
                 S0=points[S0_idx],
                 S1=points[S1_idx],
                 SN=points[SN_idx + 1],
+                generator=generator,
             )
 
             self._index += 1

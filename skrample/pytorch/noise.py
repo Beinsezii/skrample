@@ -3,13 +3,9 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Self
 
-import numpy as np
 import torch
-from numpy.typing import NDArray
 
-
-def schedule_to_ramp(schedule: NDArray[np.float64]) -> NDArray[np.float64]:
-    return np.concatenate([schedule[:, 1], [0]])
+from skrample.common import Step
 
 
 @dataclass(frozen=True)
@@ -21,7 +17,7 @@ class TensorNoiseProps:
 @dataclass
 class SkrampleTensorNoise(ABC):
     @abstractmethod
-    def generate(self) -> torch.Tensor:
+    def generate(self, step: Step | None) -> torch.Tensor:
         """Next noise tensor in the sequence.
         May raise an exception if at the end of sequence.
         Should be assumed to be stateful, and not used for multiple jobs"""
@@ -53,7 +49,6 @@ class TensorNoiseCommon[T: TensorNoiseProps | None](SkrampleTensorNoise):
         seed: torch.Generator,
         props: T = None,  # ty: ignore # is ABC
         dtype: torch.dtype = torch.float32,
-        ramp: NDArray[np.float64] = np.linspace(0, 1, 2, dtype=np.float64),
     ) -> Self:
         """Create the noise agnostically from common inputs typically available during inference.
         It is strongly recommended to set `ramp` to the sigma/noise schedule if available."""
@@ -72,11 +67,10 @@ class Random(TensorNoiseCommon[None]):
         seed: torch.Generator,
         props: None = None,
         dtype: torch.dtype = torch.float32,
-        ramp: NDArray[np.float64] = np.linspace(0, 1, 2, dtype=np.float64),
     ) -> Self:
         return cls(shape, seed, dtype, props)
 
-    def generate(self) -> torch.Tensor:
+    def generate(self, step: Step | None) -> torch.Tensor:
         return self._randn()
 
 
@@ -98,7 +92,6 @@ class Offset(TensorNoiseCommon[OffsetProps]):
         seed: torch.Generator,
         props: OffsetProps = OffsetProps(),
         dtype: torch.dtype = torch.float32,
-        ramp: NDArray[np.float64] = np.linspace(0, 1, 2, dtype=np.float64),
     ) -> Self:
         return cls(shape, seed, dtype, props)
 
@@ -112,7 +105,7 @@ class Offset(TensorNoiseCommon[OffsetProps]):
         shape = tuple([d if n in self.props.dims else 1 for n, d in enumerate(self.shape)])
         return self._randn(shape) * self.props.strength**2
 
-    def generate(self) -> torch.Tensor:
+    def generate(self, step: Step | None) -> torch.Tensor:
         if self.props.static and self.static_offset is not None:
             offset = self.static_offset
         else:
@@ -147,7 +140,6 @@ class Pyramid(TensorNoiseCommon[PyramidProps]):
         seed: torch.Generator,
         props: PyramidProps = PyramidProps(),
         dtype: torch.dtype = torch.float32,
-        ramp: NDArray[np.float64] = np.linspace(0, 1, 2, dtype=np.float64),
     ) -> Self:
         return cls(shape, seed, dtype, props)
 
@@ -207,7 +199,7 @@ class Pyramid(TensorNoiseCommon[PyramidProps]):
         skip = min(steps, max(0, steps - self.props.depth))
         return noise + sum(pyramid_steps[skip:])
 
-    def generate(self) -> torch.Tensor:
+    def generate(self, step: Step | None) -> torch.Tensor:
         if self.props.static and self._static_pyramid is not None:
             noise = self._randn() + self._static_pyramid
         else:
@@ -215,58 +207,49 @@ class Pyramid(TensorNoiseCommon[PyramidProps]):
         return noise / noise.std()  # Scaled back to roughly unit variance
 
 
-@dataclass
-class Brownian(TensorNoiseCommon[None]):
-    """Uses torchsde.BrownianInterval to generate noise along a fixed timestep.
-    generate() will raise StopIteration at the end of the ramp."""
+@dataclass(frozen=True)
+class BrownianProps(TensorNoiseProps):
+    max_steps: int = 10_000
+    """Target resolution of the brownian tree.
+    DT sizes below 1/max_steps run the risk of failing to generate.
+    Increasing this negatively impacts performance."""
 
-    ramp: NDArray[np.float64]
+
+@dataclass
+class Brownian(TensorNoiseCommon[BrownianProps]):
+    """Uses torchsde.BrownianInterval to generate noise deterministically over Step"""
 
     def __post_init__(self) -> None:
         import torchsde
 
-        if len(self.ramp) < 2:
-            err = "Brownian.ramp must have at least two positions"
-            raise ValueError(err)
-
         self._tree = torchsde.BrownianInterval(
+            t0=0,
+            t1=1,
             size=self.shape,
             entropy=self.seed.initial_seed(),
             dtype=self.dtype,
             device=self.seed.device,
             halfway_tree=True,
-            tol=1e-8,
-            pool_size=64,  # tolerance is 99% of the perf hit at this size
+            tol=1 / (self.props.max_steps * 10),  # 1 order of magnitude more than min step size
+            pool_size=2**6,  # tolerance is 99% of the perf hit at this size
+            cache_size=round(math.log2(self.props.max_steps * 10) * 1.3),  # binary for halfway + 30%
         )
 
-        self._step: int = 0
-
-        # Basic sanitization to normalize 0->1
-        if self.ramp[0] > self.ramp[-1]:
-            self.ramp = -self.ramp
-        self.ramp -= self.ramp.min()
-        self.ramp /= self.ramp.max()
-
-    def generate(self) -> torch.Tensor:
-        if self._step + 1 >= len(self.ramp):
-            raise StopIteration
-
-        sigma = self.ramp[self._step]
-        sigma_next = self.ramp[self._step + 1]
-        self._step += 1
-
-        return self._tree(sigma, sigma_next) / abs(sigma_next - sigma) ** 0.5
+    def generate(self, step: Step | None) -> torch.Tensor:
+        if not step:
+            return self._randn()
+        step = step.normal().clamp()
+        return self._tree(*step) / math.sqrt(step.distance())  # pyright: ignore[reportOperatorIssue]
 
     @classmethod
     def from_inputs(
         cls,
         shape: tuple[int, ...],
         seed: torch.Generator,
-        props: None = None,
+        props: BrownianProps = BrownianProps(),
         dtype: torch.dtype = torch.float32,
-        ramp: NDArray[np.float64] = np.linspace(0, 1, 1000, dtype=np.float64),
     ) -> Self:
-        return cls(shape=shape, seed=seed, ramp=ramp, dtype=dtype, props=props)
+        return cls(shape=shape, seed=seed, dtype=dtype, props=props)
 
 
 @dataclass
@@ -276,8 +259,8 @@ class BatchTensorNoise[T: TensorNoiseProps | None](SkrampleTensorNoise):
 
     generators: list[TensorNoiseCommon[T]]
 
-    def generate(self) -> torch.Tensor:
-        return torch.stack([g.generate() for g in self.generators])
+    def generate(self, step: Step | None) -> torch.Tensor:
+        return torch.stack([g.generate(step) for g in self.generators])
 
     @classmethod
     def from_batch_inputs[U: TensorNoiseProps | None](  # pyright fails if you use the outer generic
@@ -287,20 +270,14 @@ class BatchTensorNoise[T: TensorNoiseProps | None](SkrampleTensorNoise):
         seeds: list[torch.Generator],
         props: U | None = None,
         dtype: torch.dtype = torch.float32,
-        ramp: NDArray[np.float64] = np.linspace(0, 1, 2, dtype=np.float64),
     ) -> "BatchTensorNoise[U]":
         """Batched equivalent of TensorNoiseCommon.from_inputs
         `unit_shape` is the shape per batch, which means the final result will be size [len(seeds), *unit_shape]"""
         return cls(  # ty: ignore  # Safe from ABC
             [
-                subclass.from_inputs(unit_shape, seed, props, dtype, ramp)
+                subclass.from_inputs(unit_shape, seed, props, dtype)
                 if props is not None
-                else subclass.from_inputs(
-                    unit_shape,
-                    seed,
-                    dtype=dtype,
-                    ramp=ramp,
-                )  # pyright: ignore  # Safe from ABC
+                else subclass.from_inputs(unit_shape, seed, dtype=dtype)  # pyright: ignore  # Safe from ABC
                 for seed in seeds
             ]
         )

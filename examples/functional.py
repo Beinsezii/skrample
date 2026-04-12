@@ -66,7 +66,7 @@ with torch.inference_mode():
         model_transform=models.NoiseModel(),
         schedule=schedule,
         steps=steps,
-        rng=lambda: rng.generate().to(dtype=dtype, device=device),
+        rng=lambda step: rng.generate(step).to(dtype=dtype, device=device),
         callback=lambda x, n, d: bar.update(n + 1 - bar.n),
     )
 
