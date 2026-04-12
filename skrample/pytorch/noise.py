@@ -207,8 +207,16 @@ class Pyramid(TensorNoiseCommon[PyramidProps]):
         return noise / noise.std()  # Scaled back to roughly unit variance
 
 
+@dataclass(frozen=True)
+class BrownianProps(TensorNoiseProps):
+    max_steps: int = 10_000
+    """Target resolution of the brownian tree.
+    DT sizes below 1/max_steps run the risk of failing to generate.
+    Increasing this negatively impacts performance."""
+
+
 @dataclass
-class Brownian(TensorNoiseCommon[None]):
+class Brownian(TensorNoiseCommon[BrownianProps]):
     """Uses torchsde.BrownianInterval to generate noise along a fixed timestep.
     generate() will raise StopIteration at the end of the ramp."""
 
@@ -216,13 +224,16 @@ class Brownian(TensorNoiseCommon[None]):
         import torchsde
 
         self._tree = torchsde.BrownianInterval(
+            t0=0,
+            t1=1,
             size=self.shape,
             entropy=self.seed.initial_seed(),
             dtype=self.dtype,
             device=self.seed.device,
             halfway_tree=True,
-            tol=1e-8,
-            pool_size=64,  # tolerance is 99% of the perf hit at this size
+            tol=1 / (self.props.max_steps * 10),  # 1 order of magnitude more than min step size
+            pool_size=2**6,  # tolerance is 99% of the perf hit at this size
+            cache_size=round(math.log2(self.props.max_steps * 10) * 1.3),  # binary for halfway + 30%
         )
 
     def generate(self, step: Step) -> torch.Tensor:
@@ -234,7 +245,7 @@ class Brownian(TensorNoiseCommon[None]):
         cls,
         shape: tuple[int, ...],
         seed: torch.Generator,
-        props: None = None,
+        props: BrownianProps = BrownianProps(),
         dtype: torch.dtype = torch.float32,
     ) -> Self:
         return cls(shape=shape, seed=seed, dtype=dtype, props=props)

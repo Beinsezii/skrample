@@ -318,7 +318,8 @@ class SkrampleWrapperCore(abc.ABC):
                 unit_shape=sample.shape[1:],
                 seeds=seeds,  # ty: ignore # no clue
                 props=noise_props,
-                dtype=torch.float32,
+                # Anything except float32 performs terribly on cpu, otherwise native model precision is best
+                dtype=torch.float32 if any(s.device.type == "cpu" for s in seeds) else sample.dtype,
             )
 
         return self._noise_generator.generate(step).to(dtype=dtype or sample.dtype, device=sample.device)
