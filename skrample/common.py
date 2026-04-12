@@ -17,7 +17,7 @@ else:
     type Sample = float | NDArray[np.floating]
 
 
-type RNG[T: Sample] = Callable[[], T]
+type RNG[T: Sample] = Callable[[Step | None], T]
 "Distribution should match model, typically normal"
 
 

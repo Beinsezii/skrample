@@ -129,11 +129,11 @@ class FunctionalSampler(ABC, traits.SamplingCommon):
         rather than being pre-added to the initial value"""
 
         if initial is None and include.start is None:  # Short circuit for common case
-            sample: T = rng()
+            sample: T = rng(None)
         else:
             sample: T = self.add_noise(  # type: ignore # 0 should be valid here because it's added to RNG so it becomes T
                 0 if initial is None else initial,
-                rng(),
+                rng(None),
                 schedule.ipoint((include.start or 0) / steps),
             ) / self.add_noise(0.0, 1.0, schedule.ipoint(0))
             # Rescale sample by initial sigma. Mostly just to handle quirks with Scaled
@@ -250,7 +250,7 @@ class RKUltra(FunctionalUnified, FunctionalSinglestep):
             schedule,
             step,
             self.derivative_transform,
-            rng() if rng else None,
+            rng(step) if rng else None,
             self.stochasticity,
         )[0]
 
@@ -331,7 +331,7 @@ class DynasauRK(FunctionalUnified, FunctionalSinglestep):
             schedule,
             step,
             self.derivative_transform,
-            rng() if rng else None,
+            rng(step) if rng else None,
             self.stochasticity,
         )[0]
 

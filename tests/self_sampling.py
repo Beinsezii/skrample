@@ -44,7 +44,7 @@ def capture(
         lambda x, t, s, a: x - math.sin(t),
         model,
         scheduling.Hyper(schedule),
-        random.random,
+        lambda _: random.random(),
         MEASURED_STEPS,
         callback=lambda x, i, d: samples.append(x),
     )
@@ -361,9 +361,9 @@ def test_maruyama(model: type[models.DiffusionModel], schedule: scheduling.Skram
     data_init = 1 / (random.random() + 1e-4) * (random.randint(0, 1) * 2 - 1)
 
     random.seed(0)
-    data_dpm = dpm.sample_model(data_init, fake_model_dpm, model(), schedule, steps, rng=random.random)
+    data_dpm = dpm.sample_model(data_init, fake_model_dpm, model(), schedule, steps, rng=lambda _: random.random())
     random.seed(0)
-    data_maru = maru.sample_model(data_init, fake_model_maru, model(), schedule, steps, rng=random.random)
+    data_maru = maru.sample_model(data_init, fake_model_maru, model(), schedule, steps, rng=lambda _: random.random())
 
     for sample_dpm, sample_maru in zip(samples_dpm, samples_maru, strict=True):
         assert abs(sample_dpm - sample_maru) < 1e-12

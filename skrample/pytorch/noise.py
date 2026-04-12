@@ -17,7 +17,7 @@ class TensorNoiseProps:
 @dataclass
 class SkrampleTensorNoise(ABC):
     @abstractmethod
-    def generate(self, step: Step) -> torch.Tensor:
+    def generate(self, step: Step | None) -> torch.Tensor:
         """Next noise tensor in the sequence.
         May raise an exception if at the end of sequence.
         Should be assumed to be stateful, and not used for multiple jobs"""
@@ -70,7 +70,7 @@ class Random(TensorNoiseCommon[None]):
     ) -> Self:
         return cls(shape, seed, dtype, props)
 
-    def generate(self, step: Step) -> torch.Tensor:
+    def generate(self, step: Step | None) -> torch.Tensor:
         return self._randn()
 
 
@@ -105,7 +105,7 @@ class Offset(TensorNoiseCommon[OffsetProps]):
         shape = tuple([d if n in self.props.dims else 1 for n, d in enumerate(self.shape)])
         return self._randn(shape) * self.props.strength**2
 
-    def generate(self, step: Step) -> torch.Tensor:
+    def generate(self, step: Step | None) -> torch.Tensor:
         if self.props.static and self.static_offset is not None:
             offset = self.static_offset
         else:
@@ -199,7 +199,7 @@ class Pyramid(TensorNoiseCommon[PyramidProps]):
         skip = min(steps, max(0, steps - self.props.depth))
         return noise + sum(pyramid_steps[skip:])
 
-    def generate(self, step: Step) -> torch.Tensor:
+    def generate(self, step: Step | None) -> torch.Tensor:
         if self.props.static and self._static_pyramid is not None:
             noise = self._randn() + self._static_pyramid
         else:
@@ -217,8 +217,7 @@ class BrownianProps(TensorNoiseProps):
 
 @dataclass
 class Brownian(TensorNoiseCommon[BrownianProps]):
-    """Uses torchsde.BrownianInterval to generate noise along a fixed timestep.
-    generate() will raise StopIteration at the end of the ramp."""
+    """Uses torchsde.BrownianInterval to generate noise deterministically over Step"""
 
     def __post_init__(self) -> None:
         import torchsde
@@ -236,7 +235,9 @@ class Brownian(TensorNoiseCommon[BrownianProps]):
             cache_size=round(math.log2(self.props.max_steps * 10) * 1.3),  # binary for halfway + 30%
         )
 
-    def generate(self, step: Step) -> torch.Tensor:
+    def generate(self, step: Step | None) -> torch.Tensor:
+        if not step:
+            return self._randn()
         step = step.normal().clamp()
         return self._tree(*step) / math.sqrt(step.distance())  # pyright: ignore[reportOperatorIssue]
 
@@ -258,7 +259,7 @@ class BatchTensorNoise[T: TensorNoiseProps | None](SkrampleTensorNoise):
 
     generators: list[TensorNoiseCommon[T]]
 
-    def generate(self, step: Step) -> torch.Tensor:
+    def generate(self, step: Step | None) -> torch.Tensor:
         return torch.stack([g.generate(step) for g in self.generators])
 
     @classmethod
