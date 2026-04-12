@@ -1,8 +1,8 @@
-# Skrample 0.5.3
+# Skrample 0.6.0
 Composable sampling functions for diffusion models
 
 ## Status
-Mostly complete for common models, superseding all diffusers features in [quickdif](https://github.com/Beinsezii/quickdif.git)
+Production-tested on all popular diffusion models. The library has significantly matured since 0.5
 
 ### Quickstart
 Fastest way to jump in is [examples](./examples/). The classes and functions themselves have docstrings and type hints, so it's recommended to make liberal use of your IDE or python `help()`
@@ -10,43 +10,73 @@ Fastest way to jump in is [examples](./examples/). The classes and functions the
 ### Feature Flags
  - `beta-schedule` -> `scipy` : For the `Beta()` schedule modifier
  - `brownian-noise` -> `torchsde` : For the `Brownian()` noise generator
- - `cdf-schedule` -> `scipy` : For the `SigmoidCDF()` schedule
+ - `cdf-schedule` -> `scipy` : For the `Probit()` schedule
  - `diffusers-wrapper` -> `torch` : For the `diffusers` integration module
  - `pytorch` -> `torch` : For the `pytorch` module
    - `pytorch.noise` : Custom generators
  - `all` : All of the above
  - `dev` : For running `tests/`
 
-### Samplers
+### Structured Samplers
+These samplers are written inside-out to be compatible with Diffusers and similar frameworks
+
 - Euler
+  - Stochastic
 - DPM
-  - 1st order, 2nd order, 3rd order
-  - SDE
+  - Order 1-3
+  - Stochastic
 - Adams/IPNDM
+  - Order 1-9
+  - Stochastic
 - UniP & UniPC
-  - N order, limited to 9 for stability
-  - Custom solver via other SkrampleSampler types
+  - Order 1-9
+  - Stochastic
+  - Custom predictor via other SkrampleSampler types
 - SPC
   - Basic fully customizable midpoint corrector
 
+### Functional Samplers
+These samplers are written using closures similar to ksampler
+
+- RKUltra
+  - Arbitrary Runge-Kutta solver
+  - Order 1-15, customizable through tableaux system
+  - Stochastic
+- DynasauRK
+  - Procedural Runge-Kutta solver
+  - Order 2-4
+  - Stochastic
+- RKMoire
+  - Embedded Runge-Kutta solver
+  - Orders 2-5, customizable through tableaux system
+
 ### Schedules
 - Linear
+  - Flow-matching default
 - Scaled
-  - `uniform` flag, AKA `"trailing"` in diffusers
-- SigmaCDF
+  - Variance-preserving default
 - ZSNR
 
-### Schedule modifiers
+### Subschedules
+Replaces sigmas on an existing schedule
+
 - Karras
 - Exponential
-- FlowShift
 - Beta
-- Hyper
+- Probit
 
-### Predictors
-- Epsilon
-- Velocity / vpred
-- Flow
+### Schedule Modifiers
+Modifies timestep spacing of a schedule
+
+- FlowShift
+- Hyper
+- Sinner
+
+### Models
+- Data / Sample / X-Pred
+- Noise / Epsilon / Ε-Pred
+- Velocity / V-Pred
+- Flow / U-pred
 
 ### Noise generators
 - Random
@@ -56,21 +86,16 @@ Fastest way to jump in is [examples](./examples/). The classes and functions the
 
 ## Integrations
 ### Diffusers
-- [X] Compatibility for pipelines
-  - [X] SD1
-  - [X] SDXL
-  - [X] SD3
-  - [X] Flux
+- [X] Compatibile with DiffusionPipeline
 - [X] Import from config
   - [X] Sampler
   - [X] Schedule
   - [X] Predictor
-- [X] Manage state
-  - [X] Steps
-  - [X] Higher order
-  - [X] Generators
-  - [X] Config as presented
+- [X] Structured sampler wrapper
+- [X] Functional sampler wrappers
+  - [X] RKUltra
+  - [X] DynasauRK
 
 ## Implementations
 ### quickdif
-My diffusers cli [quickdif](https://github.com/Beinsezii/quickdif) has full support for all major Skrample features, allowing extremely fine-grained customization.
+My diffusers cli [quickdif](https://github.com/Beinsezii/quickdif) has full support for all major Diffusers-compatible Skrample features, allowing extremely fine-grained customization.
