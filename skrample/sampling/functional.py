@@ -135,7 +135,7 @@ class FunctionalSampler(ABC, traits.SamplingCommon):
                 0 if initial is None else initial,
                 rng(None),
                 schedule.ipoint((include.start or 0) / steps),
-            ) / self.add_noise(0.0, 1.0, schedule.ipoint(0))
+            ) / self.add_noise(0.0, 1.0, schedule.point_1)
             # Rescale sample by initial sigma. Mostly just to handle quirks with Scaled
 
         return self.sample_model(sample, model, model_transform, schedule, steps, include, rng, callback)

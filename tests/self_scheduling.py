@@ -54,9 +54,9 @@ def test_mu_set() -> None:
 
 
 # modifier shouldn't matter if done properly but why not
-@pytest.mark.parametrize(("schedule", "modifier"), itertools.product(ALL_SCHEDULES, ALL_MODIFIERS_OPTION))
-def test_sigmas_to_points(schedule: type[ScheduleCommon], modifier: type[ScheduleModifier] | None) -> None:
-    schedule_object = modifier(schedule()) if modifier else schedule()
+@pytest.mark.parametrize("schedule", ALL_SCHEDULES)
+def test_sigmas_to_points(schedule: type[ScheduleCommon]) -> None:
+    schedule_object = schedule()
     points = schedule_object.points_np(np.linspace(1, 0, 33))
     points_inv = schedule_object._sigmas_to_points(points[:, 1], points[:, 2])
 

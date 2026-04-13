@@ -144,7 +144,7 @@ def parse_diffusers_config(
         scaled_keys = [f.name for f in dataclasses.fields(scheduling.Scaled)]
         # non-uniform misses a whole timestep
         scaled = scheduling.Scaled(**{k: v for k, v in remapped.items() if k in scaled_keys})
-        remapped["sigma_start"] = scaled.space.regularize(scaled.ipoint(0).sigma).item()
+        remapped["sigma_start"] = scaled.space.regularize(scaled.point_1.sigma).item()
 
     schedule_modifiers: list[tuple[type[ScheduleModifier], dict[str, Any]]] = []
 
@@ -495,6 +495,14 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
                 [*before, dataclasses.replace(flow, shift=math.exp(mu)), *after], sub, base
             )
 
+        if self.allow_dynamic and isinstance(self.schedule, scheduling.Karras | scheduling.Exponential):
+            self.schedule = dataclasses.replace(self.schedule, steps=self._steps)
+        elif self.allow_dynamic and isinstance(self.schedule, scheduling.ScheduleModifier):
+            mods, sub, base = self.schedule.all_split
+            if isinstance(sub, scheduling.Karras | scheduling.Exponential):
+                sub = dataclasses.replace(sub, steps=self._steps)
+                self.schedule = self.schedule.stack(mods, sub, base)
+
         self._previous = []
         self._noise_generator = None
 
@@ -669,6 +677,14 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
             self.schedule = self.schedule.stack(
                 [*before, dataclasses.replace(flow, shift=math.exp(mu)), *after], sub, base
             )
+
+        if self.allow_dynamic and isinstance(self.schedule, scheduling.Karras | scheduling.Exponential):
+            self.schedule = dataclasses.replace(self.schedule, steps=self._steps)
+        elif self.allow_dynamic and isinstance(self.schedule, scheduling.ScheduleModifier):
+            mods, sub, base = self.schedule.all_split
+            if isinstance(sub, scheduling.Karras | scheduling.Exponential):
+                sub = dataclasses.replace(sub, steps=self._steps)
+                self.schedule = self.schedule.stack(mods, sub, base)
 
         self._noise_generator = None
 

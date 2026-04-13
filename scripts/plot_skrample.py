@@ -172,10 +172,11 @@ if args.command == "samplers":
     plt.ylabel("Sample")
     plt.title("Skrample Samplers")
 
+    base_steps: int = 10_000
     schedule = scheduling.Hyper(
         scheduling.Linear(
             sigma_start=SPACES[args.transform][0],
-            base_timesteps=10_000,
+            base_timesteps=base_steps,
             custom_space=SPACES[args.transform][1],
         ),
         -2,
@@ -195,10 +196,10 @@ if args.command == "samplers":
         def callback(x: float, n: int, d: DeltaPoint) -> None:
             nonlocal sampled_values, timesteps
             sampled_values.append(x)
-            timesteps.insert(-1, d.point_from.timestep / schedule.base_timesteps)
+            timesteps.insert(-1, d.point_from.timestep / base_steps)
 
         if isinstance(sampler, functional.RKMoire) and args.adjust:
-            adjusted = schedule.base_timesteps
+            adjusted = base_steps
         elif isinstance(sampler, functional.FunctionalHigher) and args.adjust:
             adjusted = sampler.adjust_steps(steps)
         else:
@@ -206,7 +207,7 @@ if args.command == "samplers":
 
         sampler.sample_model(
             sample=sample,
-            model=lambda x, t, s, a: x - math.sin(t / schedule.base_timesteps * args.curve),
+            model=lambda x, t, s, a: x - math.sin(t / base_steps * args.curve),
             model_transform=SPACES[args.transform][2],
             schedule=schedule,
             steps=adjusted,
@@ -216,7 +217,7 @@ if args.command == "samplers":
 
         return timesteps, sampled_values
 
-    ground_truth = sample_model(structured.Euler(), schedule.base_timesteps)
+    ground_truth = sample_model(structured.Euler(), base_steps)
     plt.plot(*ground_truth, label="Reference", color=next(COLORS))
     ymin, ymax = min(ground_truth[1]), max(ground_truth[1])
     plt.ylim(ymin - 0.1 * ymin, ymax + 0.1 * ymax)
