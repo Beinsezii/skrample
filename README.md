@@ -47,8 +47,9 @@ These samplers are written using closures similar to ksampler
   - Order 2-4
   - Stochastic
 - RKMoire
+  - Experimental
   - Embedded Runge-Kutta solver
-  - Orders 2-5, customizable through tableaux system
+  - Order 2-6, customizable through tableaux system
 
 ### Schedules
 - Linear
