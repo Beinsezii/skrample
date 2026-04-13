@@ -43,6 +43,14 @@ STABLE_PROVIDERS: Mapping[int, tableaux.TableauProvider[tableaux.TableauType]] =
 Prioritizes stability.
 The indexes are based on number of stages, NOT mathematical order."""
 
+DEFAULT_EMBEDDED_PROVIDERS: Mapping[int, tableaux.TableauProvider[tableaux.EmbeddedTableau]] = {
+    2: tableaux.RKE2.Heun,
+    4: tableaux.RKE3.BogackiShampine,
+    6: tableaux.RKE5.Fehlberg,
+}
+"""Default RK embedded tableau providers.
+The indexes are based on number of stages, NOT mathematical order."""
+
 
 def step_tableau[T: Sample](
     tableau: tableaux.Tableau | tableaux.EmbeddedTableau,
@@ -339,11 +347,7 @@ class DynasauRK(FunctionalUnified, FunctionalSinglestep):
 @dataclasses.dataclass(frozen=True)
 class RKMoire(traits.DerivativeTransform, FunctionalAdaptive, FunctionalHigher):
     providers: Mapping[int, tableaux.TableauProvider[tableaux.EmbeddedTableau]] = MappingProxyType(
-        {
-            2: tableaux.RKE2.Heun,
-            3: tableaux.RKE3.BogackiShampine,
-            5: tableaux.RKE5.Fehlberg,
-        }
+        DEFAULT_EMBEDDED_PROVIDERS
     )
     """Providers for a given order, starting from 2.
     Falls back to RKE2.Heun"""
@@ -379,7 +383,7 @@ class RKMoire(traits.DerivativeTransform, FunctionalAdaptive, FunctionalHigher):
         if order is None:
             order = self.order
 
-        if order >= 2 and (morder := max(o for o in self.providers.keys() if o <= order)):
+        if order >= min(self.providers.keys()) and (morder := max(o for o in self.providers.keys() if o <= order)):
             return self.providers[morder].tableau()
         else:
             return tableaux.RKE2.Heun.tableau()
