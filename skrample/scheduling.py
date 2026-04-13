@@ -398,10 +398,12 @@ class ScheduleModifier(_PartialSchedule[SkrampleSchedule]):
         base: ScheduleCommon | SkrampleSchedule,
     ) -> "ScheduleModifier | SubSchedule | SkrampleSchedule":
         """Re-stacks the given modifiers, setting each `base` to the next modifier in the list before the true base.
-        Inverse of ScheduleModifier.all_split"""
+        Inverse of ScheduleModifier.all_split.
+        Base must be ScheduleCommon if sub is not None"""
         last = base
 
-        if sub is not None and isinstance(base, ScheduleCommon):
+        if sub is not None:
+            assert isinstance(base, ScheduleCommon)
             last = replace(sub, base=last)
 
         for mod in reversed(modifiers):
