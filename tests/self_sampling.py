@@ -602,6 +602,7 @@ def tableau_distance(a: tableaux.Tableau, b: tableaux.Tableau) -> float:
         for label, preset in (
             ("default", functional.DEFAULT_PROVIDERS),
             ("stable", functional.STABLE_PROVIDERS),
+            ("default_embedded", functional.DEFAULT_EMBEDDED_PROVIDERS),
         )
         for k, v in preset.items()
     ],
