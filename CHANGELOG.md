@@ -6,7 +6,9 @@ Removed sampling.common.Predictor and functions
 
 Separated Karras/Beta/Exponential/SigmoidCDf into new SubSchedule type
 
-Lots of other small improvements
+Removed predictor functions
+
+Schedules precompute alphas
 
 ### Additions
 Add sampling.functional
@@ -21,8 +23,12 @@ Add SkrampleWrapperCore, RKUltraWrapperScheduler
 
 Add Sinner modifier
 
-### Fixes
-Small bugs with plot_skrample.py
+### Improvements
+Brownian rework
+
+plot_skrample rework
+
+too many to list
 
 ## 0.5.3
 ### Fixes
