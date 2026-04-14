@@ -1,3 +1,7 @@
+## 0.6.1
+### Changes
+Diffusers wrappers now use default torch device for fallback rng
+
 ## 0.6.0
 ### Breaking
 Moved all previous sampling code -> sampling.structured
