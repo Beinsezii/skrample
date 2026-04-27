@@ -1,66 +1,20 @@
 #! /usr/bin/env python
 
-import math
-import random
 from argparse import ArgumentParser, BooleanOptionalAction
-from collections.abc import Generator
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-import matplotlib.pyplot as plt
-import numpy as np
-from numpy.typing import NDArray
+from PIL import Image
 
 from skrample import scheduling
-from skrample.common import DeltaPoint, spowf
+from skrample.analytics import plotting
+from skrample.analytics.common import OscDecay
 from skrample.sampling import functional, models, structured, traits
-from skrample.sampling.interface import StructuredFunctionalAdapter
-
-OKLAB_XYZ_M1 = np.array(
-    [
-        [0.41217385, 0.21187214, 0.08831541],
-        [0.53629746, 0.68074768, 0.28186631],
-        [0.05146303, 0.10740646, 0.63026345],
-    ]
-)
-OKLAB_M2 = np.array(
-    [
-        [0.2104542553, 1.9779984951, 0.0259040371],
-        [0.7936177850, -2.4285922050, 0.7827717662],
-        [-0.0040720468, 0.4505937099, -0.8086757660],
-    ]
-)
-
-
-def oklch_to_srgb(array: NDArray[np.float64]) -> list[float]:
-    oklab = np.stack(
-        [array[0], array[1] * np.cos(np.deg2rad(array[2])), array[1] * np.sin(np.deg2rad(array[2]))],
-        axis=0,
-    )
-    lrgb = spowf((oklab @ np.linalg.inv(OKLAB_M2)), 3) @ np.linalg.inv(OKLAB_XYZ_M1)
-    srgb = spowf(lrgb, 1 / 2.2)
-    return srgb.clip(0, 1).tolist()
-
-
-def colors(hue_steps: int) -> Generator[list[float]]:
-    for offset in 0, 1:
-        for lightness, chroma in [
-            (0.6, 0.6),
-            (0.8, 0.4),
-            (0.4, 0.4),
-            (0.8, 0.8),
-            (0.4, 0.8),
-        ]:
-            lighness_actual = lightness * (0.9 - 0.25) + 0.25  # offset by approximate quantiles of srgb clip
-            chroma_actual = chroma * 0.25
-            for hue in range(15 + int(offset * 360 / hue_steps / 2), 360, int(360 / hue_steps)):
-                yield oklch_to_srgb(np.array([lighness_actual, chroma_actual, hue], dtype=np.float64))
-
 
 SPACES: dict[str, tuple[float, scheduling.SigmaSpace, models.DiffusionModel]] = {
     "vp": (1.0, scheduling.VariancePreserving(), models.NoiseModel()),
-    "flowmatch": (1.0, scheduling.FlowMatching(), models.FlowModel()),
+    "fm": (1.0, scheduling.FlowMatching(), models.FlowModel()),
 }
 SAMPLERS: dict[str, structured.StructuredSampler | functional.FunctionalSampler] = {
     "euler": structured.Euler(),
@@ -85,14 +39,14 @@ SCHEDULES: dict[str, scheduling.ScheduleCommon] = {
     "zsnr": scheduling.ZSNR(),
     "linear": scheduling.Linear(),
 }
-SUBSCHEDULES: dict[str, tuple[type[scheduling.SubSchedule], dict[str, Any]] | None] = {
+SUBSCHEDULES: dict[str, tuple[type[scheduling.SubSchedule], dict[str, Any]]] = {
     "beta": (scheduling.Beta, {}),
     "exponential": (scheduling.Exponential, {}),
     "karras": (scheduling.Karras, {}),
     "probit": (scheduling.Probit, {}),
-    "none": None,
+    "none": (scheduling.NoSub, {}),
 }
-MODIFIERS: dict[str, tuple[type[scheduling.ScheduleModifier], dict[str, Any]] | None] = {
+MODIFIERS: dict[str, tuple[type[scheduling.ScheduleModifier], dict[str, Any]]] = {
     "flow": (scheduling.FlowShift, {}),
     "hyper": (scheduling.Hyper, {}),
     "vyper": (scheduling.Hyper, {"scale": -2}),
@@ -100,7 +54,7 @@ MODIFIERS: dict[str, tuple[type[scheduling.ScheduleModifier], dict[str, Any]] | 
     "vype": (scheduling.Hyper, {"scale": -2, "tail": False}),
     "sinner": (scheduling.Sinner, {}),
     "pinner": (scheduling.Sinner, {"scale": -scheduling.Sinner.scale}),
-    "none": None,
+    "none": (scheduling.NoMod, {}),
 }
 
 
@@ -113,8 +67,8 @@ subparsers = parser.add_subparsers(dest="command")
 # Samplers
 parser_sampler = subparsers.add_parser("samplers")
 parser_sampler.add_argument("--adjust", type=bool, default=True, action=BooleanOptionalAction)
-parser_sampler.add_argument("--curve", "-k", type=int, default=30)
-parser_sampler.add_argument("--transform", "-t", type=str, choices=list(SPACES.keys()), default="vp")
+parser_sampler.add_argument("--curve", "-k", type=int, default=OscDecay.scale)
+parser_sampler.add_argument("--transform", "-t", type=str, choices=list(SPACES.keys()), default="fm")
 parser_sampler.add_argument(
     "--sampler",
     "-S",
@@ -162,79 +116,34 @@ parser_schedule.add_argument(
 )
 
 args = parser.parse_args()
-COLORS = colors(6)
-width, height = 12, 6
-plt.figure(figsize=(width, height), facecolor="black", edgecolor="white")
 
 if args.command == "samplers":
-    plt.xlim(1, 0)
-    plt.xlabel("Schedule")
-    plt.ylabel("Sample")
-    plt.title("Skrample Samplers")
-
     base_steps: int = 10_000
-    schedule = scheduling.Hyper(
-        scheduling.Linear(
-            sigma_start=SPACES[args.transform][0],
-            base_timesteps=base_steps,
-            custom_space=SPACES[args.transform][1],
-        ),
-        -2,
-        False,
-    )
 
-    def sample_model(
-        sampler: structured.StructuredSampler | functional.FunctionalSampler, steps: int
-    ) -> tuple[list[float], list[float]]:
-        if isinstance(sampler, structured.StructuredSampler):
-            sampler = StructuredFunctionalAdapter(sampler)
-
-        sample = 1.0
-        sampled_values = [sample]
-        timesteps = [0.0]
-
-        def callback(x: float, n: int, d: DeltaPoint) -> None:
-            nonlocal sampled_values, timesteps
-            sampled_values.append(x)
-            timesteps.insert(-1, d.point_from.timestep / base_steps)
-
-        if isinstance(sampler, functional.RKMoire) and args.adjust:
-            adjusted = base_steps
-        elif isinstance(sampler, functional.FunctionalHigher) and args.adjust:
-            adjusted = sampler.adjust_steps(steps)
-        else:
-            adjusted = steps
-
-        sampler.sample_model(
-            sample=sample,
-            model=lambda x, t, s, a: x - math.sin(t / base_steps * args.curve),
-            model_transform=SPACES[args.transform][2],
-            schedule=schedule,
-            steps=adjusted,
-            rng=lambda _: random.random(),
-            callback=callback,
+    Image.fromarray(
+        plotting.draw(
+            plotting.plot_samplers(
+                [SAMPLERS[s] for s in args.sampler],
+                scheduling.Hyper(
+                    scheduling.Linear(
+                        sigma_start=SPACES[args.transform][0],
+                        base_timesteps=base_steps,
+                        custom_space=SPACES[args.transform][1],
+                    ),
+                    tail=False,
+                ),
+                SPACES[args.transform][2],
+                OscDecay(scale=args.curve),
+                steps=args.steps,
+                reference_steps=base_steps,
+                adjust_steps=args.adjust,
+            )
         )
+    ).save(args.file, format="PNG", compress_level=1)
 
-        return timesteps, sampled_values
-
-    ground_truth = sample_model(structured.Euler(), base_steps)
-    plt.plot(*ground_truth, label="Reference", color=next(COLORS))
-    ymin, ymax = min(ground_truth[1]), max(ground_truth[1])
-    plt.ylim(ymin - 0.1 * ymin, ymax + 0.1 * ymax)
-
-    for sampler in [SAMPLERS[s] for s in args.sampler]:
-        label = type(sampler).__name__
-        if isinstance(sampler, traits.HigherOrder) and sampler.order != type(sampler).order:
-            label += " " + str(sampler.order)
-        plt.plot(*sample_model(sampler, args.steps), label=label, color=next(COLORS), linestyle="--")
 
 elif args.command == "schedules":
-    plt.xlabel("Step")
-    plt.ylabel("Noise")
-    plt.title("Skrample Schedules")
-    plt.ylim(0, 1)
-    plt.xlim(0, args.steps)
-
+    schedules: list[tuple[scheduling.SkrampleSchedule, str]] = []
     for sched_name in args.schedule:
         for sub in args.subschedule:
             for mod1 in args.modifier:
@@ -244,58 +153,29 @@ elif args.command == "schedules":
                     composed = schedule
                     label: str = sched_name
 
-                    if (subschedule := SUBSCHEDULES[sub]) and sub is not None:
+                    if (subschedule := SUBSCHEDULES[sub]) and not issubclass(subschedule[0], scheduling.NoSub):
                         composed = subschedule[0](composed, **subschedule[1])
                         label += "_" + subschedule[0].__name__.lower()
 
-                    for mod_label, (mod_type, mod_props) in [  # type: ignore # Destructure
-                        m for m in [(mod1, MODIFIERS[mod1]), (mod2, MODIFIERS[mod2])] if m[1]
+                    for mod_label, (mod_type, mod_props) in [  # pyright: ignore # Destructure
+                        m
+                        for m in [(mod1, MODIFIERS[mod1]), (mod2, MODIFIERS[mod2])]
+                        if not issubclass(m[1][0], scheduling.NoMod)
                     ]:
                         composed = mod_type(composed, **mod_props)
                         label += "_" + mod_label
 
                     label = " ".join([s.capitalize() for s in label.split("_")])
 
-                    data = composed.ipoints_np(np.linspace(0, 1, args.steps + 1))
+                    schedules.append((composed, label))
 
-                    marker = "+" if args.steps <= 50 else ""
-                    if args.timesteps:
-                        plt.plot(
-                            data[:, 0] / schedule.base_timesteps,
-                            label=label + " Timesteps",
-                            marker=marker,
-                            color=next(COLORS),
-                        )
-                    plt.plot(
-                        data[:, 1],
-                        label=label + (" Sigmas" if args.timesteps or args.alphas else ""),
-                        marker=marker,
-                        color=(color := next(COLORS)),
-                    )
-                    if args.alphas:
-                        plt.plot(
-                            data[:, 2],
-                            label=label + " Alphas",
-                            marker=marker,
-                            color=color,
-                        )
-
-else:
-    raise NotImplementedError
-
-
-ax = plt.gca()
-ax.set(facecolor="black")
-ax.grid(color="white")
-
-ax.tick_params(axis="both", which="both", color="white")
-
-ax.xaxis.label.set_color("white")
-ax.yaxis.label.set_color("white")
-ax.title.set_color("white")
-
-[v.set_color("white") for v in list(ax.spines.values()) + ax.get_xticklabels() + ax.get_yticklabels()]
-
-ax.legend(facecolor="black", labelcolor="white", edgecolor="gray")
-
-plt.savefig(args.file, dpi=max(1920 / width, 1080 / height))
+    Image.fromarray(
+        plotting.draw(
+            plotting.plot_schedules(
+                schedules,
+                args.steps,
+                args.alphas,
+                args.timesteps,
+            )
+        )
+    ).save(args.file, format="PNG", compress_level=1)
