@@ -16,17 +16,22 @@ build-backend = "uv_build"
 module-root = ""
 
 [project.optional-dependencies]
+# Inference
 beta-schedule = ["scipy>=1.12"]
 cdf-schedule = ["scipy>=1.12"]
 brownian-noise = ["torchsde>=0.2.6"]
 diffusers-wrapper = ["torch>=2.5"]
 pytorch = ["torch>=2.5"]
+# All
+analytics = ["matplotlib>=3.10"]
 
-all = [
+all-inference = [
     "skrample[beta-schedule,brownian-noise,cdf-schedule,diffusers-wrapper,pytorch]",
 ]
 
-scripts = ["skrample[all]", "matplotlib>=3.10.1", "scikit-image>=0.26"]
+all = ["skrample[all-inference,analytics]"]
+
+scripts = ["skrample[all]", "scikit-image>=0.26"]
 
 test = [
     "skrample[scripts]",
