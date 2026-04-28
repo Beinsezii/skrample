@@ -99,6 +99,7 @@ def plot_samplers(
     model: DiffusionModel = models.FlowModel(),
     ode: functional.SampleableModel = OscDecay(),
     steps: int = 30,
+    title: str = "Skrample Samplers",
     reference_steps: int = 1000,
     reference_sampler: PlottableSampler = functional.RKUltra(order=4, providers={4: tableaux.providers.RK4.Kutta}),
     downsample_reference: bool = True,
@@ -142,7 +143,7 @@ def plot_samplers(
 
         return timesteps, sampled_values
 
-    with common_figure("Skrample Samplers", "Schedule", "Sample") as (fig, ax):
+    with common_figure(title, "Schedule", "Sample") as (fig, ax):
         ax.set_xlim(1, 0)
 
         ground_points, ground_truth = sample_model(reference_sampler, reference_steps, False)
@@ -175,10 +176,11 @@ def plot_samplers(
 def plot_schedules(
     schedules: Sequence[scheduling.SkrampleSchedule | tuple[scheduling.SkrampleSchedule, str]],
     steps: int = 30,
+    title: str = "Skrample Schedules",
     alphas: bool = False,
     timesteps: bool = False,
 ) -> Figure:
-    with common_figure("Skrample Schedules", "Step", "Noise") as (fig, ax):
+    with common_figure(title, "Step", "Noise") as (fig, ax):
         ax.set_ylim(0, 1)
         ax.set_xlim(0, steps)
 
