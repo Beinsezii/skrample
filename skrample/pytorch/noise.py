@@ -252,6 +252,205 @@ class Brownian(TensorNoiseCommon[BrownianProps]):
         return cls(shape=shape, seed=seed, dtype=dtype, props=props)
 
 
+@dataclass(frozen=True)
+class ColoredProps(BrownianProps):
+    independent: bool = False
+    """When `True`, the initial noise is generated using a Brownian bridge to maintain
+    temporal consistency across any `Step` distance. Otherwise noise is purely random."""
+
+    energy: float | None = None
+    """Target standard deviation of the output tensor.
+    When `None`, noise is normalized back to unit variance."""
+
+    color_start: float = 0
+    "Power-law exponent at the beginning of the schedule (`step` = None)"
+    color_end: float = -2
+    "Power-law exponent at the end of the schedule (`step.time_to` = 1)."
+
+
+@dataclass
+class Colored(TensorNoiseCommon[ColoredProps]):
+    """Power-law colored noise generator with schedule-driven exponent interpolation.
+
+    Generates noise whose power spectrum follows `f^{-exponent/2}` by shaping
+    white noise in the Fourier domain.  The `exponent` is interpolated between
+    `color_start` and `color_end` as a function of the diffusion step,
+    so the color of the noise evolves over the generation timeline.
+    """
+
+    def __post_init__(self) -> None:
+        if self.props.independent:
+            import torchsde
+
+            self._tree = torchsde.BrownianInterval(
+                t0=0,
+                t1=1,
+                size=self.shape,
+                entropy=self.seed.initial_seed(),
+                dtype=self.dtype,
+                device=self.seed.device,
+                halfway_tree=True,
+                tol=1 / (self.props.max_steps * 10),  # 1 order of magnitude more than min step size
+                pool_size=2**6,  # tolerance is 99% of the perf hit at this size
+                cache_size=round(math.log2(self.props.max_steps * 10) * 1.3),  # binary for halfway + 30%
+            )
+        else:
+            self._tree = None
+
+    @staticmethod
+    def _radial_freq_grid(shape: torch.Size, device: torch.device) -> torch.Tensor:
+        """Build a normalized radial-frequency tensor matching rfftn output shape.
+
+        For `rfftn(x)` on a tensor of spatial shape `(D₁, …, Dₙ)`, the complex
+        output has shape `(D₁, …, Dₙ//2+1)` when the last dim is even (full size
+        if odd).  This function returns a radius grid of *exactly* that trailing-D
+        shape so it broadcasts naturally over any leading batch/channel dims.
+
+        Values are in `[0, 1]` with 0 = DC and 1 = the farthest Nyquist bin.
+
+        Parameters
+        ---
+        shape : torch.Size
+            The spatial shape of the tensor being transformed.
+        device : torch.device
+            Where to allocate frequency tensors.
+
+        Returns
+        ---
+        torch.Tensor
+            Normalized radial frequency grid.
+
+        Notes
+        ---
+        Implementation by Qwen 3.6 27B
+        """
+        ndim = len(shape)
+
+        # Build per-axis frequency coordinates in normalized form.
+        # rFFT always keeps only the non-redundant half on the last axis (N//2+1 bins).
+        freqs_per_axis: list[torch.Tensor] = []
+        for i, dim in enumerate(shape):
+            if i == ndim - 1:
+                # Last axis: rFFT output has N//2 + 1 non-redundant frequency bins [0 .. N/2]
+                n_bins = dim // 2 + 1
+                idx = torch.arange(n_bins, device=device)
+                freqs_per_axis.append(idx / dim)  # normalized [0, 0.5]
+            else:
+                # Other axes: full FFT - use abs(fftfreq) for radial distance symmetry
+                freqs_per_axis.append(torch.fft.fftfreq(dim, d=1.0, device=device).abs())
+
+        # meshgrid → stack → radial norm
+        grid = torch.stack(torch.meshgrid(*freqs_per_axis, indexing="ij"), dim=-1)
+        radius = grid.norm(p=2, dim=-1)
+
+        # Normalize to [0, 1]
+        r_max = radius.max()
+        if r_max > 0:
+            radius = radius / r_max
+
+        return radius  # shape exactly matches trailing ndim of rfftn output
+
+    @staticmethod
+    def colorize_noise(white: torch.Tensor, exponent: float = 0.0, energy: float | None = None) -> torch.Tensor:
+        """Colors the input white noise according to the Gaussian power-law spectrum `f^{-exponent/2}`.
+
+        Takes an existing white-noise tensor and colours it in the Fourier
+        domain so that its amplitude falls (or rises) with radial frequency.
+        The result is normalized back to unit standard deviation (or to `energy`, if provided).
+
+        Examples
+        ---
+        >>> import torch
+        >>> white = torch.randn(4, 64, 64)
+        >>>
+        >>> # Pink-ish noise - richer low-frequency structure
+        >>> pink = Colored.colored_noise(white, exponent=1.0)
+        >>>
+        >>> # Blue noise - high-frequency detail emphasized
+        >>> blue = Colored.colored_noise(white, exponent=-2.0)
+
+        Notes
+        ---
+        Initial implementation by Qwen 3.6 27B
+        """
+
+        # Step 1: white noise
+        out_shape = white.shape
+        wstd = white.std()
+        w = white.squeeze()
+
+        # Fast path: t == 0 is plain white noise - no FFT overhead
+        if exponent == 0.0:
+            return w if energy is None or wstd < 1e-8 else w * (energy / wstd)
+
+        # Step 2: forward FFT (real → complex)
+        F = torch.fft.rfftn(w, norm="forward")
+
+        # Step 3: normalized radial frequency grid
+        freq_grid = Colored._radial_freq_grid(w.shape, w.device)
+
+        # Step 4: power-law amplitude weights
+        # PSD ∝ f^{-t}  ⇒  amplitude weight ∝ f^{-t/2}.
+        #
+        # The weight diverges at DC (f = 0).  We clip at half a frequency-bin
+        # spacing in normalized coordinates, which is standard practice for
+        # FFT-based colored-noise generation.  This gives the correct PSD slope
+        # away from DC while keeping only one bin per radial direction clamped.
+        N_eff = sum(w.shape) / len(w.shape) if w.shape else 1.0
+        eps_clip = 0.5 / max(N_eff, 4.0)
+
+        weights = torch.clamp(freq_grid, min=eps_clip) ** (-exponent / 2.0)
+
+        # Step 5: multiply in Fourier domain
+        F_colored = F * weights
+
+        # Step 6: inverse FFT to spatial domain
+        colored = torch.fft.irfftn(F_colored, s=w.shape, norm="forward")
+
+        # Step 7: renormalize to unit std (variance conservation)
+        cstd = colored.std()
+        if cstd > 1e-8:
+            colored *= wstd / cstd if energy is None else energy / cstd
+
+        return colored.view(out_shape).to(dtype=w.dtype)
+
+    def white(self, step: Step | None) -> torch.Tensor:
+        """Raw white-noise tensor before coloring.
+        Uses BrownianInterval when `props.independent` is `True`
+        and a valid `step` is provided; otherwise falls back to plain randn."""
+
+        if self._tree is not None and step:
+            step = step.normal().clamp()  # enforce 0..=1
+            return self._tree(*step) / math.sqrt(step.distance())  # pyright: ignore[reportOperatorIssue]
+        else:
+            return self._randn()
+
+    def generate(self, step: Step | None) -> torch.Tensor:
+        noise = self.white(step)
+
+        if step is None:
+            exponent = self.props.color_start  # t=0 equivalent
+        else:
+            step = step.normal().clamp()  # enforce 0..=1
+            t = step.time_to  # t>0
+            exponent = (1 - t) * self.props.color_start + t * self.props.color_end
+
+        # will short-circuit for exponent 0, but still has energy target
+        noise = self.colorize_noise(noise, exponent=exponent, energy=self.props.energy)
+
+        return noise
+
+    @classmethod
+    def from_inputs(
+        cls,
+        shape: tuple[int, ...],
+        seed: torch.Generator,
+        props: ColoredProps = ColoredProps(),
+        dtype: torch.dtype = torch.float32,
+    ) -> Self:
+        return cls(shape=shape, seed=seed, dtype=dtype, props=props)
+
+
 @dataclass
 class BatchTensorNoise[T: TensorNoiseProps | None](SkrampleTensorNoise):
     """Helper class for producing batches of noise while maintaining seeds across individual batch items.
