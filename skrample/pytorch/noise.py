@@ -260,7 +260,7 @@ class ColoredProps(BrownianProps):
 
     energy: float | None = None
     """Target standard deviation of the output tensor.
-    When `None`, noise is normalized back to unit variance."""
+    When `None`, noise is normalized back to uncolored variance."""
 
     color_start: float = 0
     "Power-law exponent at the beginning of the schedule (`step` = None)"
@@ -352,22 +352,25 @@ class Colored(TensorNoiseCommon[ColoredProps]):
 
     @staticmethod
     def colorize_noise(white: torch.Tensor, exponent: float = 0.0, energy: float | None = None) -> torch.Tensor:
-        """Colors the input white noise according to the Gaussian power-law spectrum `f^{-exponent/2}`.
+        """Colors the input white noise according to the Gaussian power-law spectrum `f^{-exponent}`.
 
-        Takes an existing white-noise tensor and colours it in the Fourier
+        Takes an existing white-noise tensor and colors it in the Fourier
         domain so that its amplitude falls (or rises) with radial frequency.
         The result is normalized back to unit standard deviation (or to `energy`, if provided).
+
+        Single element dimensions are excluded from FFT.
+        Batching is NOT accounted for. Batched tensors must be passed individually.
 
         Examples
         ---
         >>> import torch
-        >>> white = torch.randn(4, 64, 64)
+        >>> white = torch.randn(64, 64)
         >>>
         >>> # Pink-ish noise - richer low-frequency structure
-        >>> pink = Colored.colored_noise(white, exponent=1.0)
+        >>> pink = Colored.colorize_noise(white, exponent=1.0)
         >>>
         >>> # Blue noise - high-frequency detail emphasized
-        >>> blue = Colored.colored_noise(white, exponent=-2.0)
+        >>> blue = Colored.colorize_noise(white, exponent=-2.0)
 
         Notes
         ---
@@ -375,13 +378,16 @@ class Colored(TensorNoiseCommon[ColoredProps]):
         """
 
         # Step 1: white noise
-        out_shape = white.shape
         wstd = white.std()
-        w = white.squeeze()
 
         # Fast path: t == 0 is plain white noise - no FFT overhead
         if exponent == 0.0:
-            return w if energy is None or wstd < 1e-8 else w * (energy / wstd)
+            return white if energy is None or wstd < 1e-8 else white * (energy / wstd)
+
+        w = white.squeeze()
+
+        if w.dtype not in [torch.float32, torch.float64]:  # half/bfloat not fully supported
+            w = w.to(torch.float32)
 
         # Step 2: forward FFT (real → complex)
         F = torch.fft.rfftn(w, norm="forward")
@@ -407,12 +413,12 @@ class Colored(TensorNoiseCommon[ColoredProps]):
         # Step 6: inverse FFT to spatial domain
         colored = torch.fft.irfftn(F_colored, s=w.shape, norm="forward")
 
-        # Step 7: renormalize to unit std (variance conservation)
+        # Step 7: renormalize to input std (variance conservation)
         cstd = colored.std()
         if cstd > 1e-8:
             colored *= wstd / cstd if energy is None else energy / cstd
 
-        return colored.view(out_shape).to(dtype=w.dtype)
+        return colored.view(white.shape).to(dtype=white.dtype)
 
     def white(self, step: Step | None) -> torch.Tensor:
         """Raw white-noise tensor before coloring.
