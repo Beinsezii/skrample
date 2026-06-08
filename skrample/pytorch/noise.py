@@ -5,7 +5,7 @@ from typing import Self
 
 import torch
 
-from skrample.common import Step, rescale_positive
+from skrample.common import Step, divf, rescale_positive
 
 
 @dataclass(frozen=True)
@@ -438,11 +438,13 @@ class Colored(TensorNoiseCommon[ColoredProps]):
 
         if step is None:
             exponent = self.props.color_start  # t=0 equivalent
+        elif self.props.color_curve == math.inf:
+            exponent = self.props.color_end  # infinite curve makes a flat line
         else:
             step = step.normal().clamp()  # enforce 0..=1
             t = step.time_to  # t>0
             shift = rescale_positive(self.props.color_curve)
-            t = shift / (shift + (1 / t - 1))
+            t = shift / (shift + (divf(1, t) - 1))
             exponent = (1 - t) * self.props.color_start + t * self.props.color_end
 
         # will short-circuit for exponent 0, but still has energy target
