@@ -110,8 +110,8 @@ class StatedSampler(StructuredSampler):
         schedule: SkrampleSchedule,
         previous: Sequence[SKSamples[T]] = (),
     ) -> SKSamples[T]:
-        return SKSamples(
-            **(  # ty: ignore # ???
+        return SKSamples(  # ty: ignore # ???
+            **(  # type: ignore # ???
                 dataclasses.asdict(packed)
                 | {
                     "final": self._sample_packed(
