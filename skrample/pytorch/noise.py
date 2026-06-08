@@ -253,11 +253,7 @@ class Brownian(TensorNoiseCommon[BrownianProps]):
 
 
 @dataclass(frozen=True)
-class ColoredProps(BrownianProps):
-    independent: bool = False
-    """When `True`, the initial noise is generated using a Brownian bridge to maintain
-    temporal consistency across any `Step` distance. Otherwise noise is purely random."""
-
+class ColoredProps(TensorNoiseProps):
     energy: float | None = None
     """Target standard deviation of the output tensor.
     When `None`, noise is normalized back to uncolored variance."""
@@ -279,25 +275,6 @@ class Colored(TensorNoiseCommon[ColoredProps]):
     `color_start` and `color_end` as a function of the diffusion step,
     so the color of the noise evolves over the generation timeline.
     """
-
-    def __post_init__(self) -> None:
-        if self.props.independent:
-            import torchsde
-
-            self._tree = torchsde.BrownianInterval(
-                t0=0,
-                t1=1,
-                size=self.shape,
-                entropy=self.seed.initial_seed(),
-                dtype=self.dtype,
-                device=self.seed.device,
-                halfway_tree=True,
-                tol=1 / (self.props.max_steps * 10),  # 1 order of magnitude more than min step size
-                pool_size=2**6,  # tolerance is 99% of the perf hit at this size
-                cache_size=round(math.log2(self.props.max_steps * 10) * 1.3),  # binary for halfway + 30%
-            )
-        else:
-            self._tree = None
 
     @staticmethod
     def _radial_freq_grid(shape: torch.Size, device: torch.device) -> torch.Tensor:
@@ -422,19 +399,8 @@ class Colored(TensorNoiseCommon[ColoredProps]):
 
         return colored.view(white.shape).to(dtype=white.dtype)
 
-    def white(self, step: Step | None) -> torch.Tensor:
-        """Raw white-noise tensor before coloring.
-        Uses BrownianInterval when `props.independent` is `True`
-        and a valid `step` is provided; otherwise falls back to plain randn."""
-
-        if self._tree is not None and step:
-            step = step.normal().clamp()  # enforce 0..=1
-            return self._tree(*step) / math.sqrt(step.distance())  # pyright: ignore[reportOperatorIssue]
-        else:
-            return self._randn()
-
     def generate(self, step: Step | None) -> torch.Tensor:
-        noise = self.white(step)
+        noise = self._randn()
 
         if step is None:
             exponent = self.props.color_start  # t=0 equivalent
