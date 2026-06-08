@@ -5,7 +5,7 @@ from typing import Self
 
 import torch
 
-from skrample.common import Step
+from skrample.common import Step, rescale_positive
 
 
 @dataclass(frozen=True)
@@ -266,6 +266,8 @@ class ColoredProps(BrownianProps):
     "Power-law exponent at the beginning of the schedule (`step` = None)"
     color_end: float = -2
     "Power-law exponent at the end of the schedule (`step.time_to` = 1)."
+    color_curve: float = 2
+    "Curvature of power-law exponent gradient, similar to FlowShift"
 
 
 @dataclass
@@ -439,6 +441,8 @@ class Colored(TensorNoiseCommon[ColoredProps]):
         else:
             step = step.normal().clamp()  # enforce 0..=1
             t = step.time_to  # t>0
+            shift = rescale_positive(self.props.color_curve)
+            t = shift / (shift + (1 / t - 1))
             exponent = (1 - t) * self.props.color_start + t * self.props.color_end
 
         # will short-circuit for exponent 0, but still has energy target
