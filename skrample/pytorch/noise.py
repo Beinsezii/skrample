@@ -356,7 +356,7 @@ class Colored(TensorNoiseCommon[ColoredProps]):
 
         Takes an existing white-noise tensor and colors it in the Fourier
         domain so that its amplitude falls (or rises) with radial frequency.
-        The result is normalized back to unit standard deviation (or to `energy`, if provided).
+        The result is normalized back to input deviation (or to `energy`, if provided).
 
         Single element dimensions are excluded from FFT.
         Batching is NOT accounted for. Batched tensors must be passed individually.
