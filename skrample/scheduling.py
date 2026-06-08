@@ -555,10 +555,7 @@ class FlowShift(ScheduleModifier):
     """Amount to shift noise schedule by."""
 
     def _modify(self, t: NPSequence) -> NPSequence:
-        t = t.copy()
-        mask = t > 0
-        t[mask] = self.shift / (self.shift + (1 / t[mask] - 1))
-        return t
+        return self.shift / (self.shift + (1 / t - 1))
 
 
 @dataclass(frozen=True)
