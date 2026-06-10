@@ -258,12 +258,13 @@ class ColoredProps(TensorNoiseProps):
     """Target standard deviation of the output tensor.
     When `None`, noise is normalized back to uncolored variance."""
 
-    color_start: float = 0
+    color_start: float = 1 / 4
     "Power-law exponent at the beginning of the schedule (`step` = None)"
     color_end: float = -2
     "Power-law exponent at the end of the schedule (`step.time_to` = 1)."
     color_curve: float = 2
-    "Curvature of power-law exponent gradient, similar to FlowShift"
+    """Curvature of power-law exponent gradient, similar to FlowShift.
+    Higher values bias `color_start`, lower values bias `color_end`."""
 
 
 @dataclass
@@ -409,7 +410,8 @@ class Colored(TensorNoiseCommon[ColoredProps]):
         else:
             step = step.normal().clamp()  # enforce 0..=1
             t = step.time_to  # t>0
-            shift = rescale_positive(self.props.color_curve)
+            # Negative curve to match FlowShift since step is ascending more like alpha than sigma
+            shift = rescale_positive(-self.props.color_curve)
             t = shift / (shift + (divf(1, t) - 1))
             exponent = (1 - t) * self.props.color_start + t * self.props.color_end
 
