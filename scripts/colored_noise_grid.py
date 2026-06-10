@@ -1,3 +1,5 @@
+#! /usr/bin/env python
+
 import PIL.Image
 import torch
 from diffusers.models.autoencoders.autoencoder_kl import AutoencoderKL
