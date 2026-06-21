@@ -374,7 +374,7 @@ class Colored(TensorNoiseCommon[ColoredProps]):
             w = w.to(torch.float32)
 
         # Step 2: forward FFT (real → complex)
-        F = torch.fft.rfftn(w, norm="forward")
+        F = torch.fft.rfftn(w)
 
         # Step 3: normalized radial frequency grid
         freq_grid = Colored._radial_freq_grid(w.shape, w.device)
@@ -395,7 +395,7 @@ class Colored(TensorNoiseCommon[ColoredProps]):
         F_colored = F * weights
 
         # Step 6: inverse FFT to spatial domain
-        colored = torch.fft.irfftn(F_colored, s=w.shape, norm="forward")
+        colored = torch.fft.irfftn(F_colored, s=w.shape)
 
         # Step 7: renormalize to input std (variance conservation)
         cstd = colored.std()
