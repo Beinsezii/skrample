@@ -244,7 +244,7 @@ elif args.command == "schedules":
                     composed = schedule
                     label: str = sched_name
 
-                    if (subschedule := SUBSCHEDULES[sub]) and sub is not None:
+                    if sub is not None and (subschedule := SUBSCHEDULES[sub]):
                         composed = subschedule[0](composed, **subschedule[1])
                         label += "_" + subschedule[0].__name__.lower()
 
