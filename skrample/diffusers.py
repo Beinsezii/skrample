@@ -6,7 +6,7 @@ import math
 from collections import OrderedDict
 from collections.abc import Hashable, Mapping, Sequence
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import torch
@@ -67,6 +67,8 @@ DIFFUSERS_VALUE_MAP: dict[tuple[str, Any], tuple[str, Any]] = {
     ("prediction_type", "flow"): ("skrample_predictor", FlowModel()),
     ("prediction_type", "sample"): ("skrample_predictor", DataModel()),
     ("prediction_type", "v_prediction"): ("skrample_predictor", VelocityModel()),
+    # backwards order, last values take priority
+    ("use_flow_sigmas", True): ("skrample_subschedule", None),
     ("use_beta_sigmas", True): ("skrample_subschedule", scheduling.Beta),
     ("use_exponential_sigmas", True): ("skrample_subschedule", scheduling.Exponential),
     ("use_karras_sigmas", True): ("skrample_subschedule", scheduling.Karras),
@@ -113,10 +115,10 @@ def parse_diffusers_config(
     if not isinstance(config, dict):
         config = dict(config.config)
 
-    remapped = {DIFFUSERS_KEY_MAP[k]: v for k, v in config.items() if k in DIFFUSERS_KEY_MAP} | {
-        DIFFUSERS_VALUE_MAP[(k, v)][0]: DIFFUSERS_VALUE_MAP[(k, v)][1]
-        for k, v in config.items()
-        if isinstance(v, Hashable) and (k, v) in DIFFUSERS_VALUE_MAP
+    remapped = {key_to: config[key_from] for key_from, key_to in DIFFUSERS_KEY_MAP.items() if key_from in config} | {
+        key_to: value_to
+        for (key_from, value_from), (key_to, value_to) in DIFFUSERS_VALUE_MAP.items()
+        if key_from in config and config[key_from] == value_from
     }
 
     if "skrample_predictor" in remapped:
@@ -148,16 +150,21 @@ def parse_diffusers_config(
 
     schedule_modifiers: list[tuple[type[ScheduleModifier], dict[str, Any]]] = []
 
-    if isinstance(model, FlowModel):
-        flow_keys = [f.name for f in dataclasses.fields(scheduling.FlowShift)]
-        schedule_modifiers.append((scheduling.FlowShift, {k: v for k, v in remapped.items() if k in flow_keys}))
-
     if "skrample_subschedule" in remapped:
-        subschedule: type[SubSchedule] | None = cast("type[SubSchedule]", remapped.pop("skrample_subschedule"))
-        modifier_keys = [f.name for f in dataclasses.fields(subschedule)]
+        subschedule: type[SubSchedule] | None = remapped.pop("skrample_subschedule")
+        # flow sigmas is typically last prio BUT results just look bad with karras/exp which is apparently a thing now
+        # https://huggingface.co/nvidia/Cosmos3-Super-Text2Image/blob/main/scheduler/scheduler_config.json
+        # So just gonna replace that shit here until we decide to implement their weird normalized karras thing
+        if config.get("use_flow_sigmas", False) is True and subschedule in (scheduling.Karras, scheduling.Exponential):
+            subschedule = None
+        modifier_keys = [f.name for f in dataclasses.fields(subschedule)] if subschedule else []
         subschedule_props = {k: v for k, v in remapped.items() if k in modifier_keys}
     else:
         subschedule, subschedule_props = None, {}
+
+    if isinstance(model, FlowModel) and not subschedule:
+        flow_keys = [f.name for f in dataclasses.fields(scheduling.FlowShift)]
+        schedule_modifiers.append((scheduling.FlowShift, {k: v for k, v in remapped.items() if k in flow_keys}))
 
     # feels cleaner than inspect.signature().parameters
     sampler_keys = [f.name for f in dataclasses.fields(sampler)]
