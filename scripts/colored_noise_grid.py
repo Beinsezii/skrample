@@ -2,12 +2,13 @@
 
 import PIL.Image
 import torch
+import tqdm
 from diffusers.models.autoencoders.autoencoder_kl import AutoencoderKL
 
 from skrample.pytorch.noise import Colored
 
 with torch.inference_mode():
-    device = torch.device("cuda")
+    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     dtype = torch.float32
 
     size: int = 1024
@@ -26,8 +27,8 @@ with torch.inference_mode():
 
     canvas = PIL.Image.new("RGB", (size * len(exponents), size * len(exponents)))
 
-    for y, batches in enumerate(colors):
-        for x, latent in enumerate(batches):
+    for y, batches in enumerate(tqdm.tqdm(colors, "colors")):
+        for x, latent in enumerate(tqdm.tqdm(batches, "batch")):
             decoded = aekl.decode(latent.unsqueeze(0) / aekl.config["scaling_factor"]).sample[0]  # pyright: ignore [reportAttributeAccessIssue]
             im = PIL.Image.fromarray(
                 ((decoded + 1) * (255 / 2)).clamp(0, 255).permute(1, 2, 0).to(device="cpu", dtype=torch.uint8).numpy()
