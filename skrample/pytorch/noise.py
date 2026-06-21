@@ -354,7 +354,7 @@ class Colored(TensorNoiseCommon[ColoredProps]):
         >>> pink = Colored.colorize_noise(white, exponent=1.0)
         >>>
         >>> # Blue noise - high-frequency detail emphasized
-        >>> blue = Colored.colorize_noise(white, exponent=-2.0)
+        >>> violet = Colored.colorize_noise(white, exponent=-2.0)
 
         Notes
         ---
