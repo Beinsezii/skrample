@@ -21,7 +21,15 @@ with torch.inference_mode():
         subfolder="vae",
     ).to(device=device, dtype=dtype)  # type: ignore # ???
 
-    batches = torch.randn(len(exponents), 4, size // 8, size // 8, device=device, dtype=dtype)
+    batches = torch.randn(
+        len(exponents),
+        4,
+        size // 8,
+        size // 8,
+        device=device,
+        dtype=dtype,
+        generator=torch.Generator(device).manual_seed(42),
+    )
 
     colors = [[Colored.colorize_noise(t, e) for t in batches] for e in exponents]
 
