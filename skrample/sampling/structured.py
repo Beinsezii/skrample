@@ -111,7 +111,7 @@ class StatedSampler(StructuredSampler):
         previous: Sequence[SKSamples[T]] = (),
     ) -> SKSamples[T]:
         return SKSamples(
-            **(  # ty: ignore # ???
+            **(  # type: ignore # ???
                 dataclasses.asdict(packed)
                 | {
                     "final": self._sample_packed(
