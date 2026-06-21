@@ -255,13 +255,17 @@ class Brownian(TensorNoiseCommon[BrownianProps]):
 @dataclass(frozen=True)
 class ColoredProps(TensorNoiseProps):
     energy: float | None = None
-    """Target standard deviation of the output tensor.
+    """Target standard deviation of the output tensor, effectively the scale of noise.
     When `None`, noise is normalized back to uncolored variance."""
 
     color_start: float = 1 / 4
-    "Power-law exponent at the beginning of the schedule (`step` = None)"
+    """Power-law exponent at the beginning of the schedule (`step` = None).
+    Higher values produce redder (lower frequency) noise,
+    lower values produce bluer (higher frequency) noise."""
     color_end: float = -2
-    "Power-law exponent at the end of the schedule (`step.time_to` = 1)."
+    """Power-law exponent at the end of the schedule (`step.time_to` = 1).
+    Higher values produce redder (lower frequency) noise,
+    lower values produce bluer (higher frequency) noise."""
     color_curve: float = 2
     """Curvature of power-law exponent gradient, similar to FlowShift.
     Higher values bias `color_start`, lower values bias `color_end`."""
