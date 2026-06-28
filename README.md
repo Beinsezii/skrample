@@ -1,4 +1,4 @@
-# Skrample 0.6.0
+# Skrample 0.6.1
 Composable sampling functions for diffusion models
 
 ## Status
@@ -82,6 +82,7 @@ Modifies timestep spacing of a schedule
 ### Noise generators
 - Random
 - Brownian
+- Colored
 - Offset
 - Pyramid
 

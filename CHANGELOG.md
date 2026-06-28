@@ -1,3 +1,12 @@
+## 0.6.1
+### Additions
+Add pytorch.noise.Colored
+
+### Fixes
+Diffusers wrappers now initialize noise on default device if generator not provided
+
+Match subschedule diffusers config resolution order, special case for Cosmos3
+
 ## 0.6.0
 ### Breaking
 Moved all previous sampling code -> sampling.structured
