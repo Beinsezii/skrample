@@ -9,7 +9,7 @@ from PIL import Image
 
 from skrample import scheduling
 from skrample.analytics import plotting
-from skrample.analytics.common import OscDecay
+from skrample.analytics.common import Fourier, OscDecay
 from skrample.sampling import functional, models, structured, traits
 
 SPACES: dict[str, tuple[float, scheduling.SigmaSpace, models.DiffusionModel]] = {
@@ -67,7 +67,7 @@ subparsers = parser.add_subparsers(dest="command")
 # Samplers
 parser_sampler = subparsers.add_parser("samplers")
 parser_sampler.add_argument("--adjust", type=bool, default=True, action=BooleanOptionalAction)
-parser_sampler.add_argument("--curve", "-k", type=int, default=OscDecay.scale)
+parser_sampler.add_argument("--curve", "-k", type=int, required=False)
 parser_sampler.add_argument("--transform", "-t", type=str, choices=list(SPACES.keys()), default="fm")
 parser_sampler.add_argument(
     "--sampler",
@@ -133,7 +133,7 @@ if args.command == "samplers":
                     tail=False,
                 ),
                 SPACES[args.transform][2],
-                OscDecay(scale=args.curve),
+                Fourier() if args.curve is None else OscDecay(scale=args.curve),
                 steps=args.steps,
                 reference_steps=base_steps,
                 adjust_steps=args.adjust,

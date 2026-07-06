@@ -16,7 +16,7 @@ from skrample.sampling import functional, models, structured, tableaux, traits
 from skrample.sampling.interface import StructuredFunctionalAdapter
 from skrample.sampling.models import DiffusionModel
 
-from .common import OscDecay
+from .common import Fourier
 
 type PlottableSampler = structured.StructuredSampler | functional.FunctionalSampler
 
@@ -95,9 +95,9 @@ def common_figure(
 
 def plot_samplers(
     samplers: Sequence[PlottableSampler | tuple[PlottableSampler, str]],
-    schedule: scheduling.SkrampleSchedule = scheduling.Hyper(scheduling.Linear(), tail=False),
+    schedule: scheduling.SkrampleSchedule = scheduling.FlowShift(scheduling.Linear(), shift=3),
     model: DiffusionModel = models.FlowModel(),
-    ode: functional.SampleableModel = OscDecay(),
+    ode: functional.SampleableModel = Fourier(),
     steps: int = 30,
     title: str = "Skrample Samplers",
     reference_steps: int = 1000,
