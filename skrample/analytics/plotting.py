@@ -235,4 +235,4 @@ def plot_schedules(
 def draw(fig: Figure) -> np.ndarray[tuple[int, int, int], np.dtype[np.uint8]]:
     canvas = FigureCanvasAgg(fig)
     canvas.draw()
-    return np.asarray(canvas.buffer_rgba(), dtype=np.uint8)
+    return np.asarray(canvas.buffer_rgba(), dtype=np.uint8)  # pyright: ignore [reportReturnType] # len matches
