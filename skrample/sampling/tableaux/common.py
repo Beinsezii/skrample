@@ -142,7 +142,7 @@ def pretty_tableau(tableau: TableauType, label: str | None = None) -> str:
     return "\n".join(lines)
 
 
-def validate_tableau(tab: TableauType, tolerance: float = 1e-12) -> None | IndexError | ValueError:
+def validate_tableau(tab: TableauType, tolerance: float = 1e-12) -> IndexError | ValueError | None:
     for index, stage in enumerate(tab.stages):
         if index != (stage_len := len(stage.a)):
             return IndexError(f"{index=}, {stage_len=}, {stage=}")
