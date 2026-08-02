@@ -1,101 +1,110 @@
 #! /usr/bin/env python
 
-from typing import ClassVar
 
 import torch
-from diffusers.modular_pipelines.components_manager import ComponentsManager
-from diffusers.modular_pipelines.flux.denoise import FluxDenoiseStep, FluxLoopDenoiser
-from diffusers.modular_pipelines.flux.modular_blocks import TEXT2IMAGE_BLOCKS
-from diffusers.modular_pipelines.flux.modular_pipeline import FluxModularPipeline
-from diffusers.modular_pipelines.modular_pipeline import ModularPipelineBlocks, PipelineState, SequentialPipelineBlocks
-from tqdm import tqdm
+import tqdm
+from diffusers.modular_pipelines.flux2.denoise import Flux2KleinBaseDenoiseStep
+from diffusers.modular_pipelines.flux2.modular_pipeline import Flux2KleinBaseModularPipeline, Flux2ModularPipeline
+from diffusers.modular_pipelines.modular_pipeline import BlockState, ModularPipeline, PipelineState
 
-import skrample.scheduling as scheduling
-from skrample.diffusers import SkrampleWrapperScheduler
-from skrample.sampling import functional, models, structured
-from skrample.sampling.interface import StructuredFunctionalAdapter
-
-model_id = "black-forest-labs/FLUX.1-dev"
-
-blocks = SequentialPipelineBlocks.from_blocks_dict(TEXT2IMAGE_BLOCKS)
-
-schedule = scheduling.FlowShift(scheduling.Linear(), shift=2)
-wrapper = SkrampleWrapperScheduler(
-    sampler=structured.Euler(), schedule=schedule, model=models.FlowModel(), allow_dynamic=False
-)
-
-# Equivalent to structured example
-sampler = StructuredFunctionalAdapter(structured.DPM(order=2, stochasticity=True))
-# Native functional example
-sampler = functional.RKUltra(4)
-# # Dynamic step sizes
-# sampler = functional.RKMoire()
+from skrample import scheduling
+from skrample.common import DeltaPoint
+from skrample.sampling import functional, interface, models, structured
 
 
-class FunctionalDenoise(FluxDenoiseStep):
-    # Exclude the after_denoise block
-    block_classes: ClassVar[list[type[ModularPipelineBlocks]]] = [FluxLoopDenoiser]
-    block_names: ClassVar[list[str]] = ["denoiser"]
+class SkrampleKleinBaseDenoiseLoop(Flux2KleinBaseDenoiseStep):
+    # Remove after denoise
+    block_classes = Flux2KleinBaseDenoiseStep.block_classes[:-1]
+    block_names = Flux2KleinBaseDenoiseStep.block_names[:-1]
+
+    def __init__(
+        self,
+        sampler: functional.FunctionalSampler | structured.StructuredSampler,
+        schedule: scheduling.SkrampleSchedule,
+        model: models.DiffusionModel = models.FlowModel(),
+    ) -> None:
+        super().__init__()
+        self.skrample_sampler: functional.FunctionalSampler | structured.StructuredSampler = sampler
+        self.skrample_schedule: scheduling.SkrampleSchedule = schedule
+        self.skrample_model: models.DiffusionModel = model
 
     @torch.no_grad()
-    def __call__(self, components: FluxModularPipeline, state: PipelineState) -> PipelineState:
-        block_state = self.get_block_state(state)
+    def __call__(self, components: Flux2ModularPipeline, state: PipelineState) -> PipelineState:
+        block_state: BlockState = self.get_block_state(state)  # type: ignore # diffusers dumb
 
         if isinstance(sampler, functional.FunctionalHigher):
-            block_state["num_inference_steps"] = sampler.adjust_steps(block_state["num_inference_steps"])
-        progress = tqdm(total=block_state["num_inference_steps"])
+            block_state["num_inference_steps"] = sampler.adjust_steps(block_state["num_inference_steps"])  # pyright: ignore [reportArgumentType]
 
-        i = 0
+        with tqdm.tqdm(total=block_state["num_inference_steps"]) as progress_bar:
+            i: int = 0
 
-        def call_model(sample: torch.Tensor, timestep: float, sigma: float, alpha: float) -> torch.Tensor:
-            nonlocal i, components, block_state, progress
-            block_state["latents"] = sample
-            components, block_state = self.loop_step(
-                components,
-                block_state,  # type: ignore
-                i=i,
-                t=sample.new_tensor([timestep] * len(sample)),
+            def callback(_x: torch.Tensor, n: int, _p: DeltaPoint) -> None:
+                nonlocal i
+                progress_bar.update(n - i)
+                i = n
+
+            def model_eval(x: torch.Tensor, t: float, s: float, a: float) -> torch.Tensor:
+                nonlocal i, components, block_state
+                block_state["latents"] = x
+                components, block_state = self.loop_step(
+                    components,
+                    block_state,  # type: ignore
+                    i=i,
+                    t=x.new_tensor([t] * len(x)),
+                )
+                return block_state["noise_pred"]  # pyright: ignore [reportReturnType]
+
+            block_state["latents"] = (
+                self.skrample_sampler
+                if isinstance(self.skrample_sampler, functional.FunctionalSampler)
+                else interface.StructuredFunctionalAdapter(self.skrample_sampler)
+            ).sample_model(
+                sample=block_state["latents"],  # pyright: ignore[reportArgumentType]
+                model=model_eval,
+                model_transform=self.skrample_model,
+                schedule=self.skrample_schedule,
+                steps=block_state["num_inference_steps"],  # pyright: ignore[reportArgumentType]
+                callback=callback,
             )
-            return block_state["noise_pred"]  # pyright: ignore [reportIndexIssue] # It's still a dict
 
-        def sample_callback(x: torch.Tensor, n: int, d: tuple) -> None:
-            nonlocal i
-            progress.update(n + 1 - progress.n)
-            i = n + 1
-
-        block_state["latents"] = sampler.sample_model(
-            sample=block_state["latents"],
-            model=call_model,
-            model_transform=models.FlowModel(),
-            schedule=schedule,
-            steps=block_state["num_inference_steps"],
-            callback=sample_callback,
-        )
-
-        self.set_block_state(state, block_state)  # type: ignore
-        return components, state  # type: ignore
+        self.set_block_state(state, block_state)
+        return components, state  # type: ignore # diffusers is so so dumb
 
 
-blocks.sub_blocks["denoise"] = FunctionalDenoise()
+with torch.inference_mode():
+    # Equivalent to structured example
+    sampler = structured.DPM(order=2, stochasticity=True)
+    # Native functional example
+    sampler = functional.RKUltra(4)
+    # # Dynamic step sizes
+    sampler = functional.RKMoire()
 
-cm = ComponentsManager()
-cm.enable_auto_cpu_offload()
-pipe = blocks.init_pipeline(components_manager=cm)
-pipe.load_components(["text_encoder"], repo=model_id, subfolder="text_encoder", torch_dtype=torch.bfloat16)
-pipe.load_components(["tokenizer"], repo=model_id, subfolder="tokenizer")
-pipe.load_components(["text_encoder_2"], repo=model_id, subfolder="text_encoder_2", torch_dtype=torch.bfloat16)
-pipe.load_components(["tokenizer_2"], repo=model_id, subfolder="tokenizer_2")
-pipe.load_components(["transformer"], repo=model_id, subfolder="transformer", torch_dtype=torch.bfloat16)
-pipe.load_components(["vae"], repo=model_id, subfolder="vae", torch_dtype=torch.bfloat16)
+    schedule = scheduling.Sinner(scheduling.Linear())
 
-pipe.register_components(scheduler=wrapper)
+    dtype: torch.dtype = torch.bfloat16
+    device: torch.device = torch.device("cuda")
+    model = "black-forest-labs/FLUX.2-klein-base-4B"
 
+    pipe: Flux2KleinBaseModularPipeline = ModularPipeline.from_pretrained(model)  # pyright: ignore
+    pipe.load_components(torch_dtype=dtype)
+    pipe.to(device)
 
-pipe(
-    prompt="sharp, high dynamic range photograph of a kitten on a beach of rainbow pebbles",
-    generator=torch.Generator("cpu").manual_seed(42),
-    width=1024,
-    height=1024,
-    num_inference_steps=25,
-    guidance_scale=2.5,
-).get("images")[0].save("diffusers_functional.png")  # pyright: ignore [reportOptionalSubscript] # FrozenDict
+    skrample_denoise = SkrampleKleinBaseDenoiseLoop(sampler, schedule)
+    pipe._blocks.sub_blocks["denoise"].sub_blocks["text2image"].sub_blocks["denoise"] = skrample_denoise  # type: ignore
+
+    # Doesn't take it from the call...? wtf?
+    pipe.guider.enable()
+    pipe.guider.guidance_scale = 3
+
+    pipe(
+        num_inference_steps=30,
+        prompt="""
+Analogue portrait photograph of a woman in a stained glass church
+She is wearing gothic plate armor and has short, curly blonde hair.
+The photo is softly lit, with the light in the image being provided by multicolored rays coming from the church windows.
+High resolution technicolor photograph.
+""",
+        width=1280,
+        height=832,
+        generator=torch.Generator(device=device).manual_seed(42),  # pyright: ignore[reportPrivateImportUsage] # something's changed in pyright and this is private now ig
+    ).images[0].save("klein_functional.png")  # pyright: ignore[reportAttributeAccessIssue]

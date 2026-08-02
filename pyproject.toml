@@ -36,7 +36,7 @@ scripts = ["skrample[all]", "scikit-image>=0.26"]
 test = [
     "skrample[scripts]",
     "accelerate>=1.3",
-    "diffusers>=0.36,<0.37", # modular pipeline changes
+    "diffusers==0.39.*",   # pin since we use experimental API
     "protobuf>=5.29",
     "pyright>=1.1.408",
     "pytest-xdist>=3.6.1",
