@@ -32,8 +32,8 @@ class SkrampleKleinBaseDenoiseLoop(Flux2KleinBaseDenoiseStep):
     def __call__(self, components: Flux2ModularPipeline, state: PipelineState) -> PipelineState:
         block_state: BlockState = self.get_block_state(state)  # type: ignore # diffusers dumb
 
-        if isinstance(sampler, functional.FunctionalHigher):
-            block_state["num_inference_steps"] = sampler.adjust_steps(block_state["num_inference_steps"])  # pyright: ignore [reportArgumentType]
+        if isinstance(self.skrample_sampler, functional.FunctionalHigher):
+            block_state["num_inference_steps"] = self.skrample_sampler.adjust_steps(block_state["num_inference_steps"])  # pyright: ignore [reportArgumentType]
 
         with tqdm.tqdm(total=block_state["num_inference_steps"]) as progress_bar:
             i: int = 0

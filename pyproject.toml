@@ -88,8 +88,9 @@ select = [
 ]
 ignore = [
     "PIE808",  # range start 0
-    "PLR",     # silly
     "PLC0415", # imports inside functions
+    "PLR",     # silly
+    "RUF003",  # Flags `σ` as ambiguous to `o`
     "TD003",   # todo require link
     "UP015",   # open() mode='r'
 ]

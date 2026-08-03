@@ -9,7 +9,7 @@ from PIL import Image
 
 from skrample import scheduling
 from skrample.analytics import plotting
-from skrample.analytics.common import Fourier, OscDecay
+from skrample.analytics.equations import Fourier, OscDecay
 from skrample.sampling import functional, models, structured, traits
 
 SPACES: dict[str, tuple[float, scheduling.SigmaSpace, models.DiffusionModel]] = {

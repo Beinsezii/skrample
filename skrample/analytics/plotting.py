@@ -16,7 +16,7 @@ from skrample.sampling import functional, models, structured, tableaux, traits
 from skrample.sampling.interface import StructuredFunctionalAdapter
 from skrample.sampling.models import DiffusionModel
 
-from .common import Fourier
+from .equations import Fourier
 
 type PlottableSampler = structured.StructuredSampler | functional.FunctionalSampler
 

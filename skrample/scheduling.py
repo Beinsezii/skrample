@@ -225,7 +225,13 @@ class Scaled(ScheduleCommon):
 
     def _points(self, t: NPSequence) -> NPPoints:
         alphas_cumprod = self.continuous_alphas_cumprod(t)
-        sigmas = np.sqrt((1 - alphas_cumprod) / alphas_cumprod)
+        # ZSNR._points:
+        #   σ = √(1-0)/0 = inf
+        # VariancePreserving.normalize:
+        #   θ = atan(inf) = π/2
+        #   σ, ɑ = sin(θ), cos(θ) = 1, 0
+        with np.errstate(divide="ignore"):
+            sigmas = np.sqrt((1 - alphas_cumprod) / alphas_cumprod)
         return np.stack([t * self.base_timesteps, *self.space.normalize(sigmas)], 1)
 
     def _sigmas_to_points(self, sigmas: NPSequence, alphas: NPSequence) -> NPPoints:
@@ -555,7 +561,9 @@ class FlowShift(ScheduleModifier):
     """Amount to shift noise schedule by."""
 
     def _modify(self, t: NPSequence) -> NPSequence:
-        return self.shift / (self.shift + (1 / t - 1))
+        # x / (x + (1 / 0 - 1)) = x / inf = 0
+        with np.errstate(divide="ignore"):
+            return self.shift / (self.shift + (1 / t - 1))
 
 
 @dataclass(frozen=True)
