@@ -561,9 +561,10 @@ class FlowShift(ScheduleModifier):
     """Amount to shift noise schedule by."""
 
     def _modify(self, t: NPSequence) -> NPSequence:
-        # x / (x + (1 / 0 - 1)) = x / inf = 0
-        with np.errstate(divide="ignore"):
-            return self.shift / (self.shift + (1 / t - 1))
+        # Reformulation of
+        # `self.shift / (self.shift + (1 / t - 1))`
+        # to be better behaved
+        return self.shift * t / (1 + (self.shift - 1) * t)
 
 
 @dataclass(frozen=True)
