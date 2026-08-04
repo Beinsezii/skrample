@@ -123,8 +123,8 @@ if args.command == "samplers":
     Image.fromarray(
         plotting.draw(
             plotting.plot_samplers(
-                [SAMPLERS[s] for s in args.sampler],
-                scheduling.Hyper(
+                samplers=[SAMPLERS[s] for s in args.sampler],
+                schedule=scheduling.Hyper(
                     scheduling.Linear(
                         sigma_start=SPACES[args.transform][0],
                         base_timesteps=base_steps,
@@ -132,8 +132,8 @@ if args.command == "samplers":
                     ),
                     tail=False,
                 ),
-                SPACES[args.transform][2],
-                Fourier() if args.curve is None else OscDecay(scale=args.curve),
+                model=SPACES[args.transform][2],
+                ode=Fourier() if args.curve is None else OscDecay(scale=args.curve),
                 steps=args.steps,
                 reference_steps=base_steps,
                 adjust_steps=args.adjust,
@@ -172,10 +172,10 @@ elif args.command == "schedules":
     Image.fromarray(
         plotting.draw(
             plotting.plot_schedules(
-                schedules,
-                args.steps,
-                args.alphas,
-                args.timesteps,
+                schedules=schedules,
+                steps=args.steps,
+                alphas=args.alphas,
+                timesteps=args.timesteps,
             )
         )
     ).save(args.file, format="PNG", compress_level=1)
