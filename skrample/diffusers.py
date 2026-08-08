@@ -35,6 +35,7 @@ DIFFUSERS_CLASS_MAP: dict[str, tuple[type[StructuredSampler], dict[str, Any]]] =
     "EulerDiscreteScheduler": (sampling.Euler, {}),
     "FlowMatchEulerDiscreteScheduler": (sampling.Euler, {}),
     "IPNDMScheduler": (sampling.Adams, {"order": 4}),
+    "MiniMaxH3Scheduler": (sampling.Euler, {}),
     "UniPCMultistepScheduler": (sampling.UniPC, {}),
 }
 
@@ -167,6 +168,13 @@ def parse_diffusers_config(
         flow_keys = [f.name for f in dataclasses.fields(scheduling.FlowShift)]
         schedule_modifiers.append((scheduling.FlowShift, {k: v for k, v in remapped.items() if k in flow_keys}))
 
+    if diffusers_class == "MiniMaxH3Scheduler":
+        invert_prediction: bool = True
+        if "base_timesteps" not in remapped:
+            remapped["base_timesteps"] = -1
+    else:
+        invert_prediction = False
+
     # feels cleaner than inspect.signature().parameters
     sampler_keys = [f.name for f in dataclasses.fields(sampler)]
     schedule_keys = [f.name for f in dataclasses.fields(schedule)]
@@ -180,7 +188,7 @@ def parse_diffusers_config(
         subschedule_props=subschedule_props,
         schedule_modifiers=schedule_modifiers,
         model=model,
-        invert_prediction=diffusers_class == "MiniMaxH3Scheduler",
+        invert_prediction=invert_prediction,
     )
 
 
