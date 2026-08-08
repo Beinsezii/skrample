@@ -1,3 +1,7 @@
+## 0.7.0
+### Additions
+Add analytics module for simple sampling/scheduling visualizations
+
 ## 0.6.1
 ### Additions
 Add pytorch.noise.Colored

@@ -199,6 +199,11 @@ class FunctionalAdaptive(FunctionalSampler):
     type Evaluator[T: Sample] = Callable[[T, T], float]
 
     @staticmethod
+    def mae[T: Sample](a: T, b: T) -> float:
+        error: T = abs(a - b)  # pyright: ignore [reportAssignmentType] # float rhs is always T
+        return common.mean(error)
+
+    @staticmethod
     def mse[T: Sample](a: T, b: T) -> float:
         error: T = abs(a - b) ** 2  # pyright: ignore [reportAssignmentType] # float rhs is always T
         return common.mean(error)

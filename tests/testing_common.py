@@ -6,6 +6,7 @@ import torch
 from huggingface_hub import hf_hub_download
 
 from skrample.sampling import tableaux
+from skrample.sampling.functional import DynasauRK, FunctionalSampler, RKMoire, RKUltra
 from skrample.sampling.models import (
     DataModel,
     DiffusionModel,
@@ -56,6 +57,12 @@ ALL_STRUCTURED: list[type[StructuredSampler]] = [
     SPC,
     UniPC,
     UniP,
+]
+
+ALL_FUNCTIONAL: list[type[FunctionalSampler]] = [
+    DynasauRK,
+    RKMoire,
+    RKUltra,
 ]
 
 
