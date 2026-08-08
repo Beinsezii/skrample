@@ -101,6 +101,7 @@ class ParsedDiffusersConfig:
     subschedule_props: dict[str, Any]
     schedule_modifiers: list[tuple[type[ScheduleModifier], dict[str, Any]]]
     model: DiffusionModel
+    invert_prediction: bool
 
 
 def parse_diffusers_config(
@@ -179,6 +180,7 @@ def parse_diffusers_config(
         subschedule_props=subschedule_props,
         schedule_modifiers=schedule_modifiers,
         model=model,
+        invert_prediction=diffusers_class == "MiniMaxH3Scheduler",
     )
 
 
@@ -384,6 +386,11 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
     allow_dynamic: bool = True
     """Whether or not classes can be overridden during sampling.
     Currently only applies to FlowShift when `mu` is provided, IE "use_dynamic_shifting" in diffusers."""
+    invert_prediction: bool = False
+    """Negate the model prediction `(-model_output)` before passing to the solvers.
+    This is used for models which predict additive derivatives like Minimax H3.
+    `sample = sample + output * sigma` vs `sample = sample - output * sigma`
+    99% of models need this False, do not set unless you know what you're doing or the output is completely broken."""
     fake_config: dict[str, Any] = dataclasses.field(default_factory=DEFAULT_FAKE_CONFIG.copy)
     """Extra items presented in scheduler.config to the pipeline.
     It is recommended to use an actual diffusers scheduler config if one is available."""
@@ -411,6 +418,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
         subschedule_props: dict[str, Any] = {},
         modifier_merge_strategy: MergeStrategy = MergeStrategy.UniqueBefore,
         allow_dynamic: bool = True,
+        invert_prediction: bool | None = None,
     ) -> "SkrampleWrapperScheduler[N]":
         "Thin sugar over `parse_diffusers_config` to make a complete wrapper with arbitrary customizations"
         parsed = parse_diffusers_config(config=config, sampler=sampler, schedule=schedule)
@@ -438,6 +446,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
             compute_scale=compute_scale,
             fake_config=config.copy() if isinstance(config, dict) else dict(config.config),
             allow_dynamic=allow_dynamic,
+            invert_prediction=parsed.invert_prediction if invert_prediction is None else invert_prediction,
         )
 
     def functional_interface(
@@ -538,6 +547,9 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
         generator: torch.Generator | list[torch.Generator] | None = None,
         return_dict: bool = True,
     ) -> tuple[Tensor, Tensor] | OrderedDict[str, Tensor]:
+        if self.invert_prediction:
+            model_output = -model_output
+
         schedule = self.schedule_np
         step = schedule[:, 0].tolist().index(timestep if isinstance(timestep, int | float) else timestep.item())
         step = Step.from_int(step, len(schedule))
@@ -588,6 +600,11 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
     allow_dynamic: bool = True
     """Whether or not classes can be overridden during sampling.
     Currently only applies to FlowShift when `mu` is provided, IE "use_dynamic_shifting" in diffusers."""
+    invert_prediction: bool = False
+    """Negate the model prediction `(-model_output)` before passing to the solvers.
+    This is used for models which predict additive derivatives like Minimax H3.
+    `sample = sample + output * sigma` vs `sample = sample - output * sigma`
+    99% of models need this False, do not set unless you know what you're doing or the output is completely broken."""
     fake_config: dict[str, Any] = dataclasses.field(default_factory=DEFAULT_FAKE_CONFIG.copy)
     """Extra items presented in scheduler.config to the pipeline.
     It is recommended to use an actual diffusers scheduler config if one is available."""
@@ -767,6 +784,9 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
         generator: torch.Generator | list[torch.Generator] | None = None,
         return_dict: bool = True,
     ) -> tuple[Tensor, Tensor] | OrderedDict[str, Tensor]:
+        if self.invert_prediction:
+            model_output = -model_output
+
         assert timestep == self.all_points[self._index].timestep
 
         points = [*self.all_points, Point(0, 0, 1)]
@@ -850,6 +870,7 @@ class RKUltraWrapperScheduler[T: TensorNoiseProps | None](RKWrapperCore[T, funct
         noise_props: N | None = None,
         modifier_merge_strategy: MergeStrategy = MergeStrategy.UniqueBefore,
         allow_dynamic: bool = True,
+        invert_prediction: bool | None = None,
     ) -> "RKUltraWrapperScheduler[N]":
         "Thin sugar over `parse_diffusers_config` to make a complete wrapper with arbitrary customizations"
         parsed = parse_diffusers_config(config=config, sampler=None, schedule=schedule)
@@ -879,6 +900,7 @@ class RKUltraWrapperScheduler[T: TensorNoiseProps | None](RKWrapperCore[T, funct
             compute_scale=compute_scale,
             fake_config=config.copy() if isinstance(config, dict) else dict(config.config),
             allow_dynamic=allow_dynamic,
+            invert_prediction=parsed.invert_prediction if invert_prediction is None else invert_prediction,
         )
 
     def functional_sampler(self) -> functional.RKUltra:
@@ -935,6 +957,7 @@ class DynasauRKWrapperScheduler[T: TensorNoiseProps | None](RKWrapperCore[T, fun
         noise_props: N | None = None,
         modifier_merge_strategy: MergeStrategy = MergeStrategy.UniqueBefore,
         allow_dynamic: bool = True,
+        invert_prediction: bool | None = None,
     ) -> "DynasauRKWrapperScheduler[N]":
         "Thin sugar over `parse_diffusers_config` to make a complete wrapper with arbitrary customizations"
         parsed = parse_diffusers_config(config=config, sampler=None, schedule=schedule)
@@ -963,6 +986,7 @@ class DynasauRKWrapperScheduler[T: TensorNoiseProps | None](RKWrapperCore[T, fun
             compute_scale=compute_scale,
             fake_config=config.copy() if isinstance(config, dict) else dict(config.config),
             allow_dynamic=allow_dynamic,
+            invert_prediction=parsed.invert_prediction if invert_prediction is None else invert_prediction,
         )
 
     def functional_sampler(self) -> functional.DynasauRK:
