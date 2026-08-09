@@ -97,3 +97,28 @@ def test_self_schedules(key: ScheduleCommon) -> None:
         np.asarray(MEASURED_SCHEDULE_RESULTS[key], dtype=np.float64),
         1e-5,
     )
+
+
+@pytest.mark.parametrize("schedule", ALL_SCHEDULES)
+@pytest.mark.parametrize("modifier", ALL_MODIFIERS_OPTION)
+@pytest.mark.parametrize("timesteps", [1, 2, 3, 999, 1000, 1001])
+def test_timestep_inversion(
+    schedule: type[ScheduleCommon],
+    modifier: type[ScheduleModifier] | None,
+    timesteps: int,
+) -> None:
+    schedule_forward = (
+        modifier(schedule(base_timesteps=abs(timesteps))) if modifier else schedule(base_timesteps=abs(timesteps))
+    )
+    schedule_backward = (
+        modifier(schedule(base_timesteps=-abs(timesteps))) if modifier else schedule(base_timesteps=-abs(timesteps))
+    )
+
+    points = np.linspace(0, 1, abs(timesteps))
+
+    points_forward = schedule_forward.points_np(points).copy()
+    points_backward = schedule_backward.points_np(points).copy()
+    points_backward[:, 0] = abs(timesteps) - points_backward[:, 0]
+
+    # purely small atol since it's floating precision tolerance
+    np.testing.assert_allclose(points_backward, points_forward, rtol=0, atol=1e-12)
