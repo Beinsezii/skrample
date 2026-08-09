@@ -1,4 +1,5 @@
 import itertools
+from typing import Any
 
 import pytest
 from diffusers.configuration_utils import ConfigMixin
@@ -23,7 +24,7 @@ FLOW = FlowModel()
 VELOCITY = VelocityModel()
 
 
-def assert_wrapper(wrapper: SkrampleWrapperScheduler, scheduler: ConfigMixin) -> None:
+def assert_wrapper(wrapper: SkrampleWrapperScheduler, scheduler: ConfigMixin | dict[str, Any]) -> None:
     a, b = wrapper, SkrampleWrapperScheduler.from_diffusers_config(scheduler)
     a.fake_config = b.fake_config
     assert a.sampler == b.sampler  # individual asserts for complex structs first for easier debugging
@@ -145,6 +146,19 @@ def test_ddpm() -> None:
     assert_wrapper(
         SkrampleWrapperScheduler(DPM(order=1, stochasticity=True), Scaled()),
         DDPMScheduler.from_config(SCALED_CONFIG),
+    )
+
+
+def test_h3() -> None:
+    assert_wrapper(
+        SkrampleWrapperScheduler(
+            Euler(),
+            FlowShift(Linear(base_timesteps=-1), shift=12.0),
+            FlowModel(),
+            invert_prediction=True,
+        ),
+        # https://huggingface.co/MiniMaxAI/MiniMax-H3/raw/main/scheduler/scheduler_config.json
+        {"_class_name": "MiniMaxH3Scheduler", "_diffusers_version": "0.36.0.dev0", "shift": 12.0},
     )
 
 
