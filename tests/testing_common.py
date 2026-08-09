@@ -5,6 +5,12 @@ import numpy as np
 import torch
 from huggingface_hub import hf_hub_download
 
+from skrample.diffusers import (
+    BuiltinSkrampleWrapper,
+    DynasauRKWrapperScheduler,
+    RKUltraWrapperScheduler,
+    SkrampleWrapperScheduler,
+)
 from skrample.sampling import tableaux
 from skrample.sampling.functional import DynasauRK, FunctionalSampler, RKMoire, RKUltra
 from skrample.sampling.models import (
@@ -107,6 +113,11 @@ ALL_TABLEAUX: list[tableaux.TableauProvider] = [
     *tableaux.GRAVEYARD,
 ]
 
+ALL_WRAPPERS: list[type[BuiltinSkrampleWrapper]] = [
+    SkrampleWrapperScheduler,
+    RKUltraWrapperScheduler,
+    DynasauRKWrapperScheduler,
+]
 
 FLOW_CONFIG = {
     "base_image_seq_len": 256,

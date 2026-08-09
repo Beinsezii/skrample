@@ -25,6 +25,10 @@ from skrample.scheduling import ScheduleCommon, ScheduleModifier, SkrampleSchedu
 if TYPE_CHECKING:
     from diffusers.configuration_utils import ConfigMixin
 
+type BuiltinSkrampleWrapper = SkrampleWrapperScheduler | RKUltraWrapperScheduler | DynasauRKWrapperScheduler
+"""Type alias for the library included non-abstract wrapper classes.
+If you are working with code that may have custom wrappers,
+you should NOT use this alias directly."""
 
 DIFFUSERS_CLASS_MAP: dict[str, tuple[type[StructuredSampler], dict[str, Any]]] = {
     "DDIMScheduler": (sampling.Euler, {}),
