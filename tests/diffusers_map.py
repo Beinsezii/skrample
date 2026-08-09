@@ -95,7 +95,7 @@ def test_euler() -> None:
 
 def test_euler_a() -> None:
     assert_wrapper(
-        SkrampleWrapperScheduler(DPM(order=1, stochasticity=True), Scaled()),
+        SkrampleWrapperScheduler(Euler(stochasticity=True), Scaled()),
         EulerAncestralDiscreteScheduler.from_config(SCALED_CONFIG),
     )
 
@@ -144,7 +144,7 @@ def test_ddim() -> None:
 
 def test_ddpm() -> None:
     assert_wrapper(
-        SkrampleWrapperScheduler(DPM(order=1, stochasticity=True), Scaled()),
+        SkrampleWrapperScheduler(Euler(stochasticity=True), Scaled()),
         DDPMScheduler.from_config(SCALED_CONFIG),
     )
 

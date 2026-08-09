@@ -32,10 +32,10 @@ you should NOT use this alias directly."""
 
 DIFFUSERS_CLASS_MAP: dict[str, tuple[type[StructuredSampler], dict[str, Any]]] = {
     "DDIMScheduler": (sampling.Euler, {}),
-    "DDPMScheduler": (sampling.DPM, {"stochasticity": True, "order": 1}),
+    "DDPMScheduler": (sampling.Euler, {"stochasticity": True}),
     "DPMSolverMultistepScheduler": (sampling.DPM, {}),
     "DPMSolverSDEScheduler": (sampling.DPM, {"stochasticity": True, "order": 1}),
-    "EulerAncestralDiscreteScheduler": (sampling.DPM, {"stochasticity": True, "order": 1}),
+    "EulerAncestralDiscreteScheduler": (sampling.Euler, {"stochasticity": True}),
     "EulerDiscreteScheduler": (sampling.Euler, {}),
     "FlowMatchEulerDiscreteScheduler": (sampling.Euler, {}),
     "IPNDMScheduler": (sampling.Adams, {"order": 4}),
