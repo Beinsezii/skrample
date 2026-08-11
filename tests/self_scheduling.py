@@ -4,10 +4,11 @@ import random
 
 import numpy as np
 import pytest
-from testing_common import ALL_MODIFIERS, ALL_MODIFIERS_OPTION, ALL_SCHEDULES, compare_pp
+from testing_common import ALL_MODIFIERS, ALL_MODIFIERS_OPTION, ALL_SCHEDULES, ALL_WRAPPERS, compare_pp
 
-from skrample.diffusers import SkrampleWrapperScheduler
-from skrample.sampling.structured import DPM
+from skrample.diffusers import BuiltinSkrampleWrapper, SkrampleWrapperScheduler
+from skrample.sampling.models import FlowModel
+from skrample.sampling.structured import DPM, Euler
 from skrample.scheduling import (
     Beta,
     Exponential,
@@ -122,3 +123,29 @@ def test_timestep_inversion(
 
     # purely small atol since it's floating precision tolerance
     np.testing.assert_allclose(points_backward, points_forward, rtol=0, atol=1e-12)
+
+
+@pytest.mark.parametrize("wrapper", ALL_WRAPPERS)
+@pytest.mark.parametrize("schedule", ALL_SCHEDULES)
+@pytest.mark.parametrize("modifier", ALL_MODIFIERS_OPTION)
+@pytest.mark.parametrize("timesteps", [1, 999, 1000, 1001, -1001, -1])
+@pytest.mark.parametrize("steps", [1, 999, 1000, 1002])
+def test_terminal_timesteps(
+    wrapper: type[BuiltinSkrampleWrapper],
+    schedule: type[ScheduleCommon],
+    modifier: type[ScheduleModifier] | None,
+    timesteps: int,
+    steps: int,
+) -> None:
+
+    wrapper_schedule = (
+        modifier(schedule(base_timesteps=abs(timesteps))) if modifier else schedule(base_timesteps=abs(timesteps))
+    )
+
+    if issubclass(wrapper, SkrampleWrapperScheduler):
+        euler = wrapper(Euler(), wrapper_schedule, model=FlowModel())
+    else:
+        euler = wrapper(wrapper_schedule, sampler_order=1, model=FlowModel())
+
+    euler.set_timesteps(steps)
+    assert len(euler.timesteps) == steps * euler.order

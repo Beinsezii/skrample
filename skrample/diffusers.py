@@ -652,7 +652,7 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
     @functools.cached_property
     def schedule_np_trim(self) -> scheduling.NPPoints:
         "Excludes T=1 coefficients"
-        return np.asarray(
+        trimmed = np.asarray(
             [
                 p
                 for p in self.all_points
@@ -660,7 +660,10 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
                 and abs(p.sigma - self.schedule.point_0.sigma) > 1e-8
             ],
             dtype=np.float64,
-        )  # type: ignore # len matches
+        )
+        if trimmed.size == 0:
+            trimmed = np.asarray(self.all_points, dtype=np.float64)
+        return trimmed  # type: ignore # len matches
 
     @property
     def sigma_space(self) -> scheduling.SigmaSpace:
