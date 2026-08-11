@@ -652,7 +652,15 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
     @functools.cached_property
     def schedule_np_trim(self) -> scheduling.NPPoints:
         "Excludes T=1 coefficients"
-        return np.asarray([p for p in self.all_points if p.timestep > 1e-8 and p.sigma > 1e-8], dtype=np.float64)  # type: ignore # len matches
+        return np.asarray(
+            [
+                p
+                for p in self.all_points
+                if abs(p.timestep - self.schedule.point_0.timestep) > 1e-8
+                and abs(p.sigma - self.schedule.point_0.sigma) > 1e-8
+            ],
+            dtype=np.float64,
+        )  # type: ignore # len matches
 
     @property
     def sigma_space(self) -> scheduling.SigmaSpace:
@@ -672,7 +680,7 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
         return attr_dict(**self.fake_config)
 
     def set_begin_index(self, begin_index: int = 0) -> None:
-        assert begin_index % self.order == 0
+        assert begin_index % self.order == 0, f"Expected {begin_index=} to be multiple of {self.order=}!"
         super().set_begin_index(begin_index)
         self.fake_config["begin_index"] = begin_index
 
@@ -799,7 +807,9 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
         if self.invert_prediction:
             model_output = -model_output
 
-        assert timestep == self.all_points[self._index].timestep
+        assert timestep == self.all_points[self._index].timestep, (
+            f"Expected timestep {self.all_points[self._index].timestep} for step {self._index}, got {timestep=}!"
+        )
 
         points = [*self.all_points, Point(0, 0, 1)]
 
@@ -829,7 +839,8 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
         self._index += 1
 
         while self._index < len(self.all_points) and (
-            abs(self.all_points[self._index].timestep) < 1e-8 or abs(self.all_points[self._index].sigma) < 1e-8
+            abs(self.all_points[self._index].timestep - self.schedule.point_0.timestep) < 1e-8
+            or abs(self.all_points[self._index].sigma - self.schedule.point_0.sigma) < 1e-8
         ):
             sampled = self.step_tableau_inside_out(
                 sample=sample.to(dtype=self.compute_scale),
