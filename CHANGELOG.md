@@ -2,6 +2,13 @@
 ### Additions
 Add analytics module for simple sampling/scheduling visualizations
 
+Inverse Predictions and Timesteps
+
+### Fixes
+Some minor fixes, mostly edge cases found by new inverse timesteps
+
+Stopped / 0 errors
+
 ## 0.6.1
 ### Additions
 Add pytorch.noise.Colored
