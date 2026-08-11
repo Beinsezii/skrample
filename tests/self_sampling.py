@@ -12,6 +12,7 @@ from testing_common import (
     ALL_SCHEDULES,
     ALL_STRUCTURED,
     ALL_TABLEAUX,
+    ALL_WRAPPERS,
     compare_pp,
 )
 
@@ -534,6 +535,48 @@ def test_diffusers_brownian(
     assert len(wrapper._noise_generator.generators) == 1
     brownian = wrapper._noise_generator.generators[0]
     assert isinstance(brownian, Brownian)
+
+
+@pytest.mark.parametrize("wrapper", ALL_WRAPPERS)
+def test_diffusers_inverse(
+    wrapper: type[diffusers.BuiltinSkrampleWrapper],
+) -> None:
+
+    num_steps = 20
+    config = {"shift": 12}
+
+    weights = torch.randn([128, 128], dtype=torch.float64)
+
+    def network(x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+        return x @ weights + x * (t / 1000)
+
+    forward = wrapper.from_diffusers_config(config)
+    backward = wrapper.from_diffusers_config(config, invert_prediction=True)
+
+    sample = torch.randn_like(weights)
+
+    forward_sample = sample.clone()
+    forward.set_timesteps(num_inference_steps=num_steps)
+    for t in forward.timesteps:
+        forward_sample = forward.step(
+            model_output=network(forward_sample, t),
+            timestep=t,
+            sample=forward_sample,
+            return_dict=False,
+        )[0]  # type: ignore
+
+    backward_sample = sample.clone()
+    backward.set_timesteps(num_inference_steps=num_steps)
+    for t in backward.timesteps:
+        backward_sample = backward.step(
+            model_output=-(network(backward_sample, t)),
+            timestep=t,
+            sample=backward_sample,
+            return_dict=False,
+        )[0]  # type: ignore
+
+    # For IEEE semantics, a + (-b) * c is exactly == a - b * c, can set tol=0
+    np.testing.assert_allclose(backward_sample.numpy(), forward_sample.numpy(), rtol=0, atol=0, equal_nan=False)
 
 
 @pytest.mark.parametrize(

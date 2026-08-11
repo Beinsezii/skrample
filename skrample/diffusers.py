@@ -25,16 +25,21 @@ from skrample.scheduling import ScheduleCommon, ScheduleModifier, SkrampleSchedu
 if TYPE_CHECKING:
     from diffusers.configuration_utils import ConfigMixin
 
+type BuiltinSkrampleWrapper = SkrampleWrapperScheduler | RKUltraWrapperScheduler | DynasauRKWrapperScheduler
+"""Type alias for the library included non-abstract wrapper classes.
+If you are working with code that may have custom wrappers,
+you should NOT use this alias directly."""
 
 DIFFUSERS_CLASS_MAP: dict[str, tuple[type[StructuredSampler], dict[str, Any]]] = {
     "DDIMScheduler": (sampling.Euler, {}),
-    "DDPMScheduler": (sampling.DPM, {"stochasticity": True, "order": 1}),
+    "DDPMScheduler": (sampling.Euler, {"stochasticity": True}),
     "DPMSolverMultistepScheduler": (sampling.DPM, {}),
     "DPMSolverSDEScheduler": (sampling.DPM, {"stochasticity": True, "order": 1}),
-    "EulerAncestralDiscreteScheduler": (sampling.DPM, {"stochasticity": True, "order": 1}),
+    "EulerAncestralDiscreteScheduler": (sampling.Euler, {"stochasticity": True}),
     "EulerDiscreteScheduler": (sampling.Euler, {}),
     "FlowMatchEulerDiscreteScheduler": (sampling.Euler, {}),
     "IPNDMScheduler": (sampling.Adams, {"order": 4}),
+    "MiniMaxH3Scheduler": (sampling.Euler, {}),
     "UniPCMultistepScheduler": (sampling.UniPC, {}),
 }
 
@@ -101,6 +106,7 @@ class ParsedDiffusersConfig:
     subschedule_props: dict[str, Any]
     schedule_modifiers: list[tuple[type[ScheduleModifier], dict[str, Any]]]
     model: DiffusionModel
+    invert_prediction: bool
 
 
 def parse_diffusers_config(
@@ -166,6 +172,13 @@ def parse_diffusers_config(
         flow_keys = [f.name for f in dataclasses.fields(scheduling.FlowShift)]
         schedule_modifiers.append((scheduling.FlowShift, {k: v for k, v in remapped.items() if k in flow_keys}))
 
+    if diffusers_class == "MiniMaxH3Scheduler":
+        invert_prediction: bool = True
+        if "base_timesteps" not in remapped:
+            remapped["base_timesteps"] = -1
+    else:
+        invert_prediction = False
+
     # feels cleaner than inspect.signature().parameters
     sampler_keys = [f.name for f in dataclasses.fields(sampler)]
     schedule_keys = [f.name for f in dataclasses.fields(schedule)]
@@ -179,6 +192,7 @@ def parse_diffusers_config(
         subschedule_props=subschedule_props,
         schedule_modifiers=schedule_modifiers,
         model=model,
+        invert_prediction=invert_prediction,
     )
 
 
@@ -384,6 +398,11 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
     allow_dynamic: bool = True
     """Whether or not classes can be overridden during sampling.
     Currently only applies to FlowShift when `mu` is provided, IE "use_dynamic_shifting" in diffusers."""
+    invert_prediction: bool = False
+    """Negate the model prediction `(-model_output)` before passing to the solvers.
+    This is used for models which predict additive derivatives like Minimax H3.
+    `sample = sample + output * sigma` vs `sample = sample - output * sigma`
+    99% of models need this False, do not set unless you know what you're doing or the output is completely broken."""
     fake_config: dict[str, Any] = dataclasses.field(default_factory=DEFAULT_FAKE_CONFIG.copy)
     """Extra items presented in scheduler.config to the pipeline.
     It is recommended to use an actual diffusers scheduler config if one is available."""
@@ -411,6 +430,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
         subschedule_props: dict[str, Any] = {},
         modifier_merge_strategy: MergeStrategy = MergeStrategy.UniqueBefore,
         allow_dynamic: bool = True,
+        invert_prediction: bool | None = None,
     ) -> "SkrampleWrapperScheduler[N]":
         "Thin sugar over `parse_diffusers_config` to make a complete wrapper with arbitrary customizations"
         parsed = parse_diffusers_config(config=config, sampler=sampler, schedule=schedule)
@@ -438,6 +458,7 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
             compute_scale=compute_scale,
             fake_config=config.copy() if isinstance(config, dict) else dict(config.config),
             allow_dynamic=allow_dynamic,
+            invert_prediction=parsed.invert_prediction if invert_prediction is None else invert_prediction,
         )
 
     def functional_interface(
@@ -538,6 +559,9 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
         generator: torch.Generator | list[torch.Generator] | None = None,
         return_dict: bool = True,
     ) -> tuple[Tensor, Tensor] | OrderedDict[str, Tensor]:
+        if self.invert_prediction:
+            model_output = -model_output
+
         schedule = self.schedule_np
         step = schedule[:, 0].tolist().index(timestep if isinstance(timestep, int | float) else timestep.item())
         step = Step.from_int(step, len(schedule))
@@ -588,6 +612,11 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
     allow_dynamic: bool = True
     """Whether or not classes can be overridden during sampling.
     Currently only applies to FlowShift when `mu` is provided, IE "use_dynamic_shifting" in diffusers."""
+    invert_prediction: bool = False
+    """Negate the model prediction `(-model_output)` before passing to the solvers.
+    This is used for models which predict additive derivatives like Minimax H3.
+    `sample = sample + output * sigma` vs `sample = sample - output * sigma`
+    99% of models need this False, do not set unless you know what you're doing or the output is completely broken."""
     fake_config: dict[str, Any] = dataclasses.field(default_factory=DEFAULT_FAKE_CONFIG.copy)
     """Extra items presented in scheduler.config to the pipeline.
     It is recommended to use an actual diffusers scheduler config if one is available."""
@@ -623,7 +652,18 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
     @functools.cached_property
     def schedule_np_trim(self) -> scheduling.NPPoints:
         "Excludes T=1 coefficients"
-        return np.asarray([p for p in self.all_points if p.timestep > 1e-8 and p.sigma > 1e-8], dtype=np.float64)  # type: ignore # len matches
+        trimmed = np.asarray(
+            [
+                p
+                for p in self.all_points
+                if abs(p.timestep - self.schedule.point_0.timestep) > 1e-8
+                and abs(p.sigma - self.schedule.point_0.sigma) > 1e-8
+            ],
+            dtype=np.float64,
+        )
+        if trimmed.size == 0:
+            trimmed = np.asarray(self.all_points, dtype=np.float64)
+        return trimmed  # type: ignore # len matches
 
     @property
     def sigma_space(self) -> scheduling.SigmaSpace:
@@ -643,7 +683,7 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
         return attr_dict(**self.fake_config)
 
     def set_begin_index(self, begin_index: int = 0) -> None:
-        assert begin_index % self.order == 0
+        assert begin_index % self.order == 0, f"Expected {begin_index=} to be multiple of {self.order=}!"
         super().set_begin_index(begin_index)
         self.fake_config["begin_index"] = begin_index
 
@@ -767,7 +807,12 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
         generator: torch.Generator | list[torch.Generator] | None = None,
         return_dict: bool = True,
     ) -> tuple[Tensor, Tensor] | OrderedDict[str, Tensor]:
-        assert timestep == self.all_points[self._index].timestep
+        if self.invert_prediction:
+            model_output = -model_output
+
+        assert timestep == self.all_points[self._index].timestep, (
+            f"Expected timestep {self.all_points[self._index].timestep} for step {self._index}, got {timestep=}!"
+        )
 
         points = [*self.all_points, Point(0, 0, 1)]
 
@@ -797,7 +842,8 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
         self._index += 1
 
         while self._index < len(self.all_points) and (
-            abs(self.all_points[self._index].timestep) < 1e-8 or abs(self.all_points[self._index].sigma) < 1e-8
+            abs(self.all_points[self._index].timestep - self.schedule.point_0.timestep) < 1e-8
+            or abs(self.all_points[self._index].sigma - self.schedule.point_0.sigma) < 1e-8
         ):
             sampled = self.step_tableau_inside_out(
                 sample=sample.to(dtype=self.compute_scale),
@@ -850,6 +896,7 @@ class RKUltraWrapperScheduler[T: TensorNoiseProps | None](RKWrapperCore[T, funct
         noise_props: N | None = None,
         modifier_merge_strategy: MergeStrategy = MergeStrategy.UniqueBefore,
         allow_dynamic: bool = True,
+        invert_prediction: bool | None = None,
     ) -> "RKUltraWrapperScheduler[N]":
         "Thin sugar over `parse_diffusers_config` to make a complete wrapper with arbitrary customizations"
         parsed = parse_diffusers_config(config=config, sampler=None, schedule=schedule)
@@ -879,6 +926,7 @@ class RKUltraWrapperScheduler[T: TensorNoiseProps | None](RKWrapperCore[T, funct
             compute_scale=compute_scale,
             fake_config=config.copy() if isinstance(config, dict) else dict(config.config),
             allow_dynamic=allow_dynamic,
+            invert_prediction=parsed.invert_prediction if invert_prediction is None else invert_prediction,
         )
 
     def functional_sampler(self) -> functional.RKUltra:
@@ -935,6 +983,7 @@ class DynasauRKWrapperScheduler[T: TensorNoiseProps | None](RKWrapperCore[T, fun
         noise_props: N | None = None,
         modifier_merge_strategy: MergeStrategy = MergeStrategy.UniqueBefore,
         allow_dynamic: bool = True,
+        invert_prediction: bool | None = None,
     ) -> "DynasauRKWrapperScheduler[N]":
         "Thin sugar over `parse_diffusers_config` to make a complete wrapper with arbitrary customizations"
         parsed = parse_diffusers_config(config=config, sampler=None, schedule=schedule)
@@ -963,6 +1012,7 @@ class DynasauRKWrapperScheduler[T: TensorNoiseProps | None](RKWrapperCore[T, fun
             compute_scale=compute_scale,
             fake_config=config.copy() if isinstance(config, dict) else dict(config.config),
             allow_dynamic=allow_dynamic,
+            invert_prediction=parsed.invert_prediction if invert_prediction is None else invert_prediction,
         )
 
     def functional_sampler(self) -> functional.DynasauRK:
