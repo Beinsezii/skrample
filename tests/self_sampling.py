@@ -17,6 +17,7 @@ from testing_common import (
 )
 
 from skrample import diffusers, scheduling
+from skrample.analytics import equations
 from skrample.common import DeltaPoint, Point, Step
 from skrample.pytorch.noise import Brownian
 from skrample.sampling import functional, interface, models, structured, tableaux, traits
@@ -670,6 +671,42 @@ def test_tableau_dupe(provider: tableaux.TableauProvider) -> None:
     for b in builtins:
         if len(t.stages) == len(b.stages):
             assert tableau_distance(t, b) > 1e-2
+
+
+@pytest.mark.parametrize(
+    ("tableau", "steps", "stack", "transform"),
+    itertools.product(
+        functional.DEFAULT_PROVIDERS.values(),
+        [1, 2, 3, 99, 100, 101],
+        [1, 2, 3, 9, 10, 11],
+        # [models.FlowModel, models.DataModel],
+        [models.FlowModel],
+    ),
+)
+def test_tableau_reduce(
+    tableau: tableaux.providers.TableauProvider,
+    steps: int,
+    stack: int,
+    transform: type[models.DiffusionModel],
+) -> None:
+    schedule = scheduling.Linear()
+    equation = equations.Fourier()
+
+    solver = functional.RKUltra(derivative_transform=None, order=2, providers={2: tableau}, shortcut=False)
+    solver_fold = functional.RKUltra(
+        derivative_transform=None,
+        order=2,
+        providers={2: tableaux.providers.CustomTableau(tableaux.common.Tableau.reduce([tableau.tableau()] * stack))},
+        shortcut=False,
+    )
+
+    sample: float = 0
+
+    solution = solver.sample_model(sample, equation, transform(), schedule, steps * stack)
+
+    solution_fold = solver_fold.sample_model(sample, equation, transform(), schedule, steps)
+
+    assert abs(solution - solution_fold) < 1e-12
 
 
 def test_rk2_tableau() -> None:

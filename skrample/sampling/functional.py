@@ -62,7 +62,8 @@ def step_tableau[T: Sample](
     derivative_transform: models.DiffusionModel | None = None,
     noise: T | None = None,
     stochasticity: float = 0,
-    epsilon: float = 1e-8,
+    shortcut: bool = True,
+    shortcut_epsilon: float = 1e-8,
 ) -> tuple[T, ...]:
     nodes, weights = tableau[0], tableau[1:]
 
@@ -88,7 +89,7 @@ def step_tableau[T: Sample](
             X = sample
 
         # Do not call model on timestep = 0 or sigma = 0
-        if abs(frac_sc.timestep) < epsilon or abs(frac_sc.sigma) < epsilon:
+        if shortcut and (abs(frac_sc.timestep) < shortcut_epsilon or abs(frac_sc.sigma) < shortcut_epsilon):
             derivatives.append(model_transform.backward(sample, X, delta))
         else:
             derivatives.append(model(X, *frac_sc))
@@ -224,6 +225,12 @@ class RKUltra(FunctionalUnified, FunctionalSinglestep):
     """Tableau providers for a given order.
     Note the mapping can be arbitrary"""
 
+    shortcut: bool = True
+    """Use the terminal-stage shortcut that avoids evaluating the model at point(1).
+    Set to False to always call the model or True to approximate based on current velocity.
+    Recommended to leave this to True for denoising based diffusion models,
+    as point(1) is usually the clean result which will waste a model eval."""
+
     @staticmethod
     def max_order() -> int:
         return 99
@@ -265,6 +272,7 @@ class RKUltra(FunctionalUnified, FunctionalSinglestep):
             self.derivative_transform,
             rng(step) if rng else None,
             self.stochasticity,
+            self.shortcut,
         )[0]
 
 
@@ -287,6 +295,12 @@ class DynasauRK(FunctionalUnified, FunctionalSinglestep):
     Negative values become exponential growth."""
     invert: bool = False
     "Invert the final gradient"
+
+    shortcut: bool = True
+    """Use the terminal-stage shortcut that avoids evaluating the model at point(1).
+    Set to False to always call the model or True to approximate based on current velocity.
+    Recommended to leave this to True for denoising based diffusion models,
+    as point(1) is usually the clean result which will waste a model eval."""
 
     @staticmethod
     def min_order() -> int:
@@ -346,6 +360,7 @@ class DynasauRK(FunctionalUnified, FunctionalSinglestep):
             self.derivative_transform,
             rng(step) if rng else None,
             self.stochasticity,
+            self.shortcut,
         )[0]
 
 
@@ -372,6 +387,12 @@ class RKMoire(traits.DerivativeTransform, FunctionalAdaptive, FunctionalHigher):
     "Scale initial by a tableau's model evals."
     rescale_max: bool = False
     "Scale maximum by a tableau's model evals."
+
+    shortcut: bool = True
+    """Use the terminal-stage shortcut that avoids evaluating the model at point(1).
+    Set to False to always call the model or True to approximate based on current velocity.
+    Recommended to leave this to True for denoising based diffusion models,
+    as point(1) is usually the clean result which will waste a model eval."""
 
     @staticmethod
     def min_order() -> int:
@@ -431,6 +452,7 @@ class RKMoire(traits.DerivativeTransform, FunctionalAdaptive, FunctionalHigher):
                     schedule,
                     Step(step / steps, step_next / steps),
                     self.derivative_transform,
+                    shortcut=self.shortcut,
                 )
 
                 [sigma0, sigma1, sigma2] = schedule.ipoints_np(
@@ -460,6 +482,7 @@ class RKMoire(traits.DerivativeTransform, FunctionalAdaptive, FunctionalHigher):
                     schedule,
                     Step(step / steps, 1),
                     self.derivative_transform,
+                    shortcut=self.shortcut,
                 )[0]
 
             sample = sample_high
