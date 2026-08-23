@@ -13,6 +13,31 @@ class Tableau(NamedTuple):
     stages: tuple[Stage, ...]
     weights: tuple[float, ...]
 
+    @staticmethod
+    def reduce(tableaux: "Sequence[Tableau]") -> "Tableau":
+        if not tableaux:
+            return Tableau((Stage(0, ()),), (1,))
+
+        total = sum(len(t.weights) for t in tableaux)
+
+        return Tableau(
+            tuple(
+                Stage(
+                    (s.c * len(t.weights) + sum(len(u.weights) for u in tableaux[:n])) / total,
+                    tuple(
+                        [uw / total * len(u.weights) for u in tableaux[:n] for uw in u.weights]
+                        + [sa / total * len(t.weights) for sa in s.a]
+                    ),
+                )
+                for n, t in enumerate(tableaux)
+                for s in t.stages
+            ),
+            tuple(w / total * len(t.weights) for t in tableaux for w in t.weights),
+        )
+
+    def fold(self, *others: "Tableau") -> "Tableau":
+        return self.reduce([self, *others])
+
 
 class EmbeddedTableau(NamedTuple):
     stages: tuple[Stage, ...]
