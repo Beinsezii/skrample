@@ -957,7 +957,7 @@ class RKUltraWrapperScheduler[T: TensorNoiseProps | None](RKWrapperCore[T, funct
                 models.DataModel(),
                 self.schedule,
                 Step.from_int(n, steps),
-                epsilon=-math.inf,  # ensure T=0 is always hit
+                shortcut=False,  # ensure T=0 is always hit
             )
 
         return recorded_points

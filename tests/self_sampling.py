@@ -692,11 +692,12 @@ def test_tableau_reduce(
     schedule = scheduling.Linear()
     equation = equations.Fourier()
 
-    solver = functional.RKUltra(derivative_transform=None, order=2, providers={2: tableau})
+    solver = functional.RKUltra(derivative_transform=None, order=2, providers={2: tableau}, shortcut=False)
     solver_fold = functional.RKUltra(
         derivative_transform=None,
         order=2,
         providers={2: tableaux.providers.CustomTableau(tableaux.common.Tableau.reduce([tableau.tableau()] * stack))},
+        shortcut=False,
     )
 
     sample: float = 0
