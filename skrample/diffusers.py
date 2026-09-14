@@ -309,6 +309,29 @@ class SkrampleWrapperCore(abc.ABC):
         sampler, schedule, transform = self.functional_interface()
         return sampler.generate_model(model, transform, schedule, rng, steps, include, initial, callback)
 
+    def get_step(self, timestep: float | torch.Tensor) -> Step:
+        schedule = self.schedule_np
+
+        # after schedule; forces host sync
+        timestep = timestep.item() if isinstance(timestep, torch.Tensor) else timestep
+
+        # Should be faster than putting schedule on accelerator again.
+        # TODO (beinsezii): if we are fine with device-side asserts this could
+        # be rewritten in pytorch using _index similar to the RK solver,
+        # creating an async assert when timestep != schedule_pt[_index]
+        delta = np.abs(schedule[:, 0] - timestep)
+
+        position = np.argmin(delta)
+
+        tol: float = 2**-8  # == bf16 7 bit mantissa round half == 2**-7 / 2
+
+        # manual, faster np.allclose() : absolute(a - b) <= (atol + rtol * absolute(b))
+        assert delta[position].item() <= (tol + tol * abs(timestep)), (
+            f"step() received {timestep=} but closest schedule timestep={schedule[position, 0].item()}"
+        )
+
+        return Step.from_int(position.item(), len(schedule))
+
     def get_step_noise[T: TensorNoiseProps | None](
         self,
         step: Step,
@@ -559,12 +582,10 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
         generator: torch.Generator | list[torch.Generator] | None = None,
         return_dict: bool = True,
     ) -> tuple[Tensor, Tensor] | OrderedDict[str, Tensor]:
+        step = self.get_step(timestep)  # synchronizes host-device
+
         if self.invert_prediction:
             model_output = -model_output
-
-        schedule = self.schedule_np
-        step = schedule[:, 0].tolist().index(timestep if isinstance(timestep, int | float) else timestep.item())
-        step = Step.from_int(step, len(schedule))
 
         if self.sampler.require_noise:
             noise = self.get_step_noise(step, sample, self.noise_type, self.noise_props, generator, self.compute_scale)
