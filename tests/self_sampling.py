@@ -486,7 +486,7 @@ def test_runge_kutta_diffusers(
         assert abs(samples_ref[n] - samples_wrap[n]) < 1e-8, (samples_ref[: n + 1], samples_wrap)
 
         data_wrap = (
-            sampler_wrap.step(  # type: ignore # return_dict shennanigans
+            sampler_wrap.step(
                 torch.tensor(output, dtype=torch.float64).unsqueeze(0),
                 t,
                 torch.tensor(data_wrap, dtype=torch.float64).unsqueeze(0),
@@ -563,7 +563,7 @@ def test_diffusers_inverse(
             timestep=t,
             sample=forward_sample,
             return_dict=False,
-        )[0]  # type: ignore
+        )[0]
 
     backward_sample = sample.clone()
     backward.set_timesteps(num_inference_steps=num_steps)
@@ -573,7 +573,7 @@ def test_diffusers_inverse(
             timestep=t,
             sample=backward_sample,
             return_dict=False,
-        )[0]  # type: ignore
+        )[0]
 
     # For IEEE semantics, a + (-b) * c is exactly == a - b * c, can set tol=0
     np.testing.assert_allclose(backward_sample.numpy(), forward_sample.numpy(), rtol=0, atol=0, equal_nan=False)
