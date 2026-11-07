@@ -1,5 +1,6 @@
 #! /usr/bin/env python
 
+import statistics
 from time import perf_counter_ns
 
 import torch
@@ -22,5 +23,4 @@ def bench_wrapper() -> int:
 
 
 if __name__ == "__main__":
-    for run in range(5):
-        print(bench_wrapper())
+    print(statistics.median(bench_wrapper() for _ in range(50)))
