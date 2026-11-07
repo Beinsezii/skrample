@@ -6,7 +6,7 @@ import math
 from collections import OrderedDict
 from collections.abc import Hashable, Mapping, Sequence
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, overload
 
 import numpy as np
 import torch
@@ -337,7 +337,7 @@ class SkrampleWrapperCore(abc.ABC):
             self._noise_generator = BatchTensorNoise.from_batch_inputs(
                 noise_type,
                 unit_shape=sample.shape[1:],
-                seeds=seeds,  # ty: ignore # no clue
+                seeds=seeds,
                 props=noise_props,
                 # Anything except float32 performs terribly on cpu, otherwise native model precision is best
                 dtype=torch.float32 if any(s.device.type == "cpu" for s in seeds) else sample.dtype,
@@ -358,6 +358,54 @@ class SkrampleWrapperCore(abc.ABC):
         mu: float | None = None,
     ) -> None: ...
 
+    # `return_dict=True` -> `OrderedDict[str, Tensor]`, `return_dict=False` -> `tuple[Tensor, Tensor]`.
+    # `Literal[True]` must be declared first: an omitted `return_dict` binds to the first defaulted
+    # overload, so declaring `Literal[False]` first silently mistypes `step(o, t, x)` as a tuple.
+    # The trailing `bool` overload is because mypy does not resolve `Literal[True, False]` -> `bool`.
+    # This set is duplicated on all children classes and must be updated in sync.
+    @overload
+    def step(  # pyright: ignore[reportOverlappingOverload] the switch cannot move ahead of defaulted params
+        self,
+        model_output: Tensor,
+        timestep: float | Tensor,
+        sample: Tensor,
+        s_churn: float = 0.0,
+        s_tmin: float = 0.0,
+        s_tmax: float = float("inf"),
+        s_noise: float = 1.0,
+        generator: torch.Generator | list[torch.Generator] | None = None,
+        return_dict: Literal[True] = True,
+    ) -> OrderedDict[str, Tensor]: ...
+
+    @overload
+    def step(
+        self,
+        model_output: Tensor,
+        timestep: float | Tensor,
+        sample: Tensor,
+        s_churn: float = 0.0,
+        s_tmin: float = 0.0,
+        s_tmax: float = float("inf"),
+        s_noise: float = 1.0,
+        generator: torch.Generator | list[torch.Generator] | None = None,
+        return_dict: Literal[False] = False,
+    ) -> tuple[Tensor, Tensor]: ...
+
+    # Redundant for pyright/ty, required for mypy. See the note on the first overload.
+    @overload
+    def step(
+        self,
+        model_output: Tensor,
+        timestep: float | Tensor,
+        sample: Tensor,
+        s_churn: float = 0.0,
+        s_tmin: float = 0.0,
+        s_tmax: float = float("inf"),
+        s_noise: float = 1.0,
+        generator: torch.Generator | list[torch.Generator] | None = None,
+        return_dict: bool = True,
+    ) -> OrderedDict[str, Tensor] | tuple[Tensor, Tensor]: ...
+
     @abc.abstractmethod
     def step(
         self,
@@ -370,7 +418,7 @@ class SkrampleWrapperCore(abc.ABC):
         s_noise: float = 1.0,
         generator: torch.Generator | list[torch.Generator] | None = None,
         return_dict: bool = True,
-    ) -> tuple[Tensor, Tensor] | OrderedDict[str, Tensor]: ...
+    ) -> OrderedDict[str, Tensor] | tuple[Tensor, Tensor]: ...
 
     def set_begin_index(self, begin_index: int = 0) -> None:
         self._index = begin_index
@@ -547,6 +595,35 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
         step = schedule[:, 0].tolist().index(timestep if isinstance(timestep, (int | float)) else timestep.item())
         return self.sampler.scale_input(sample, Point(*schedule[step]))
 
+    @overload
+    def step(  # pyright: ignore[reportOverlappingOverload] see SkrampleWrapperCore.step for why this is unavoidable
+        self,
+        model_output: Tensor,
+        timestep: float | Tensor,
+        sample: Tensor,
+        s_churn: float = 0.0,
+        s_tmin: float = 0.0,
+        s_tmax: float = float("inf"),
+        s_noise: float = 1.0,
+        generator: torch.Generator | list[torch.Generator] | None = None,
+        return_dict: Literal[True] = True,
+    ) -> OrderedDict[str, Tensor]: ...
+
+    @overload
+    def step(
+        self,
+        model_output: Tensor,
+        timestep: float | Tensor,
+        sample: Tensor,
+        s_churn: float = 0.0,
+        s_tmin: float = 0.0,
+        s_tmax: float = float("inf"),
+        s_noise: float = 1.0,
+        generator: torch.Generator | list[torch.Generator] | None = None,
+        return_dict: Literal[False] = False,
+    ) -> tuple[Tensor, Tensor]: ...
+
+    @overload
     def step(
         self,
         model_output: Tensor,
@@ -558,7 +635,20 @@ class SkrampleWrapperScheduler[T: TensorNoiseProps | None](SkrampleWrapperCore):
         s_noise: float = 1.0,
         generator: torch.Generator | list[torch.Generator] | None = None,
         return_dict: bool = True,
-    ) -> tuple[Tensor, Tensor] | OrderedDict[str, Tensor]:
+    ) -> OrderedDict[str, Tensor] | tuple[Tensor, Tensor]: ...
+
+    def step(
+        self,
+        model_output: Tensor,
+        timestep: float | Tensor,
+        sample: Tensor,
+        s_churn: float = 0.0,
+        s_tmin: float = 0.0,
+        s_tmax: float = float("inf"),
+        s_noise: float = 1.0,
+        generator: torch.Generator | list[torch.Generator] | None = None,
+        return_dict: bool = True,
+    ) -> OrderedDict[str, Tensor] | tuple[Tensor, Tensor]:
         if self.invert_prediction:
             model_output = -model_output
 
@@ -795,6 +885,35 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
 
         raise ValueError
 
+    @overload
+    def step(  # pyright: ignore[reportOverlappingOverload] see SkrampleWrapperCore.step for why this is unavoidable
+        self,
+        model_output: Tensor,
+        timestep: float | Tensor,
+        sample: Tensor,
+        s_churn: float = 0.0,
+        s_tmin: float = 0.0,
+        s_tmax: float = float("inf"),
+        s_noise: float = 1.0,
+        generator: torch.Generator | list[torch.Generator] | None = None,
+        return_dict: Literal[True] = True,
+    ) -> OrderedDict[str, Tensor]: ...
+
+    @overload
+    def step(
+        self,
+        model_output: Tensor,
+        timestep: float | Tensor,
+        sample: Tensor,
+        s_churn: float = 0.0,
+        s_tmin: float = 0.0,
+        s_tmax: float = float("inf"),
+        s_noise: float = 1.0,
+        generator: torch.Generator | list[torch.Generator] | None = None,
+        return_dict: Literal[False] = False,
+    ) -> tuple[Tensor, Tensor]: ...
+
+    @overload
     def step(
         self,
         model_output: Tensor,
@@ -806,7 +925,20 @@ class RKWrapperCore[T: TensorNoiseProps | None, U: functional.FunctionalUnified]
         s_noise: float = 1.0,
         generator: torch.Generator | list[torch.Generator] | None = None,
         return_dict: bool = True,
-    ) -> tuple[Tensor, Tensor] | OrderedDict[str, Tensor]:
+    ) -> OrderedDict[str, Tensor] | tuple[Tensor, Tensor]: ...
+
+    def step(
+        self,
+        model_output: Tensor,
+        timestep: float | Tensor,
+        sample: Tensor,
+        s_churn: float = 0.0,
+        s_tmin: float = 0.0,
+        s_tmax: float = float("inf"),
+        s_noise: float = 1.0,
+        generator: torch.Generator | list[torch.Generator] | None = None,
+        return_dict: bool = True,
+    ) -> OrderedDict[str, Tensor] | tuple[Tensor, Tensor]:
         if self.invert_prediction:
             model_output = -model_output
 
